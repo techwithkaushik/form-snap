@@ -576,6 +576,7 @@ class EditorPage extends StatefulWidget {
 }
 
 class _EditorPageState extends State<EditorPage> {
+  static const _storageChannel = MethodChannel('formsnap/storage');
   final _service = ImageService();
 
   String? _photoPath;
@@ -647,6 +648,68 @@ class _EditorPageState extends State<EditorPage> {
     }
   }
 
+  Future<bool> _ensureSaveDirectory() async {
+    try {
+      final hasDirectory =
+          await _storageChannel.invokeMethod<bool>('hasDirectory') ?? false;
+      if (hasDirectory) return true;
+
+      if (!mounted) return false;
+
+      final selected = await _storageChannel.invokeMethod<String>(
+        'chooseDirectory',
+      );
+      return selected != null && selected.isNotEmpty;
+    } on PlatformException catch (error, stack) {
+      debugPrint('Output folder error: $error');
+      debugPrintStack(stackTrace: stack);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              error.message ?? 'Could not select the output folder.',
+            ),
+          ),
+        );
+      }
+      return false;
+    } catch (error, stack) {
+      debugPrint('Output folder error: $error');
+      debugPrintStack(stackTrace: stack);
+      return false;
+    }
+  }
+
+  Future<void> _changeSaveDirectory() async {
+    if (_saving) return;
+
+    try {
+      final selected = await _storageChannel.invokeMethod<String>(
+        'chooseDirectory',
+      );
+      if (!mounted) return;
+
+      if (selected != null && selected.isNotEmpty) {
+        setState(() => _status = 'Output folder changed');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Output folder updated.')),
+        );
+      }
+    } on PlatformException catch (error, stack) {
+      debugPrint('Change output folder error: $error');
+      debugPrintStack(stackTrace: stack);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              error.message ?? 'Could not change the output folder.',
+            ),
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _saveAll() async {
     if (_saving) return;
 
@@ -659,55 +722,54 @@ class _EditorPageState extends State<EditorPage> {
     setState(() => _saving = true);
 
     try {
-      final folder = await FilePicker.platform.getDirectoryPath(
-        dialogTitle: 'Choose folder for FormSnap output',
-      );
-
-      if (folder == null || folder.trim().isEmpty) return;
+      // The folder is selected only once. Android persists the SAF permission
+      // and all later saves use the same folder without another dialog.
+      final ready = await _ensureSaveDirectory();
+      if (!ready || !mounted) return;
 
       final stamp = DateTime.now();
+      final date =
+          '${stamp.year}${stamp.month.toString().padLeft(2, '0')}${stamp.day.toString().padLeft(2, '0')}_'
+          '${stamp.hour.toString().padLeft(2, '0')}${stamp.minute.toString().padLeft(2, '0')}${stamp.second.toString().padLeft(2, '0')}';
+
       for (final path in paths) {
         final source = File(path);
         if (!await source.exists()) continue;
 
         final type = path.contains('_photo.') ? 'photo' : 'signature';
-        final fileName =
-            'FormSnap_${stamp.year}${stamp.month.toString().padLeft(2, '0')}${stamp.day.toString().padLeft(2, '0')}_$type.jpg';
-        final target = File('$folder/$fileName');
+        final fileName = 'FormSnap_${date}_$type.jpg';
+        final bytes = await source.readAsBytes();
 
-        try {
-          await source.copy(target.path);
-          if (!await target.exists()) {
-            throw StateError('Selected folder did not accept the file');
-          }
-        } catch (copyError, copyStack) {
-          debugPrint('Direct folder save failed: $copyError');
-          debugPrintStack(stackTrace: copyStack);
+        final saved = await _storageChannel.invokeMethod<bool>(
+          'saveFile',
+          <String, dynamic>{
+            'fileName': fileName,
+            'bytes': bytes,
+          },
+        );
 
-          // Android external/SD-card folders can be exposed through the
-          // Storage Access Framework without a normal writable filesystem
-          // path. Fall back to the native save dialog, which writes the bytes
-          // through Android's provider.
-          final bytes = await source.readAsBytes();
-          final savedPath = await FilePicker.platform.saveFile(
-            dialogTitle: 'Save $type',
-            fileName: fileName,
-            bytes: bytes,
-            type: FileType.custom,
-            allowedExtensions: const ['jpg'],
-          );
-
-          if (savedPath == null || savedPath.isEmpty) {
-            throw StateError('Save was cancelled for $type');
-          }
+        if (saved != true) {
+          throw StateError('Android could not save $type');
         }
       }
 
       if (mounted) {
-        setState(() => _status = 'Saved successfully to selected folder');
+        setState(() => _status = 'Saved to preselected folder');
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Photo and signature saved successfully.'),
+          ),
+        );
+      }
+    } on PlatformException catch (error, stack) {
+      debugPrint('Save error: $error');
+      debugPrintStack(stackTrace: stack);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              error.message ?? 'Could not save to the selected folder.',
+            ),
           ),
         );
       }
@@ -717,9 +779,7 @@ class _EditorPageState extends State<EditorPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text(
-              'Could not save to that folder. Choose another writable folder.',
-            ),
+            content: Text('Could not save the output files.'),
           ),
         );
       }
@@ -874,8 +934,17 @@ class _EditorPageState extends State<EditorPage> {
                       )
                     : const Icon(Icons.folder_copy_rounded),
                 label: Text(
-                  _saving ? 'Saving…' : 'Choose Folder & Save',
+                  _saving ? 'Saving…' : 'Save Photo & Signature',
                 ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Align(
+              alignment: Alignment.center,
+              child: TextButton.icon(
+                onPressed: _saving ? null : _changeSaveDirectory,
+                icon: const Icon(Icons.drive_file_move_outline),
+                label: const Text('Change save folder'),
               ),
             ),
           ],
