@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:typed_data';
 import 'dart:math' as math;
 import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
@@ -118,7 +119,7 @@ class ProcessRequest {
   final bool centerCrop;
 }
 
-Future<(int, int)> _inspectInIsolate(List<int> bytes) async {
+Future<(int, int)> _inspectInIsolate(Uint8List bytes) async {
   final decoded = img.decodeImage(bytes);
   if (decoded == null) throw StateError('Unsupported image');
   final oriented = img.bakeOrientation(decoded);
@@ -344,7 +345,7 @@ double _edgeStrength(img.Image image, int x, int y, {required bool vertical}) {
   return (a - b).abs().toDouble();
 }
 
-List<int> _resizeAndEncode(
+Uint8List _resizeAndEncode(
   img.Image source, {
   required double widthMm,
   required double heightMm,
