@@ -2,11 +2,11 @@ package com.example.form_snap
 
 import android.content.Intent
 import android.net.Uri
-import android.os.Bundle
 import android.provider.DocumentsContract
 import androidx.annotation.NonNull
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import org.opencv.android.OpenCVLoader
 import java.util.concurrent.Executors
@@ -113,7 +113,7 @@ class FormSnapMainActivity : FlutterActivity() {
         }
     }
 
-    private fun saveFile(call: MethodChannel.MethodCall, result: MethodChannel.Result) {
+    private fun saveFile(call: MethodCall, result: MethodChannel.Result) {
         val uriString = storagePrefs.getString(PREF_DIRECTORY_URI, null)
         if (uriString == null || !hasPersistedDirectory()) {
             result.error("NO_DIRECTORY", "Please choose an output folder first", null)
@@ -122,6 +122,7 @@ class FormSnapMainActivity : FlutterActivity() {
 
         val fileName = call.argument<String>("fileName")
         val bytes = call.argument<ByteArray>("bytes")
+
         if (fileName.isNullOrBlank() || bytes == null) {
             result.error("BAD_ARGS", "fileName and bytes are required", null)
             return
@@ -146,11 +147,17 @@ class FormSnapMainActivity : FlutterActivity() {
             contentResolver.openOutputStream(fileUri)?.use { output ->
                 output.write(bytes)
                 output.flush()
-            } ?: throw IllegalStateException("Android could not open the selected folder for writing")
+            } ?: throw IllegalStateException(
+                "Android could not open the selected folder for writing",
+            )
 
             result.success(true)
         } catch (t: Throwable) {
-            result.error("SAVE_FAILED", t.message ?: "Could not save $fileName", null)
+            result.error(
+                "SAVE_FAILED",
+                t.message ?: "Could not save $fileName",
+                null,
+            )
         }
     }
 
