@@ -7,7 +7,7 @@ import io.flutter.plugin.common.MethodChannel
 import org.opencv.android.OpenCVLoader
 import java.util.concurrent.Executors
 
-class MainActivity : FlutterActivity() {
+class FormSnapMainActivity : FlutterActivity() {
     private val executor = Executors.newSingleThreadExecutor()
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
