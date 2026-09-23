@@ -132,9 +132,6 @@ Future<ProcessedOutputs> _processInIsolate(ProcessRequest request) async {
   if (decoded == null) throw StateError('Could not decode image');
   decoded = img.bakeOrientation(decoded);
 
-  final photoBox = request.centerCrop
-      ? _centerBox(decoded, request.photo)
-      : _findFormBox(decoded, request.photo);
   final photoCrop = request.centerCrop
       ? _centerCropResult(decoded, request.photo)
       : _extractFormRegion(decoded, request.photo);
