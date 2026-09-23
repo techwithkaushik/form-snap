@@ -565,7 +565,7 @@ class _ActionTile extends StatelessWidget {
   }
 }
 
-class Ediclass EditorPage extends StatefulWidget {
+class EditorPage extends StatefulWidget {
   const EditorPage({super.key, required this.file, required this.mode});
 
   final File file;
