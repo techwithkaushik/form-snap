@@ -1,0 +1,54 @@
+name: FormSnap Android
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.38.5"
+          channel: stable
+          cache: true
+
+      - name: Verify Flutter project
+        run: |
+          test -f pubspec.yaml
+          test -f lib/main.dart
+          flutter --version
+
+      - name: Generate Android project
+        run: |
+          flutter create --platforms=android --project-name=form_snap --org=com.techwithkaushik .
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
+      - name: Build release APK
+        run: flutter build apk --release
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: formsnap-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
