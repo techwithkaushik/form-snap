@@ -298,36 +298,45 @@ class _HomePageState extends State<HomePage> {
 
     setState(() => _busy = true);
     try {
-      // FilePicker uses the Android system document picker; no storage
-      // permission is requested when the user imports an image.
       final result = await FilePicker.platform.pickFiles(
         type: FileType.image,
         allowMultiple: false,
       );
 
-      final path = result?.files.single.path;
-      if (path != null && mounted) {
-        await _openEditor(File(path), CaptureMode.wholeForm);
+      if (result == null || result.files.isEmpty || !mounted) return;
+
+      // Use XFile bytes instead of relying on PlatformFile.path. Android
+      // document providers can return a content URI with no filesystem path.
+      final picked = result.files.single;
+      final bytes = await picked.xFile.readAsBytes();
+
+      final dir = await getTemporaryDirectory();
+      final extension = (picked.extension ?? 'jpg').toLowerCase();
+      final imported = File(
+        '${dir.path}/form_import_${DateTime.now().microsecondsSinceEpoch}.$extension',
+      );
+      await imported.writeAsBytes(bytes, flush: true);
+
+      if (mounted) {
+        await _openEditor(imported, CaptureMode.wholeForm);
       }
     } on PlatformException catch (error, stack) {
       debugPrint('File picker platform error: $error');
       debugPrintStack(stackTrace: stack);
-
       if (mounted) {
         await _showPermissionError(
-          title: 'File selection error',
-          message:
-              'The image picker could not be opened. ${error.message ?? error.code}',
+          title: 'Unable to open image picker',
+          message: error.message ?? 'Android could not return the selected image.',
         );
       }
     } catch (error, stack) {
       debugPrint('File selection error: $error');
       debugPrintStack(stackTrace: stack);
-
       if (mounted) {
         await _showPermissionError(
-          title: 'Unable to select image',
-          message: 'The selected image could not be opened.',
+          title: 'Unable to import image',
+          message:
+              'The selected form image could not be read. Please choose a JPG or PNG image stored on the device.',
         );
       }
     } finally {
@@ -365,70 +374,129 @@ class _HomePageState extends State<HomePage> {
         centerTitle: false,
       ),
       body: ListView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
         children: [
-          const Text(
-            'Capture • Extract • Resize • Save',
-            style: TextStyle(fontSize: 25, fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Offline form photo & signature utility',
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  Theme.of(context).colorScheme.primaryContainer,
+                  Theme.of(context).colorScheme.surfaceContainerHighest,
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.primary,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Icon(
+                        Icons.document_scanner_rounded,
+                        color: Theme.of(context).colorScheme.onPrimary,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    const Expanded(
+                      child: Text(
+                        'FormSnap',
+                        style: TextStyle(
+                          fontSize: 25,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                const Text(
+                  'Capture forms. Extract photo & signature. Save ready-to-use files.',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    height: 1.3,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Class 8 • 2026–27 • 300 DPI output',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 18),
-          _ActionCard(
-            icon: Icons.document_scanner_outlined,
-            title: 'Capture Whole Form',
-            subtitle:
-                'Take the complete page and extract photo + signature using the form template.',
-            onTap: _busy ? null : () => _capture(CaptureMode.wholeForm),
+          const SizedBox(height: 22),
+          const Text(
+            'Quick actions',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 12),
-          _ActionCard(
-            icon: Icons.photo_camera_outlined,
-            title: 'Capture Photo',
-            subtitle:
-                'Capture only the photograph and prepare it at the configured size.',
-            onTap: _busy ? null : () => _capture(CaptureMode.closePhoto),
+          GridView.count(
+            crossAxisCount: 2,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 12,
+            childAspectRatio: 1.05,
+            children: [
+              _ActionTile(
+                icon: Icons.document_scanner_rounded,
+                title: 'Whole Form',
+                subtitle: 'Capture & extract',
+                onTap: _busy ? null : () => _capture(CaptureMode.wholeForm),
+              ),
+              _ActionTile(
+                icon: Icons.photo_camera_rounded,
+                title: 'Photo',
+                subtitle: 'Capture photo',
+                onTap: _busy ? null : () => _capture(CaptureMode.closePhoto),
+              ),
+              _ActionTile(
+                icon: Icons.draw_rounded,
+                title: 'Signature',
+                subtitle: 'Capture signature',
+                onTap:
+                    _busy ? null : () => _capture(CaptureMode.closeSignature),
+              ),
+              _ActionTile(
+                icon: Icons.photo_library_rounded,
+                title: 'Import Form',
+                subtitle: 'Choose existing image',
+                onTap: _busy ? null : _pickFile,
+              ),
+            ],
           ),
-          const SizedBox(height: 12),
-          _ActionCard(
-            icon: Icons.draw_outlined,
-            title: 'Capture Signature',
-            subtitle:
-                'Capture only the signature and prepare it at the configured size.',
-            onTap: _busy ? null : () => _capture(CaptureMode.closeSignature),
-          ),
-          const SizedBox(height: 12),
-          _ActionCard(
-            icon: Icons.photo_library_outlined,
-            title: 'Select Existing Image',
-            subtitle: 'Use a photo of the complete form from your gallery.',
-            onTap: _busy ? null : _pickFile,
-          ),
-          const SizedBox(height: 28),
+          const SizedBox(height: 22),
           Card(
+            elevation: 0,
             child: Padding(
               padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Row(
                 children: [
-                  const Text(
-                    'Class 8 • 2026–27 template',
-                    style: TextStyle(fontWeight: FontWeight.w700),
+                  Icon(
+                    Icons.auto_awesome_rounded,
+                    color: Theme.of(context).colorScheme.primary,
                   ),
-                  const SizedBox(height: 10),
-                  const Text('Photo  40 × 50 mm'),
-                  const Text('Signature  50 × 20 mm'),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Default output is 300 DPI. Target file size can be adjusted before saving.',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Smart extraction uses the Class 8 A4 template and refines the photo/signature box before cropping.',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        height: 1.35,
+                      ),
                     ),
                   ),
                 ],
@@ -437,7 +505,7 @@ class _HomePageState extends State<HomePage> {
           ),
           if (_busy)
             const Padding(
-              padding: EdgeInsets.only(top: 20),
+              padding: EdgeInsets.only(top: 24),
               child: Center(child: CircularProgressIndicator()),
             ),
         ],
@@ -446,8 +514,8 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-class _ActionCard extends StatelessWidget {
-  const _ActionCard({
+class _ActionTile extends StatelessWidget {
+  const _ActionTile({
     required this.icon,
     required this.title,
     required this.subtitle,
@@ -461,33 +529,34 @@ class _ActionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Card(
+      elevation: 0,
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.all(17),
-          child: Row(
+          padding: const EdgeInsets.all(15),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(icon, size: 32),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(subtitle),
-                  ],
+              Icon(icon, size: 30, color: scheme.primary),
+              const Spacer(),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
-              const Icon(Icons.chevron_right),
+              const SizedBox(height: 3),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
             ],
           ),
         ),
@@ -496,7 +565,7 @@ class _ActionCard extends StatelessWidget {
   }
 }
 
-class EditorPage extends StatefulWidget {
+class Ediclass EditorPage extends StatefulWidget {
   const EditorPage({super.key, required this.file, required this.mode});
 
   final File file;
@@ -508,53 +577,44 @@ class EditorPage extends StatefulWidget {
 
 class _EditorPageState extends State<EditorPage> {
   final _service = ImageService();
-  late Future<SourceInfo> _sourceInfo;
+
   String? _photoPath;
   String? _signaturePath;
-  String _status = '';
-
-  @override
-  void initState() {
-    super.initState();
-    _sourceInfo = _service.inspect(widget.file);
-  }
+  String _status = 'Ready';
+  bool _processing = false;
+  bool _saving = false;
+  ProcessedOutputs? _outputs;
 
   Future<void> _extract() async {
-    if (!mounted) return;
-    setState(() => _status = 'Processing image…');
+    if (_processing) return;
+
+    setState(() {
+      _processing = true;
+      _status = 'Analyzing form and locating boxes…';
+      _photoPath = null;
+      _signaturePath = null;
+      _outputs = null;
+    });
 
     try {
       final template = await TemplateService.loadClass8Template();
-      final source = await _sourceInfo;
+      late final ProcessedOutputs result;
 
       if (widget.mode == CaptureMode.wholeForm) {
-        _photoPath = await _service.processRegion(
-          widget.file,
-          template.photo,
-          widthMm: 40,
-          heightMm: 50,
-          maxKb: 100,
-          fileName: 'photo.jpg',
-        );
-        _signaturePath = await _service.processRegion(
-          widget.file,
-          template.signature,
-          widthMm: 50,
-          heightMm: 20,
-          maxKb: 60,
-          fileName: 'signature.jpg',
-        );
+        result = await _service.processWholeForm(widget.file, template);
       } else if (widget.mode == CaptureMode.closePhoto) {
-        _photoPath = await _service.processCenter(
+        result = await _service.processSingle(
           widget.file,
+          region: template.photo,
           widthMm: 40,
           heightMm: 50,
           maxKb: 100,
           fileName: 'photo.jpg',
         );
       } else {
-        _signaturePath = await _service.processCenter(
+        result = await _service.processSingle(
           widget.file,
+          region: template.signature,
           widthMm: 50,
           heightMm: 20,
           maxKb: 60,
@@ -562,109 +622,247 @@ class _EditorPageState extends State<EditorPage> {
         );
       }
 
-      if (mounted) {
-        setState(() {
-          _status =
-              'Source: ${source.width} × ${source.height}px  •  Output ready';
-        });
-      }
+      if (!mounted) return;
+
+      setState(() {
+        _outputs = result;
+        _photoPath = result.photoPath;
+        _signaturePath = result.signaturePath;
+        _status = widget.mode == CaptureMode.wholeForm
+            ? 'Photo box: ${result.photoBox.detected ? 'detected' : 'template fallback'} • '
+                'Signature box: ${result.signatureBox.detected ? 'detected' : 'template fallback'}'
+            : 'Output ready • ${result.width} × ${result.height}px source';
+      });
     } catch (error, stack) {
       debugPrint('Image processing error: $error');
       debugPrintStack(stackTrace: stack);
-
       if (mounted) {
-        setState(() => _status = 'Processing failed. Please try again.');
+        setState(() => _status = 'Extraction failed. Please try another image.');
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Processing failed: $error')),
+          SnackBar(content: Text('Extraction failed: $error')),
         );
       }
+    } finally {
+      if (mounted) setState(() => _processing = false);
     }
   }
 
   Future<void> _saveAll() async {
-    try {
-      final dir = await getApplicationDocumentsDirectory();
-      final folder = Directory('${dir.path}/FormSnap');
-      await folder.create(recursive: true);
+    if (_saving) return;
 
-      for (final path in [_photoPath, _signaturePath]) {
-        if (path == null) continue;
-        final name = path.split(Platform.pathSeparator).last;
-        await File(path).copy(
-          '${folder.path}/${DateTime.now().millisecondsSinceEpoch}_$name',
+    final paths = <String>[
+      if (_photoPath != null) _photoPath!,
+      if (_signaturePath != null) _signaturePath!,
+    ];
+    if (paths.isEmpty) return;
+
+    setState(() => _saving = true);
+
+    try {
+      final folder = await FilePicker.platform.getDirectoryPath(
+        dialogTitle: 'Choose folder for FormSnap output',
+      );
+
+      if (folder == null || folder.trim().isEmpty) return;
+
+      final stamp = DateTime.now();
+      for (var i = 0; i < paths.length; i++) {
+        final source = File(paths[i]);
+        if (!await source.exists()) continue;
+
+        final type = paths[i].contains('_photo.') ? 'photo' : 'signature';
+        final target = File(
+          '$folder/FormSnap_${stamp.year}${stamp.month.toString().padLeft(2, '0')}${stamp.day.toString().padLeft(2, '0')}_$type.jpg',
         );
+        await source.copy(target.path);
       }
 
       if (mounted) {
+        setState(() => _status = 'Saved successfully to selected folder');
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Saved to ${folder.path}')),
+          const SnackBar(
+            content: Text('Photo and signature saved successfully.'),
+          ),
         );
       }
     } catch (error, stack) {
       debugPrint('Save error: $error');
       debugPrintStack(stackTrace: stack);
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not save the output files.')),
+          const SnackBar(
+            content: Text(
+              'Could not save to that folder. Choose another writable folder.',
+            ),
+          ),
         );
       }
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final hasOutput = _photoPath != null || _signaturePath != null;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Preview & Save')),
+      appBar: AppBar(
+        title: const Text(
+          'Preview & Extract',
+          style: TextStyle(fontWeight: FontWeight.w800),
+        ),
+      ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
         children: [
-          FutureBuilder<SourceInfo>(
-            future: _sourceInfo,
-            builder: (_, snapshot) {
-              if (snapshot.hasError) {
-                return const Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Text('Unable to read the captured image.'),
-                );
-              }
-
-              if (!snapshot.hasData) {
-                return const AspectRatio(
-                  aspectRatio: 1,
-                  child: Center(child: CircularProgressIndicator()),
-                );
-              }
-
-              return ClipRRect(
-                borderRadius: BorderRadius.circular(14),
-                child: Image.file(widget.file, fit: BoxFit.contain),
-              );
-            },
+          Card(
+            clipBehavior: Clip.antiAlias,
+            elevation: 0,
+            child: Column(
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+                  child: Row(
+                    children: [
+                      Icon(Icons.preview_rounded, color: scheme.primary),
+                      const SizedBox(width: 10),
+                      const Expanded(
+                        child: Text(
+                          'Form preview',
+                          style: TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        'A4 • Class 8',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  color: scheme.surfaceContainerHighest,
+                  constraints: const BoxConstraints(minHeight: 280, maxHeight: 430),
+                  child: Image.file(
+                    widget.file,
+                    width: double.infinity,
+                    fit: BoxFit.contain,
+                    cacheWidth: 1200,
+                    filterQuality: FilterQuality.medium,
+                    errorBuilder: (_, __, ___) => const Center(
+                      child: Text('Unable to display this image'),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 16),
-          FilledButton.icon(
-            onPressed: _extract,
-            icon: const Icon(Icons.auto_fix_high),
-            label: const Text('Extract Photo & Signature'),
+          Card(
+            elevation: 0,
+            color: scheme.primaryContainer,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Icon(Icons.center_focus_strong_rounded, color: scheme.primary),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      _processing
+                          ? 'Finding the printed boxes and preparing the output…'
+                          : 'Extraction runs in a background isolate, so the screen stays responsive.',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        height: 1.3,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
-          const SizedBox(height: 14),
-          if (_photoPath != null)
-            _ResultCard(title: 'Photo • 40 × 50 mm', path: _photoPath!),
-          if (_signaturePath != null)
-            _ResultCard(
-              title: 'Signature • 50 × 20 mm',
-              path: _signaturePath!,
+          const SizedBox(height: 16),
+          SizedBox(
+            height: 54,
+            child: FilledButton.icon(
+              onPressed: _processing ? null : _extract,
+              icon: _processing
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.auto_fix_high_rounded),
+              label: Text(
+                _processing ? 'Extracting…' : 'Extract Photo & Signature',
+              ),
             ),
-          if (_photoPath != null || _signaturePath != null)
-            FilledButton.icon(
-              onPressed: _saveAll,
-              icon: const Icon(Icons.save_outlined),
-              label: const Text('Save'),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            _status,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: scheme.onSurfaceVariant,
+              fontSize: 12,
             ),
-          if (_status.isNotEmpty) ...[
+          ),
+          if (hasOutput) ...[
+            const SizedBox(height: 18),
+            const Text(
+              'Output preview',
+              style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 10),
+            if (_photoPath != null)
+              _ResultCard(
+                title: 'Photo',
+                subtitle: '40 × 50 mm • 300 DPI • ≤100 KB',
+                path: _photoPath!,
+              ),
+            if (_signaturePath != null)
+              _ResultCard(
+                title: 'Signature',
+                subtitle: '50 × 20 mm • 300 DPI • ≤60 KB',
+                path: _signaturePath!,
+              ),
+            const SizedBox(height: 4),
+            SizedBox(
+              height: 54,
+              child: FilledButton.icon(
+                onPressed: _saving ? null : _saveAll,
+                icon: _saving
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.folder_copy_rounded),
+                label: Text(
+                  _saving ? 'Saving…' : 'Choose Folder & Save',
+                ),
+              ),
+            ),
+          ],
+          if (_outputs != null) ...[
             const SizedBox(height: 12),
-            Text(_status),
+            Text(
+              'Source: ${_outputs!.width} × ${_outputs!.height}px',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 11,
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
           ],
         ],
       ),
@@ -673,37 +871,69 @@ class _EditorPageState extends State<EditorPage> {
 }
 
 class _ResultCard extends StatelessWidget {
-  const _ResultCard({required this.title, required this.path});
+  const _ResultCard({
+    required this.title,
+    required this.subtitle,
+    required this.path,
+  });
 
   final String title;
+  final String subtitle;
   final String path;
 
   @override
   Widget build(BuildContext context) {
-    final file = File(path);
-    final bytes = file.existsSync() ? file.lengthSync() : 0;
-
+    final scheme = Theme.of(context).colorScheme;
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
+      elevation: 0,
       child: Padding(
         padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
           children: [
-            Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
-            const SizedBox(height: 10),
-            Center(
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
               child: Image.file(
-                file,
-                height: 180,
-                fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) =>
-                    const Text('Unable to display image'),
+                File(path),
+                width: 112,
+                height: 112,
+                fit: BoxFit.cover,
+                cacheWidth: 360,
+                errorBuilder: (_, __, ___) => Container(
+                  width: 112,
+                  height: 112,
+                  color: scheme.surfaceContainerHighest,
+                  child: const Icon(Icons.broken_image_outlined),
+                ),
               ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              'File size: ${(bytes / 1024).toStringAsFixed(1)} KB',
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Ready to save',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
