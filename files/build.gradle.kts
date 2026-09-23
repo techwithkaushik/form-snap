@@ -12,7 +12,7 @@ plugins {
 
 android { 
 
-    namespace = "com.techwithkaushik.form_snap" 
+    namespace = "com.example.form_snap" 
 
     compileSdk = flutter.compileSdkVersion 
 
@@ -36,7 +36,7 @@ android {
 
         // TODO: Specify your own unique Application ID ([https://developer.android.com/studio/build/application-id.html](https://developer.android.com/studio/build/application-id.html)). 
 
-        applicationId = "com.techwithkaushik.form_snap"
+        applicationId = "com.example.form_snap"
 
         // You can update the following values to match your application needs. 
 
