@@ -1,41 +1,39 @@
 # FormSnap
 
-**FormSnap** is an offline Android tool for capturing a complete form or a
-close-up photo/signature, then preparing the extracted image for a required
-physical size and file-size limit.
+Offline Android form capture and photo/signature preparation app.
 
-## First template
+## Android CI
 
-The first template is the supplied Class 8 Board Application Form for
-2026–27.
+This project follows the same CI approach used for the previous
+`student-comparison` Android project: the GitHub runner installs Flutter
+3.38.5, generates the missing Android host files, restores the repository's
+custom `android/app/build.gradle.kts`, configures the release keystore from
+GitHub secrets, and builds the release APK.
 
-- Photo: 40 × 50 mm
-- Signature: 50 × 20 mm
-- Default output resolution: 300 DPI
-- Photo/signature processing is local
+The Android build is intentionally performed on GitHub Actions because the
+development device uses 32-bit Termux.
 
-## Important
+## Signing secrets
 
-The current repository is the **initial buildable foundation**. The next
-implementation stage will add:
+Configure these repository secrets when a signed APK is required:
 
-1. interactive crop/adjustment handles;
-2. perspective correction for full-page capture;
-3. template alignment/calibration;
-4. user-editable width/height and KB limits;
-5. quality-aware compression;
-6. save/export naming and folders;
-7. better signature background cleanup.
+- `SIGNING_KEYSTORE`: base64 encoded JKS/keystore
+- `SIGNING_KEY_ALIAS`
+- `SIGNING_KEY_PASSWORD`
+- `SIGNING_STORE_PASSWORD`
 
-The template coordinates are deliberately kept in a JSON file so additional
-forms can be added without changing the core processing code.
+If `SIGNING_KEYSTORE` is not present, the release build falls back to the
+debug signing key for CI validation. No keystore is committed to the
+repository.
 
-## GitHub Actions
+## Current app foundation
 
-Android is built on GitHub Actions because the development phone uses 32-bit
-Termux and cannot perform the Android/Flutter build locally.
-
-The workflow uses Flutter 3.38.5 and generates the Android host project on the
-runner. It also supports the same signing secret names used by the earlier
-project.
-
+- Whole-form capture
+- Close photo capture
+- Close signature capture
+- Existing image selection
+- Class 8 2026–27 template
+- Photo 40 × 50 mm
+- Signature 50 × 20 mm
+- 300 DPI target output
+- JPEG maximum-KB compression
