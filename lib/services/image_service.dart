@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:math' as math;
 import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
@@ -54,7 +55,7 @@ class ImageService {
     FormTemplate template,
   ) async {
     final dir = await getTemporaryDirectory();
-    return _processInIsolate(
+    return Isolate.run(() => _processInIsolate(
       ProcessRequest(
         sourcePath: source.path,
         outputDirectory: dir.path,
@@ -63,7 +64,7 @@ class ImageService {
         processPhoto: true,
         processSignature: true,
       ),
-    );
+    ));
   }
 
   Future<ProcessedOutputs> processSingle(
@@ -75,7 +76,7 @@ class ImageService {
     required String fileName,
   }) async {
     final dir = await getTemporaryDirectory();
-    return _processInIsolate(
+    return Isolate.run(() => _processInIsolate(
       ProcessRequest(
         sourcePath: source.path,
         outputDirectory: dir.path,
@@ -86,8 +87,9 @@ class ImageService {
         singleWidthMm: widthMm,
         singleHeightMm: heightMm,
         singleMaxKb: maxKb,
+        centerCrop: true,
       ),
-    );
+    ));
   }
 }
 
@@ -102,6 +104,7 @@ class ProcessRequest {
     this.singleWidthMm,
     this.singleHeightMm,
     this.singleMaxKb,
+    this.centerCrop = false,
   });
   final String sourcePath;
   final String outputDirectory;
@@ -112,6 +115,7 @@ class ProcessRequest {
   final double? singleWidthMm;
   final double? singleHeightMm;
   final int? singleMaxKb;
+  final bool centerCrop;
 }
 
 Future<(int, int)> _inspectInIsolate(List<int> bytes) async {
@@ -127,8 +131,12 @@ Future<ProcessedOutputs> _processInIsolate(ProcessRequest request) async {
   if (decoded == null) throw StateError('Could not decode image');
   decoded = img.bakeOrientation(decoded);
 
-  final photoBox = _findFormBox(decoded, request.photo);
-  final signatureBox = _findFormBox(decoded, request.signature);
+  final photoBox = request.centerCrop
+      ? _centerBox(decoded, request.photo)
+      : _findFormBox(decoded, request.photo);
+  final signatureBox = request.centerCrop
+      ? _centerBox(decoded, request.signature)
+      : _findFormBox(decoded, request.signature);
 
   String? photoPath;
   String? signaturePath;
@@ -184,6 +192,33 @@ Future<ProcessedOutputs> _processInIsolate(ProcessRequest request) async {
 /// Starts from the exact Class-8 A4 PDF coordinates and then refines each
 /// edge by looking for the strongest rectangular border nearby. This handles
 /// small camera alignment differences without blindly changing the template.
+DetectedBox _centerBox(img.Image image, Region region) {
+  final targetRatio = region.width / region.height;
+  final currentRatio = image.width / image.height;
+
+  var width = image.width;
+  var height = image.height;
+
+  if (currentRatio > targetRatio) {
+    height = image.height;
+    width = (height * targetRatio).round();
+  } else {
+    width = image.width;
+    height = (width / targetRatio).round();
+  }
+
+  final left = ((image.width - width) / 2).round();
+  final top = ((image.height - height) / 2).round();
+
+  return DetectedBox(
+    left: left.clamp(0, image.width - 1).toInt(),
+    top: top.clamp(0, image.height - 1).toInt(),
+    width: width.clamp(1, image.width).toInt(),
+    height: height.clamp(1, image.height).toInt(),
+    detected: false,
+  );
+}
+
 DetectedBox _findFormBox(img.Image image, Region region) {
   final expectedLeft = (image.width * region.left).round();
   final expectedTop = (image.height * region.top).round();
@@ -208,21 +243,21 @@ DetectedBox _findFormBox(img.Image image, Region region) {
       bottom.position > top.position;
 
   if (!detected) {
-    final safeLeft = expectedLeft.clamp(0, image.width - 2);
-    final safeTop = expectedTop.clamp(0, image.height - 2);
+    final safeLeft = expectedLeft.clamp(0, image.width - 2).toInt();
+    final safeTop = expectedTop.clamp(0, image.height - 2).toInt();
     return DetectedBox(
       left: safeLeft,
       top: safeTop,
-      width: math.min(expectedWidth, image.width - safeLeft),
-      height: math.min(expectedHeight, image.height - safeTop),
+      width: math.min(expectedWidth, image.width - safeLeft).toInt(),
+      height: math.min(expectedHeight, image.height - safeTop).toInt(),
       detected: false,
     );
   }
 
-  final safeLeft = left.position.clamp(0, image.width - 2);
-  final safeTop = top.position.clamp(0, image.height - 2);
-  final safeRight = right.position.clamp(safeLeft + 1, image.width - 1);
-  final safeBottom = bottom.position.clamp(safeTop + 1, image.height - 1);
+  final safeLeft = left.position.clamp(0, image.width - 2).toInt();
+  final safeTop = top.position.clamp(0, image.height - 2).toInt();
+  final safeRight = right.position.clamp(safeLeft + 1, image.width - 1).toInt();
+  final safeBottom = bottom.position.clamp(safeTop + 1, image.height - 1).toInt();
 
   return DetectedBox(
     left: safeLeft,
