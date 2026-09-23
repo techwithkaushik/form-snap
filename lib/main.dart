@@ -666,11 +666,11 @@ class _EditorPageState extends State<EditorPage> {
       if (folder == null || folder.trim().isEmpty) return;
 
       final stamp = DateTime.now();
-      for (var i = 0; i < paths.length; i++) {
-        final source = File(paths[i]);
+      for (final path in paths) {
+        final source = File(path);
         if (!await source.exists()) continue;
 
-        final type = paths[i].contains('_photo.') ? 'photo' : 'signature';
+        final type = path.contains('_photo.') ? 'photo' : 'signature';
         final target = File(
           '$folder/FormSnap_${stamp.year}${stamp.month.toString().padLeft(2, '0')}${stamp.day.toString().padLeft(2, '0')}_$type.jpg',
         );
