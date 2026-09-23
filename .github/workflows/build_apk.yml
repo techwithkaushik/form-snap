@@ -1,0 +1,86 @@
+name: FormSnap Android
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter 3.38.5
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.38.5"
+          channel: stable
+          cache: true
+
+      - name: Verify source files
+        run: |
+          test -f pubspec.yaml
+          test -f lib/main.dart
+          test -f android/app/build.gradle.kts
+          test -f android/app/src/main/AndroidManifest.xml
+          flutter --version
+
+      - name: Generate missing Android host files
+        shell: bash
+        run: |
+          set -e
+          cp android/app/build.gradle.kts /tmp/form-snap-build.gradle.kts
+          cp android/app/src/main/AndroidManifest.xml /tmp/form-snap-AndroidManifest.xml
+          flutter create             --platforms=android             --project-name=form_snap             --org=com.techwithkaushik             .
+          cp /tmp/form-snap-build.gradle.kts android/app/build.gradle.kts
+          cp /tmp/form-snap-AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+
+      - name: Configure release signing
+        if: ${{ secrets.SIGNING_KEYSTORE != '' }}
+        env:
+          SIGNING_KEYSTORE: ${{ secrets.SIGNING_KEYSTORE }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "$SIGNING_KEYSTORE" | base64 --decode > android/app/upload-keystore.jks
+          cat > android/key.properties <<EOF
+          storePassword=$SIGNING_STORE_PASSWORD
+          keyPassword=$SIGNING_KEY_PASSWORD
+          keyAlias=$SIGNING_KEY_ALIAS
+          storeFile=upload-keystore.jks
+          EOF
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
+      - name: Build release APK
+        run: flutter build apk --release
+
+      - name: Verify APK
+        run: |
+          ls -lh build/app/outputs/flutter-apk/app-release.apk
+          file build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: formsnap-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
