@@ -69,10 +69,6 @@ class _HomePageState extends State<HomePage> {
   bool _busy = false;
   bool _permissionDialogOpen = false;
 
-  @override
-  void initState() {
-    super.initState();
-  }
 
   Future<bool> _ensureCameraPermission() async {
     if (_permissionDialogOpen) return false;
