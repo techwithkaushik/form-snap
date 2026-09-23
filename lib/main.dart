@@ -6,7 +6,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/services.dart';
 
 import 'services/image_service.dart';
@@ -63,85 +62,33 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage>
-    with WidgetsBindingObserver {
+class _HomePageState extends State<HomePage> {
   final _picker = ImagePicker();
   final _permissions = PermissionService();
 
   bool _busy = false;
   bool _permissionDialogOpen = false;
-  PermissionStatus _cameraStatus = PermissionStatus.denied;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _requestCameraOnStartup();
-    });
   }
 
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && mounted) {
-      _refreshCameraStatus();
-    }
-  }
-
-  Future<void> _refreshCameraStatus() async {
-    try {
-      final status = await _permissions.cameraStatus();
-      if (mounted) {
-        setState(() => _cameraStatus = status);
-      }
-    } catch (error, stack) {
-      debugPrint('Permission status error: $error');
-      debugPrintStack(stackTrace: stack);
-    }
-  }
-
-  Future<void> _requestCameraOnStartup() async {
-    await _refreshCameraStatus();
-
-    if (!mounted || _cameraStatus.isGranted) return;
-
-    await _ensureCameraPermission(showIntro: true);
-  }
-
-  Future<bool> _ensureCameraPermission({bool showIntro = false}) async {
+  Future<bool> _ensureCameraPermission() async {
     if (_permissionDialogOpen) return false;
 
     try {
       var status = await _permissions.cameraStatus();
-      if (status.isGranted) {
-        if (mounted) setState(() => _cameraStatus = status);
-        return true;
-      }
+      if (status.isGranted) return true;
 
-      if (showIntro && status.isDenied) {
+      if (status.isDenied) {
         final continueRequest = await _showCameraRationale();
         if (!continueRequest || !mounted) return false;
+        status = await _permissions.cameraStatus();
+        if (status.isGranted) return true;
       }
 
-      // Re-read after the explanatory dialog because the user may have
-      // changed the permission in another screen.
-      status = await _permissions.cameraStatus();
-
-      if (status.isGranted) {
-        if (mounted) setState(() => _cameraStatus = status);
-        return true;
-      }
-
-      if (status.isPermanentlyDenied) {
-        return _handlePermanentCameraDenial();
-      }
+      if (status.isPermanentlyDenied) return _handlePermanentCameraDenial();
 
       if (status.isRestricted) {
         await _showPermissionError(
@@ -152,24 +99,15 @@ class _HomePageState extends State<HomePage>
         return false;
       }
 
-      // If Android says a rationale should be shown, explain it before the
-      // actual system request.
-      if (await Permission.camera.shouldShowRequestRationale) {
-        final continueRequest = await _showCameraRationale();
-        if (!continueRequest || !mounted) return false;
-      }
-
       final result = await _permissions.requestCamera(showRationale: false);
 
       if (!mounted) return false;
 
       switch (result) {
         case CameraPermissionResult.granted:
-          setState(() => _cameraStatus = PermissionStatus.granted);
           return true;
 
         case CameraPermissionResult.denied:
-          setState(() => _cameraStatus = PermissionStatus.denied);
           await _showPermissionError(
             title: 'Camera permission denied',
             message:
@@ -178,11 +116,9 @@ class _HomePageState extends State<HomePage>
           return false;
 
         case CameraPermissionResult.permanentlyDenied:
-          setState(() => _cameraStatus = PermissionStatus.permanentlyDenied);
           return _handlePermanentCameraDenial();
 
         case CameraPermissionResult.restricted:
-          setState(() => _cameraStatus = PermissionStatus.restricted);
           await _showPermissionError(
             title: 'Camera access restricted',
             message:
@@ -235,8 +171,6 @@ class _HomePageState extends State<HomePage>
 
     if (openSettings) {
       await _permissions.openSettings();
-      await Future<void>.delayed(const Duration(milliseconds: 300));
-      await _refreshCameraStatus();
     }
 
     return false;
@@ -310,6 +244,7 @@ class _HomePageState extends State<HomePage>
   Future<void> _capture(CaptureMode mode) async {
     if (_busy) return;
 
+    // Camera permission is requested only after the user taps a capture action.
     final allowed = await _ensureCameraPermission();
     if (!allowed || !mounted) return;
 
@@ -366,6 +301,8 @@ class _HomePageState extends State<HomePage>
 
     setState(() => _busy = true);
     try {
+      // FilePicker uses the Android system document picker; no storage
+      // permission is requested when the user imports an image.
       final result = await FilePicker.platform.pickFiles(
         type: FileType.image,
         allowMultiple: false,
@@ -425,21 +362,10 @@ class _HomePageState extends State<HomePage>
 
   @override
   Widget build(BuildContext context) {
-    final cameraReady = _cameraStatus.isGranted;
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('FormSnap'),
         centerTitle: false,
-        actions: [
-          IconButton(
-            tooltip: 'Camera permission',
-            onPressed: _ensureCameraPermission,
-            icon: Icon(
-              cameraReady ? Icons.camera_alt : Icons.no_photography_outlined,
-            ),
-          ),
-        ],
       ),
       body: ListView(
         padding: const EdgeInsets.all(20),
@@ -456,26 +382,6 @@ class _HomePageState extends State<HomePage>
             ),
           ),
           const SizedBox(height: 18),
-          Card(
-            child: ListTile(
-              leading: Icon(
-                cameraReady
-                    ? Icons.check_circle_outline
-                    : Icons.camera_alt_outlined,
-              ),
-              title: const Text('Camera access'),
-              subtitle: Text(
-                cameraReady
-                    ? 'Granted'
-                    : 'Required only for camera capture',
-              ),
-              trailing: TextButton(
-                onPressed: _ensureCameraPermission,
-                child: Text(cameraReady ? 'Ready' : 'Allow'),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
           _ActionCard(
             icon: Icons.document_scanner_outlined,
             title: 'Capture Whole Form',
