@@ -77,6 +77,12 @@ android {
         }
     }
         
+    sourceSets {
+        getByName("main") {
+            manifest.srcFile("../../files/AndroidManifest.xml")
+        }
+    }
+
     buildTypes { 
         getByName("release") {
             // Only use release signing if env vars exist
