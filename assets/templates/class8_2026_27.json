@@ -1,0 +1,24 @@
+{
+  "name": "प्रारम्भिक शिक्षा पूर्णता प्रमाण पत्र परीक्षा (कक्षा 8), 2026-27",
+  "page": "A4",
+  "coordinateSystem": "normalized",
+  "photo": {
+    "left": 0.746,
+    "top": 0.190,
+    "width": 0.193,
+    "height": 0.169
+  },
+  "signature": {
+    "left": 0.722,
+    "top": 0.374,
+    "width": 0.240,
+    "height": 0.068
+  },
+  "output": {
+    "photoWidthMm": 40,
+    "photoHeightMm": 50,
+    "signatureWidthMm": 50,
+    "signatureHeightMm": 20,
+    "dpi": 300
+  }
+}
