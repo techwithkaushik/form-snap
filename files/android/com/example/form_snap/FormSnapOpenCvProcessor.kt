@@ -201,58 +201,119 @@ object FormSnapOpenCvProcessor {
     }
 
     private fun detectCloseRectangle(source: Mat, targetRatio: Double): Array<Point>? {
-        val scale = min(1.0, 1600.0 / max(source.cols(), source.rows()))
+        val scale = min(1.0, 1800.0 / max(source.cols(), source.rows()))
         val small = Mat()
         Imgproc.resize(source, small, Size(), scale, scale, Imgproc.INTER_AREA)
         val gray = Mat()
         Imgproc.cvtColor(small, gray, Imgproc.COLOR_BGR2GRAY)
         Imgproc.GaussianBlur(gray, gray, Size(5.0, 5.0), 0.0)
+
         val edge = Mat()
-        Imgproc.Canny(gray, edge, 30.0, 120.0)
-        val k = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(3.0, 3.0))
-        Imgproc.dilate(edge, edge, k)
+        Imgproc.Canny(gray, edge, 25.0, 110.0)
+        val kernel = Imgproc.getStructuringElement(
+            Imgproc.MORPH_RECT,
+            Size(3.0, 3.0),
+        )
+        Imgproc.morphologyEx(edge, edge, Imgproc.MORPH_CLOSE, kernel)
 
         val contours = ArrayList<MatOfPoint>()
-        Imgproc.findContours(edge, contours, Mat(), Imgproc.RETR_LIST, Imgproc.CHAIN_APPROX_SIMPLE)
+        Imgproc.findContours(
+            edge,
+            contours,
+            Mat(),
+            Imgproc.RETR_LIST,
+            Imgproc.CHAIN_APPROX_SIMPLE,
+        )
+
         val imageArea = small.cols().toDouble() * small.rows()
         var best: Array<Point>? = null
         var bestScore = 0.0
 
         for (contour in contours) {
             val area = abs(Imgproc.contourArea(contour))
-            if (area < imageArea * 0.015) {
+            val areaRatio = area / imageArea
+
+            // Ignore the whole paper/background. A close photo/signature should
+            // be a smaller rectangle inside the captured image.
+            if (areaRatio < 0.01 || areaRatio > 0.65) {
                 contour.release()
                 continue
             }
+
             val curve = MatOfPoint2f(*contour.toArray())
             val approx = MatOfPoint2f()
-            Imgproc.approxPolyDP(curve, approx, Imgproc.arcLength(curve, true) * 0.025, true)
+            Imgproc.approxPolyDP(
+                curve,
+                approx,
+                Imgproc.arcLength(curve, true) * 0.018,
+                true,
+            )
+
             if (approx.total() == 4L) {
                 val pts = order(approx.toArray())
                 val intPts = MatOfPoint(*pts)
+
                 if (Imgproc.isContourConvex(intPts)) {
                     val w = (distance(pts[0], pts[1]) + distance(pts[3], pts[2])) / 2.0
                     val h = (distance(pts[0], pts[3]) + distance(pts[1], pts[2])) / 2.0
-                    if (w > 30 && h > 20) {
-                        val ratioError = abs((w / h) - targetRatio) / targetRatio
-                        val ratioScore = max(0.0, 1.0 - ratioError * 2.5)
-                        val areaScore = min(1.0, area / (imageArea * 0.70))
-                        val score = areaScore * 0.65 + ratioScore * 0.35
+
+                    if (w > 60 && h > 40) {
+                        val ratio = w / h
+                        val ratioError = abs(ratio - targetRatio) / targetRatio
+
+                        // The photo is portrait (0.8), while the full A4 sheet
+                        // is about 0.707. Use a tighter ratio score so the page
+                        // border is not mistaken for the photo.
+                        val ratioScore = max(
+                            0.0,
+                            1.0 - ratioError / 0.35,
+                        )
+
+                        val perimeter = Imgproc.arcLength(curve, true)
+                        val rectangularArea = w * h
+                        val rectangularity = if (rectangularArea > 0.0) {
+                            min(1.0, area / rectangularArea)
+                        } else {
+                            0.0
+                        }
+
+                        // Prefer a clear internal rectangle with the expected
+                        // photo/signature aspect ratio. Avoid simply choosing
+                        // the largest contour.
+                        val sizeScore = when {
+                            areaRatio in 0.02..0.30 -> 1.0
+                            areaRatio < 0.02 -> areaRatio / 0.02
+                            else -> max(0.0, 1.0 - (areaRatio - 0.30) / 0.35)
+                        }
+
+                        val score =
+                            ratioScore * 0.55 +
+                            rectangularity * 0.20 +
+                            sizeScore * 0.25
+
                         if (score > bestScore) {
                             bestScore = score
-                            best = pts.map { Point(it.x / scale, it.y / scale) }.toTypedArray()
+                            best = pts.map {
+                                Point(it.x / scale, it.y / scale)
+                            }.toTypedArray()
                         }
                     }
                 }
+
                 intPts.release()
             }
+
             curve.release()
             approx.release()
             contour.release()
         }
 
-        edge.release(); k.release(); gray.release(); small.release()
-        return if (bestScore >= 0.45) best else null
+        edge.release()
+        kernel.release()
+        gray.release()
+        small.release()
+
+        return if (bestScore >= 0.50) best else null
     }
 
     private fun perspectiveCrop(source: Mat, points: Array<Point>, targetRatio: Double): Mat {
