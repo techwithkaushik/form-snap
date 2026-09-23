@@ -1,14 +1,39 @@
+import 'dart:async';
 import 'dart:io';
+
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
+
 import 'services/image_service.dart';
+import 'services/permission_service.dart';
 import 'services/template_service.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const FormSnapApp());
+
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+    debugPrint('Flutter error: ${details.exception}');
+    debugPrintStack(stackTrace: details.stack);
+  };
+
+  PlatformDispatcher.instance.onError = (error, stack) {
+    debugPrint('Unhandled async error: $error');
+    debugPrintStack(stackTrace: stack);
+    return true;
+  };
+
+  runZonedGuarded(
+    () => runApp(const FormSnapApp()),
+    (error, stack) {
+      debugPrint('Unhandled app error: $error');
+      debugPrintStack(stackTrace: stack);
+    },
+  );
 }
 
 class FormSnapApp extends StatelessWidget {
@@ -32,16 +57,263 @@ enum CaptureMode { wholeForm, closePhoto, closeSignature }
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
+
   @override
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage>
+    with WidgetsBindingObserver {
   final _picker = ImagePicker();
+  final _permissions = PermissionService();
+
   bool _busy = false;
+  bool _permissionDialogOpen = false;
+  PermissionStatus _cameraStatus = PermissionStatus.denied;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _requestCameraOnStartup();
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      _refreshCameraStatus();
+    }
+  }
+
+  Future<void> _refreshCameraStatus() async {
+    try {
+      final status = await _permissions.cameraStatus();
+      if (mounted) {
+        setState(() => _cameraStatus = status);
+      }
+    } catch (error, stack) {
+      debugPrint('Permission status error: $error');
+      debugPrintStack(stackTrace: stack);
+    }
+  }
+
+  Future<void> _requestCameraOnStartup() async {
+    await _refreshCameraStatus();
+
+    if (!mounted || _cameraStatus.isGranted) return;
+
+    await _ensureCameraPermission(showIntro: true);
+  }
+
+  Future<bool> _ensureCameraPermission({bool showIntro = false}) async {
+    if (_permissionDialogOpen) return false;
+
+    try {
+      var status = await _permissions.cameraStatus();
+      if (status.isGranted) {
+        if (mounted) setState(() => _cameraStatus = status);
+        return true;
+      }
+
+      if (showIntro && status.isDenied) {
+        final continueRequest = await _showCameraRationale();
+        if (!continueRequest || !mounted) return false;
+      }
+
+      // Re-read after the explanatory dialog because the user may have
+      // changed the permission in another screen.
+      status = await _permissions.cameraStatus();
+
+      if (status.isGranted) {
+        if (mounted) setState(() => _cameraStatus = status);
+        return true;
+      }
+
+      if (status.isPermanentlyDenied) {
+        return _handlePermanentCameraDenial();
+      }
+
+      if (status.isRestricted) {
+        await _showPermissionError(
+          title: 'Camera access restricted',
+          message:
+              'Android is restricting camera access for FormSnap. Check the device privacy or app permission settings.',
+        );
+        return false;
+      }
+
+      // If Android says a rationale should be shown, explain it before the
+      // actual system request.
+      if (await Permission.camera.shouldShowRequestRationale) {
+        final continueRequest = await _showCameraRationale();
+        if (!continueRequest || !mounted) return false;
+      }
+
+      final result = await _permissions.requestCamera(showRationale: false);
+
+      if (!mounted) return false;
+
+      switch (result) {
+        case CameraPermissionResult.granted:
+          setState(() => _cameraStatus = PermissionStatus.granted);
+          return true;
+
+        case CameraPermissionResult.denied:
+          setState(() => _cameraStatus = PermissionStatus.denied);
+          await _showPermissionError(
+            title: 'Camera permission denied',
+            message:
+                'FormSnap cannot open the camera without camera access. You can continue using existing images, or allow Camera permission and try again.',
+          );
+          return false;
+
+        case CameraPermissionResult.permanentlyDenied:
+          setState(() => _cameraStatus = PermissionStatus.permanentlyDenied);
+          return _handlePermanentCameraDenial();
+
+        case CameraPermissionResult.restricted:
+          setState(() => _cameraStatus = PermissionStatus.restricted);
+          await _showPermissionError(
+            title: 'Camera access restricted',
+            message:
+                'The device is restricting camera access. Please check Android privacy controls.',
+          );
+          return false;
+
+        case CameraPermissionResult.unavailable:
+          await _showPermissionError(
+            title: 'Camera unavailable',
+            message:
+                'Camera permission could not be granted on this device. You can still select an existing image.',
+          );
+          return false;
+
+        case CameraPermissionResult.error:
+          await _showPermissionError(
+            title: 'Permission error',
+            message:
+                'FormSnap could not complete the camera permission request. Please try again or open App Settings.',
+            showSettings: true,
+          );
+          return false;
+      }
+    } catch (error, stack) {
+      debugPrint('Camera permission flow error: $error');
+      debugPrintStack(stackTrace: stack);
+
+      if (mounted) {
+        await _showPermissionError(
+          title: 'Permission error',
+          message:
+              'An unexpected error occurred while requesting camera access. You can retry or open App Settings.',
+          showSettings: true,
+        );
+      }
+      return false;
+    }
+  }
+
+  Future<bool> _handlePermanentCameraDenial() async {
+    if (!mounted) return false;
+
+    final openSettings = await _showPermissionError(
+      title: 'Camera permission is blocked',
+      message:
+          'Camera permission was denied permanently or Android will no longer show the permission dialog. Open App Settings and enable Camera for FormSnap.',
+      showSettings: true,
+    );
+
+    if (openSettings) {
+      await _permissions.openSettings();
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      await _refreshCameraStatus();
+    }
+
+    return false;
+  }
+
+  Future<bool> _showCameraRationale() async {
+    if (!mounted || _permissionDialogOpen) return false;
+
+    _permissionDialogOpen = true;
+    try {
+      return await showDialog<bool>(
+            context: context,
+            barrierDismissible: false,
+            builder: (context) => AlertDialog(
+              title: const Text('Camera permission'),
+              content: const Text(
+                'FormSnap needs Camera access only when you capture a form, photo, or signature. '
+                'The image is processed locally on the device.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Not now'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('Continue'),
+                ),
+              ],
+            ),
+          ) ??
+          false;
+    } finally {
+      _permissionDialogOpen = false;
+    }
+  }
+
+  Future<bool> _showPermissionError({
+    required String title,
+    required String message,
+    bool showSettings = false,
+  }) async {
+    if (!mounted || _permissionDialogOpen) return false;
+
+    _permissionDialogOpen = true;
+    try {
+      return await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: Text(title),
+              content: Text(message),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Close'),
+                ),
+                if (showSettings)
+                  FilledButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: const Text('Open Settings'),
+                  ),
+              ],
+            ),
+          ) ??
+          false;
+    } finally {
+      _permissionDialogOpen = false;
+    }
+  }
 
   Future<void> _capture(CaptureMode mode) async {
+    if (_busy) return;
+
+    final allowed = await _ensureCameraPermission();
+    if (!allowed || !mounted) return;
+
     setState(() => _busy = true);
+
     try {
       final source = await _picker.pickImage(
         source: ImageSource.camera,
@@ -49,23 +321,79 @@ class _HomePageState extends State<HomePage> {
         maxWidth: 5000,
         maxHeight: 5000,
       );
+
       if (source == null || !mounted) return;
+
       await _openEditor(File(source.path), mode);
+    } on PlatformException catch (error, stack) {
+      debugPrint('Image picker platform error: $error');
+      debugPrintStack(stackTrace: stack);
+
+      if (!mounted) return;
+
+      final code = error.code.toLowerCase();
+      if (code.contains('camera') ||
+          code.contains('permission') ||
+          code.contains('denied')) {
+        await _ensureCameraPermission();
+      } else {
+        await _showPermissionError(
+          title: 'Camera error',
+          message:
+              'The camera could not be opened. Error: ${error.message ?? error.code}',
+        );
+      }
+    } catch (error, stack) {
+      debugPrint('Camera capture error: $error');
+      debugPrintStack(stackTrace: stack);
+
+      if (mounted) {
+        await _showPermissionError(
+          title: 'Unable to capture image',
+          message:
+              'FormSnap could not capture the image. Please check camera access and try again.',
+          showSettings: true,
+        );
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
   Future<void> _pickFile() async {
+    if (_busy) return;
+
     setState(() => _busy = true);
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.image,
         allowMultiple: false,
       );
+
       final path = result?.files.single.path;
       if (path != null && mounted) {
         await _openEditor(File(path), CaptureMode.wholeForm);
+      }
+    } on PlatformException catch (error, stack) {
+      debugPrint('File picker platform error: $error');
+      debugPrintStack(stackTrace: stack);
+
+      if (mounted) {
+        await _showPermissionError(
+          title: 'File selection error',
+          message:
+              'The image picker could not be opened. ${error.message ?? error.code}',
+        );
+      }
+    } catch (error, stack) {
+      debugPrint('File selection error: $error');
+      debugPrintStack(stackTrace: stack);
+
+      if (mounted) {
+        await _showPermissionError(
+          title: 'Unable to select image',
+          message: 'The selected image could not be opened.',
+        );
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -73,19 +401,44 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _openEditor(File file, CaptureMode mode) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => EditorPage(file: file, mode: mode),
-      ),
-    );
+    if (!mounted) return;
+
+    try {
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => EditorPage(file: file, mode: mode),
+        ),
+      );
+    } catch (error, stack) {
+      debugPrint('Editor navigation error: $error');
+      debugPrintStack(stackTrace: stack);
+
+      if (mounted) {
+        await _showPermissionError(
+          title: 'Unable to open editor',
+          message: 'The captured image could not be opened for editing.',
+        );
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final cameraReady = _cameraStatus.isGranted;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('FormSnap'),
         centerTitle: false,
+        actions: [
+          IconButton(
+            tooltip: 'Camera permission',
+            onPressed: _ensureCameraPermission,
+            icon: Icon(
+              cameraReady ? Icons.camera_alt : Icons.no_photography_outlined,
+            ),
+          ),
+        ],
       ),
       body: ListView(
         padding: const EdgeInsets.all(20),
@@ -97,27 +450,52 @@ class _HomePageState extends State<HomePage> {
           const SizedBox(height: 8),
           Text(
             'Offline form photo & signature utility',
-            style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 18),
+          Card(
+            child: ListTile(
+              leading: Icon(
+                cameraReady
+                    ? Icons.check_circle_outline
+                    : Icons.camera_alt_outlined,
+              ),
+              title: const Text('Camera access'),
+              subtitle: Text(
+                cameraReady
+                    ? 'Granted'
+                    : 'Required only for camera capture',
+              ),
+              trailing: TextButton(
+                onPressed: _ensureCameraPermission,
+                child: Text(cameraReady ? 'Ready' : 'Allow'),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
           _ActionCard(
             icon: Icons.document_scanner_outlined,
             title: 'Capture Whole Form',
-            subtitle: 'Take the complete page and extract photo + signature using the form template.',
+            subtitle:
+                'Take the complete page and extract photo + signature using the form template.',
             onTap: _busy ? null : () => _capture(CaptureMode.wholeForm),
           ),
           const SizedBox(height: 12),
           _ActionCard(
             icon: Icons.photo_camera_outlined,
             title: 'Capture Photo',
-            subtitle: 'Capture only the photograph and prepare it at the configured size.',
+            subtitle:
+                'Capture only the photograph and prepare it at the configured size.',
             onTap: _busy ? null : () => _capture(CaptureMode.closePhoto),
           ),
           const SizedBox(height: 12),
           _ActionCard(
             icon: Icons.draw_outlined,
             title: 'Capture Signature',
-            subtitle: 'Capture only the signature and prepare it at the configured size.',
+            subtitle:
+                'Capture only the signature and prepare it at the configured size.',
             onTap: _busy ? null : () => _capture(CaptureMode.closeSignature),
           ),
           const SizedBox(height: 12),
@@ -134,8 +512,10 @@ class _HomePageState extends State<HomePage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Class 8 • 2026–27 template',
-                      style: TextStyle(fontWeight: FontWeight.w700)),
+                  const Text(
+                    'Class 8 • 2026–27 template',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
                   const SizedBox(height: 10),
                   const Text('Photo  40 × 50 mm'),
                   const Text('Signature  50 × 20 mm'),
@@ -191,7 +571,13 @@ class _ActionCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                     const SizedBox(height: 4),
                     Text(subtitle),
                   ],
@@ -208,6 +594,7 @@ class _ActionCard extends StatelessWidget {
 
 class EditorPage extends StatefulWidget {
   const EditorPage({super.key, required this.file, required this.mode});
+
   final File file;
   final CaptureMode mode;
 
@@ -229,7 +616,9 @@ class _EditorPageState extends State<EditorPage> {
   }
 
   Future<void> _extract() async {
+    if (!mounted) return;
     setState(() => _status = 'Processing image…');
+
     try {
       final template = await TemplateService.loadClass8Template();
       final source = await _sourceInfo;
@@ -275,26 +664,47 @@ class _EditorPageState extends State<EditorPage> {
               'Source: ${source.width} × ${source.height}px  •  Output ready';
         });
       }
-    } catch (e) {
-      if (mounted) setState(() => _status = 'Processing failed: $e');
+    } catch (error, stack) {
+      debugPrint('Image processing error: $error');
+      debugPrintStack(stackTrace: stack);
+
+      if (mounted) {
+        setState(() => _status = 'Processing failed. Please try again.');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Processing failed: $error')),
+        );
+      }
     }
   }
 
   Future<void> _saveAll() async {
-    final dir = await getApplicationDocumentsDirectory();
-    final folder = Directory('${dir.path}/FormSnap');
-    await folder.create(recursive: true);
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final folder = Directory('${dir.path}/FormSnap');
+      await folder.create(recursive: true);
 
-    for (final path in [_photoPath, _signaturePath]) {
-      if (path == null) continue;
-      final name = path.split(Platform.pathSeparator).last;
-      await File(path).copy('${folder.path}/${DateTime.now().millisecondsSinceEpoch}_$name');
-    }
+      for (final path in [_photoPath, _signaturePath]) {
+        if (path == null) continue;
+        final name = path.split(Platform.pathSeparator).last;
+        await File(path).copy(
+          '${folder.path}/${DateTime.now().millisecondsSinceEpoch}_$name',
+        );
+      }
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Saved to ${folder.path}')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Saved to ${folder.path}')),
+        );
+      }
+    } catch (error, stack) {
+      debugPrint('Save error: $error');
+      debugPrintStack(stackTrace: stack);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not save the output files.')),
+        );
+      }
     }
   }
 
@@ -308,12 +718,20 @@ class _EditorPageState extends State<EditorPage> {
           FutureBuilder<SourceInfo>(
             future: _sourceInfo,
             builder: (_, snapshot) {
+              if (snapshot.hasError) {
+                return const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Text('Unable to read the captured image.'),
+                );
+              }
+
               if (!snapshot.hasData) {
                 return const AspectRatio(
                   aspectRatio: 1,
                   child: Center(child: CircularProgressIndicator()),
                 );
               }
+
               return ClipRRect(
                 borderRadius: BorderRadius.circular(14),
                 child: Image.file(widget.file, fit: BoxFit.contain),
@@ -330,7 +748,10 @@ class _EditorPageState extends State<EditorPage> {
           if (_photoPath != null)
             _ResultCard(title: 'Photo • 40 × 50 mm', path: _photoPath!),
           if (_signaturePath != null)
-            _ResultCard(title: 'Signature • 50 × 20 mm', path: _signaturePath!),
+            _ResultCard(
+              title: 'Signature • 50 × 20 mm',
+              path: _signaturePath!,
+            ),
           if (_photoPath != null || _signaturePath != null)
             FilledButton.icon(
               onPressed: _saveAll,
@@ -349,12 +770,15 @@ class _EditorPageState extends State<EditorPage> {
 
 class _ResultCard extends StatelessWidget {
   const _ResultCard({required this.title, required this.path});
+
   final String title;
   final String path;
 
   @override
   Widget build(BuildContext context) {
-    final bytes = File(path).lengthSync();
+    final file = File(path);
+    final bytes = file.existsSync() ? file.lengthSync() : 0;
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
@@ -366,13 +790,17 @@ class _ResultCard extends StatelessWidget {
             const SizedBox(height: 10),
             Center(
               child: Image.file(
-                File(path),
+                file,
                 height: 180,
                 fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) =>
+                    const Text('Unable to display image'),
               ),
             ),
             const SizedBox(height: 8),
-            Text('File size: ${(bytes / 1024).toStringAsFixed(1)} KB'),
+            Text(
+              'File size: ${(bytes / 1024).toStringAsFixed(1)} KB',
+            ),
           ],
         ),
       ),
