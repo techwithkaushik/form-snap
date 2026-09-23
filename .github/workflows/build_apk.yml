@@ -17,22 +17,79 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Flutter
+      - name: Setup Flutter 3.38.5
         uses: subosito/flutter-action@v2
         with:
           flutter-version: "3.38.5"
           channel: stable
           cache: true
 
-      - name: Verify Flutter project
+      - name: Generate Android host project
         run: |
-          test -f pubspec.yaml
-          test -f lib/main.dart
-          flutter --version
+          flutter create             --platforms=android             --project-name=form_snap             --org=com.techwithkaushik             .
 
-      - name: Generate Android project
+      - name: Configure Android release signing
+        env:
+          SIGNING_KEYSTORE: ${{ secrets.SIGNING_KEYSTORE }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+        shell: bash
         run: |
-          flutter create --platforms=android --project-name=form_snap --org=com.techwithkaushik .
+          set -e
+          if [ -n "$SIGNING_KEYSTORE" ]; then
+            echo "$SIGNING_KEYSTORE" | base64 --decode > android/app/upload-keystore.jks
+
+            cat > android/key.properties <<EOF
+          storePassword=$SIGNING_STORE_PASSWORD
+          keyPassword=$SIGNING_KEY_PASSWORD
+          keyAlias=$SIGNING_KEY_ALIAS
+          storeFile=upload-keystore.jks
+          EOF
+
+            python3 - <<'PY'
+          from pathlib import Path
+          p = Path("android/app/build.gradle.kts")
+          s = p.read_text()
+
+          header = '''import java.util.Properties
+          import java.io.FileInputStream
+
+          val keystorePropertiesFile = rootProject.file("key.properties")
+          val keystoreProperties = Properties()
+          if (keystorePropertiesFile.exists()) {
+              keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+          }
+
+          '''
+
+          if 'keystorePropertiesFile' not in s:
+              s = header + s
+
+          signing = '''
+              signingConfigs {
+                  create("release") {
+                      keyAlias = keystoreProperties["keyAlias"] as String?
+                      keyPassword = keystoreProperties["keyPassword"] as String?
+                      storeFile = keystoreProperties["storeFile"]?.let { file(it) }
+                      storePassword = keystoreProperties["storePassword"] as String?
+                  }
+              }
+          '''
+
+          if 'create("release")' not in s:
+              s = s.replace('    buildTypes {', signing + '\n    buildTypes {', 1)
+
+          s = s.replace(
+              'buildTypes {\n',
+              'buildTypes {\n        getByName("release") { signingConfig = signingConfigs.getByName("release") }\n',
+              1
+          )
+          p.write_text(s)
+          PY
+          else
+            echo "No signing secrets supplied; building unsigned release APK."
+          fi
 
       - name: Get dependencies
         run: flutter pub get
