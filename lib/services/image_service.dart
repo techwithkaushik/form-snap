@@ -135,21 +135,20 @@ Future<ProcessedOutputs> _processInIsolate(ProcessRequest request) async {
   final photoBox = request.centerCrop
       ? _centerBox(decoded, request.photo)
       : _findFormBox(decoded, request.photo);
-  final signatureBox = request.centerCrop
-      ? _centerBox(decoded, request.signature)
-      : _findFormBox(decoded, request.signature);
+  final photoCrop = request.centerCrop
+      ? _centerCropResult(decoded, request.photo)
+      : _extractFormRegion(decoded, request.photo);
+  final signatureCrop = request.centerCrop
+      ? _centerCropResult(decoded, request.signature)
+      : _extractFormRegion(decoded, request.signature);
+  final photoBox = photoCrop.box;
+  final signatureBox = signatureCrop.box;
 
   String? photoPath;
   String? signaturePath;
 
   if (request.processPhoto) {
-    final crop = img.copyCrop(
-      decoded,
-      x: photoBox.left,
-      y: photoBox.top,
-      width: photoBox.width,
-      height: photoBox.height,
-    );
+    final crop = photoCrop.image;
     final path = '${request.outputDirectory}/${DateTime.now().microsecondsSinceEpoch}_photo.jpg';
     final encoded = _resizeAndEncode(
       crop,
@@ -162,13 +161,7 @@ Future<ProcessedOutputs> _processInIsolate(ProcessRequest request) async {
   }
 
   if (request.processSignature) {
-    final crop = img.copyCrop(
-      decoded,
-      x: signatureBox.left,
-      y: signatureBox.top,
-      width: signatureBox.width,
-      height: signatureBox.height,
-    );
+    final crop = signatureCrop.image;
     final path = '${request.outputDirectory}/${DateTime.now().microsecondsSinceEpoch}_signature.jpg';
     final encoded = _resizeAndEncode(
       crop,
@@ -190,10 +183,30 @@ Future<ProcessedOutputs> _processInIsolate(ProcessRequest request) async {
   );
 }
 
-/// Starts from the exact Class-8 A4 PDF coordinates and then refines each
-/// edge by looking for the strongest rectangular border nearby. This handles
-/// small camera alignment differences without blindly changing the template.
-DetectedBox _centerBox(img.Image image, Region region) {
+class _CropResult {
+  const _CropResult({required this.image, required this.box});
+
+  final img.Image image;
+  final DetectedBox box;
+}
+
+class _Quad {
+  const _Quad({
+    required this.topLeft,
+    required this.topRight,
+    required this.bottomLeft,
+    required this.bottomRight,
+    required this.score,
+  });
+
+  final img.Point topLeft;
+  final img.Point topRight;
+  final img.Point bottomLeft;
+  final img.Point bottomRight;
+  final double score;
+}
+
+_CropResult _centerCropResult(img.Image image, Region region) {
   final targetRatio = region.width / region.height;
   final currentRatio = image.width / image.height;
 
@@ -211,128 +224,231 @@ DetectedBox _centerBox(img.Image image, Region region) {
   final left = ((image.width - width) / 2).round();
   final top = ((image.height - height) / 2).round();
 
-  return DetectedBox(
-    left: left.clamp(0, image.width - 1).toInt(),
-    top: top.clamp(0, image.height - 1).toInt(),
-    width: width.clamp(1, image.width).toInt(),
-    height: height.clamp(1, image.height).toInt(),
-    detected: false,
+  final safeLeft = left.clamp(0, image.width - 1).toInt();
+  final safeTop = top.clamp(0, image.height - 1).toInt();
+  final safeWidth = width.clamp(1, image.width - safeLeft).toInt();
+  final safeHeight = height.clamp(1, image.height - safeTop).toInt();
+
+  final inset = math.max(1, (math.min(safeWidth, safeHeight) * 0.035).round());
+  final cropLeft = (safeLeft + inset).clamp(0, image.width - 1).toInt();
+  final cropTop = (safeTop + inset).clamp(0, image.height - 1).toInt();
+  final cropRight =
+      (safeLeft + safeWidth - inset).clamp(cropLeft + 1, image.width).toInt();
+  final cropBottom =
+      (safeTop + safeHeight - inset).clamp(cropTop + 1, image.height).toInt();
+
+  return _CropResult(
+    image: img.copyCrop(
+      image,
+      x: cropLeft,
+      y: cropTop,
+      width: cropRight - cropLeft,
+      height: cropBottom - cropTop,
+    ),
+    box: DetectedBox(
+      left: cropLeft,
+      top: cropTop,
+      width: cropRight - cropLeft,
+      height: cropBottom - cropTop,
+      detected: false,
+    ),
   );
 }
 
-DetectedBox _findFormBox(img.Image image, Region region) {
+_CropResult _extractFormRegion(img.Image image, Region region) {
   final expectedLeft = (image.width * region.left).round();
   final expectedTop = (image.height * region.top).round();
-  final expectedWidth = math.max(8, (image.width * region.width).round());
-  final expectedHeight = math.max(8, (image.height * region.height).round());
-  final expectedRight = expectedLeft + expectedWidth - 1;
-  final expectedBottom = expectedTop + expectedHeight - 1;
+  final expectedWidth = math.max(12, (image.width * region.width).round());
+  final expectedHeight = math.max(12, (image.height * region.height).round());
 
-  final xSearch = math.max(8, (expectedWidth * 0.08).round());
-  final ySearch = math.max(8, (expectedHeight * 0.08).round());
+  final quad = _findFormQuad(
+    image,
+    expectedLeft,
+    expectedTop,
+    expectedWidth,
+    expectedHeight,
+  );
 
-  final left = _bestVerticalBorder(image, expectedLeft, expectedTop, expectedBottom, xSearch);
-  final right = _bestVerticalBorder(image, expectedRight, expectedTop, expectedBottom, xSearch);
-  final top = _bestHorizontalBorder(image, expectedTop, expectedLeft, expectedRight, ySearch);
-  final bottom = _bestHorizontalBorder(image, expectedBottom, expectedLeft, expectedRight, ySearch);
+  if (quad != null) {
+    final minX = [
+      quad.topLeft.x,
+      quad.topRight.x,
+      quad.bottomLeft.x,
+      quad.bottomRight.x,
+    ].reduce(math.min).round();
+    final maxX = [
+      quad.topLeft.x,
+      quad.topRight.x,
+      quad.bottomLeft.x,
+      quad.bottomRight.x,
+    ].reduce(math.max).round();
+    final minY = [
+      quad.topLeft.y,
+      quad.topRight.y,
+      quad.bottomLeft.y,
+      quad.bottomRight.y,
+    ].reduce(math.min).round();
+    final maxY = [
+      quad.topLeft.y,
+      quad.topRight.y,
+      quad.bottomLeft.y,
+      quad.bottomRight.y,
+    ].reduce(math.max).round();
 
-  final detected = left.score >= 0.32 &&
-      right.score >= 0.32 &&
-      top.score >= 0.32 &&
-      bottom.score >= 0.32 &&
-      right.position > left.position &&
-      bottom.position > top.position;
+    final safeLeft = minX.clamp(0, image.width - 2).toInt();
+    final safeTop = minY.clamp(0, image.height - 2).toInt();
+    final safeRight = maxX.clamp(safeLeft + 1, image.width - 1).toInt();
+    final safeBottom = maxY.clamp(safeTop + 1, image.height - 1).toInt();
 
-  if (!detected) {
-    final safeLeft = expectedLeft.clamp(0, image.width - 2).toInt();
-    final safeTop = expectedTop.clamp(0, image.height - 2).toInt();
-    return DetectedBox(
-      left: safeLeft,
-      top: safeTop,
-      width: math.min(expectedWidth, image.width - safeLeft).toInt(),
-      height: math.min(expectedHeight, image.height - safeTop).toInt(),
-      detected: false,
+    final targetWidth = math.max(64, expectedWidth);
+    final targetHeight = math.max(32, expectedHeight);
+
+    final rectified = img.copyRectify(
+      image,
+      topLeft: quad.topLeft,
+      topRight: quad.topRight,
+      bottomLeft: quad.bottomLeft,
+      bottomRight: quad.bottomRight,
+      interpolation: img.Interpolation.linear,
+      toImage: img.Image(width: targetWidth, height: targetHeight),
+    );
+
+    final insetX = math.max(1, (rectified.width * 0.025).round());
+    final insetY = math.max(1, (rectified.height * 0.025).round());
+
+    final cropped = img.copyCrop(
+      rectified,
+      x: insetX,
+      y: insetY,
+      width: math.max(1, rectified.width - insetX * 2),
+      height: math.max(1, rectified.height - insetY * 2),
+    );
+
+    return _CropResult(
+      image: cropped,
+      box: DetectedBox(
+        left: safeLeft,
+        top: safeTop,
+        width: safeRight - safeLeft + 1,
+        height: safeBottom - safeTop + 1,
+        detected: true,
+      ),
     );
   }
 
-  final safeLeft = left.position.clamp(0, image.width - 2).toInt();
-  final safeTop = top.position.clamp(0, image.height - 2).toInt();
-  final safeRight = right.position.clamp(safeLeft + 1, image.width - 1).toInt();
-  final safeBottom = bottom.position.clamp(safeTop + 1, image.height - 1).toInt();
+  final safeLeft = expectedLeft.clamp(0, image.width - 2).toInt();
+  final safeTop = expectedTop.clamp(0, image.height - 2).toInt();
+  final baseWidth = math.min(expectedWidth, image.width - safeLeft).toInt();
+  final baseHeight = math.min(expectedHeight, image.height - safeTop).toInt();
 
-  return DetectedBox(
-    left: safeLeft,
-    top: safeTop,
-    width: safeRight - safeLeft + 1,
-    height: safeBottom - safeTop + 1,
-    detected: true,
+  final insetX = math.max(1, (baseWidth * 0.025).round());
+  final insetY = math.max(1, (baseHeight * 0.025).round());
+
+  final cropLeft = (safeLeft + insetX).clamp(0, image.width - 1).toInt();
+  final cropTop = (safeTop + insetY).clamp(0, image.height - 1).toInt();
+  final cropWidth = math.max(1, baseWidth - insetX * 2);
+  final cropHeight = math.max(1, baseHeight - insetY * 2);
+
+  return _CropResult(
+    image: img.copyCrop(
+      image,
+      x: cropLeft,
+      y: cropTop,
+      width: math.min(cropWidth, image.width - cropLeft),
+      height: math.min(cropHeight, image.height - cropTop),
+    ),
+    box: DetectedBox(
+      left: safeLeft,
+      top: safeTop,
+      width: baseWidth,
+      height: baseHeight,
+      detected: false,
+    ),
   );
 }
 
-({int position, double score}) _bestVerticalBorder(
+_Quad? _findFormQuad(
   img.Image image,
-  int expectedX,
+  int left,
   int top,
-  int bottom,
-  int searchRadius,
+  int width,
+  int height,
 ) {
-  final start = math.max(1, expectedX - searchRadius);
-  final end = math.min(image.width - 2, expectedX + searchRadius);
-  var bestPosition = expectedX.clamp(1, image.width - 2);
-  var bestScore = 0.0;
+  final radiusX = math.max(8, (width * 0.16).round());
+  final radiusY = math.max(8, (height * 0.16).round());
 
-  final span = math.max(4, bottom - top + 1);
-  final inset = (span * 0.14).round();
-  final y0 = math.max(1, top + inset);
-  final y1 = math.min(image.height - 2, bottom - inset);
+  final tl = _bestCorner(image, left, top, radiusX, radiusY);
+  final tr = _bestCorner(image, left + width, top, radiusX, radiusY);
+  final bl = _bestCorner(image, left, top + height, radiusX, radiusY);
+  final br = _bestCorner(image, left + width, top + height, radiusX, radiusY);
 
-  for (var x = start; x <= end; x++) {
-    var dark = 0;
-    var total = 0;
-    for (var y = y0; y <= y1; y += 2) {
-      if (_edgeStrength(image, x, y, vertical: true) > 34) dark++;
-      total++;
-    }
-    final score = total == 0 ? 0.0 : dark / total;
-    if (score > bestScore) {
-      bestScore = score;
-      bestPosition = x;
-    }
-  }
-  return (position: bestPosition, score: bestScore);
+  final score = _cornerScore(image, tl) +
+      _cornerScore(image, tr) +
+      _cornerScore(image, bl) +
+      _cornerScore(image, br);
+
+  final widthTop = tr.x - tl.x;
+  final widthBottom = br.x - bl.x;
+  final heightLeft = bl.y - tl.y;
+  final heightRight = br.y - tr.y;
+
+  final geometryOk = widthTop > width * 0.55 &&
+      widthBottom > width * 0.55 &&
+      heightLeft > height * 0.55 &&
+      heightRight > height * 0.55 &&
+      widthTop > 0 &&
+      widthBottom > 0 &&
+      heightLeft > 0 &&
+      heightRight > 0;
+
+  if (!geometryOk || score < 160) return null;
+
+  return _Quad(
+    topLeft: tl,
+    topRight: tr,
+    bottomLeft: bl,
+    bottomRight: br,
+    score: score,
+  );
 }
 
-({int position, double score}) _bestHorizontalBorder(
+img.Point _bestCorner(
   img.Image image,
+  int expectedX,
   int expectedY,
-  int left,
-  int right,
-  int searchRadius,
+  int radiusX,
+  int radiusY,
 ) {
-  final start = math.max(1, expectedY - searchRadius);
-  final end = math.min(image.height - 2, expectedY + searchRadius);
-  var bestPosition = expectedY.clamp(1, image.height - 2);
-  var bestScore = 0.0;
+  final x0 = math.max(2, expectedX - radiusX);
+  final x1 = math.min(image.width - 3, expectedX + radiusX);
+  final y0 = math.max(2, expectedY - radiusY);
+  final y1 = math.min(image.height - 3, expectedY + radiusY);
 
-  final span = math.max(4, right - left + 1);
-  final inset = (span * 0.14).round();
-  final x0 = math.max(1, left + inset);
-  final x1 = math.min(image.width - 2, right - inset);
+  var best = img.Point(
+    expectedX.clamp(2, image.width - 3),
+    expectedY.clamp(2, image.height - 3),
+  );
+  var bestScore = -1.0;
 
-  for (var y = start; y <= end; y++) {
-    var dark = 0;
-    var total = 0;
+  for (var y = y0; y <= y1; y += 2) {
     for (var x = x0; x <= x1; x += 2) {
-      if (_edgeStrength(image, x, y, vertical: false) > 34) dark++;
-      total++;
-    }
-    final score = total == 0 ? 0.0 : dark / total;
-    if (score > bestScore) {
-      bestScore = score;
-      bestPosition = y;
+      final score = _edgeStrength(image, x, y, vertical: false) +
+          _edgeStrength(image, x, y, vertical: true);
+      if (score > bestScore) {
+        bestScore = score;
+        best = img.Point(x, y);
+      }
     }
   }
-  return (position: bestPosition, score: bestScore);
+
+  return best;
+}
+
+double _cornerScore(img.Image image, img.Point point) {
+  final x = point.xi.clamp(2, image.width - 3);
+  final y = point.yi.clamp(2, image.height - 3);
+  return _edgeStrength(image, x, y, vertical: false) +
+      _edgeStrength(image, x, y, vertical: true);
 }
 
 double _edgeStrength(img.Image image, int x, int y, {required bool vertical}) {
