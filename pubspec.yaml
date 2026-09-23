@@ -11,7 +11,7 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.8
   image_picker: ^1.1.2
-  file_picker: ^10.1.9
+  file_picker: ^10.2.2
   image: ^4.3.0
   path_provider: ^2.1.5
   permission_handler: ^12.0.3
