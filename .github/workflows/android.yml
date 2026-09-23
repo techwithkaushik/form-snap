@@ -1,0 +1,108 @@
+name: Flutter Android
+
+on:
+  push:
+    branches:
+      - '**'
+
+  pull_request:
+    branches:
+      - '**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.38.5"
+          channel: stable
+          cache: true
+
+      - name: Verify project
+        run: |
+          set -e
+
+          test -f pubspec.yaml
+          test -f lib/main.dart
+
+          echo "Flutter project found"
+
+      - name: Generate Android project
+        run: |
+          flutter create \
+            --platforms=android \
+            --project-name=form_snap \
+            .
+
+      - name: Remove generated widget test
+        run: |
+          rm -f test/widget_test.dart
+
+      - name: cp build.gradle.kts
+        run: |
+          cp files/build.gradle.kts android/app/build.gradle.kts
+
+      - name: Decode Keystore
+        id: keystore
+        uses: timheuer/base64-to-file@v2.0
+        with:
+          fileName: 'dev_keystore.jks'
+          encodedString: ${{ secrets.SIGNING_KEYSTORE }}
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
+
+      - name: Build ARM32 signed APK
+        run: |
+          flutter build apk \
+            --release \
+            --target-platform android-arm \
+        env:
+          SIGNING_KEY_STORE: ${{ steps.keystore.outputs.filePath }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+
+      - name: Verify APK signature
+        if: github.event_name == 'push'
+        run: |
+          set -e
+
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+
+          test -f "$APK"
+
+          echo "APK:"
+          ls -lh "$APK"
+
+          echo ""
+          echo "===== APK SIGNATURE ====="
+
+          APKSIGNER="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)/apksigner"
+
+          "$APKSIGNER" verify \
+            --verbose \
+            "$APK"
+
+      - name: Upload signed APK
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: form-snap-arm32-signed
+          path: build/app/outputs/flutter-apk/app-release.apk
