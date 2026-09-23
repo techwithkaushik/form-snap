@@ -671,10 +671,36 @@ class _EditorPageState extends State<EditorPage> {
         if (!await source.exists()) continue;
 
         final type = path.contains('_photo.') ? 'photo' : 'signature';
-        final target = File(
-          '$folder/FormSnap_${stamp.year}${stamp.month.toString().padLeft(2, '0')}${stamp.day.toString().padLeft(2, '0')}_$type.jpg',
-        );
-        await source.copy(target.path);
+        final fileName =
+            'FormSnap_${stamp.year}${stamp.month.toString().padLeft(2, '0')}${stamp.day.toString().padLeft(2, '0')}_$type.jpg';
+        final target = File('$folder/$fileName');
+
+        try {
+          await source.copy(target.path);
+          if (!await target.exists()) {
+            throw StateError('Selected folder did not accept the file');
+          }
+        } catch (copyError, copyStack) {
+          debugPrint('Direct folder save failed: $copyError');
+          debugPrintStack(stackTrace: copyStack);
+
+          // Android external/SD-card folders can be exposed through the
+          // Storage Access Framework without a normal writable filesystem
+          // path. Fall back to the native save dialog, which writes the bytes
+          // through Android's provider.
+          final bytes = await source.readAsBytes();
+          final savedPath = await FilePicker.platform.saveFile(
+            dialogTitle: 'Save $type',
+            fileName: fileName,
+            bytes: bytes,
+            type: FileType.custom,
+            allowedExtensions: const ['jpg'],
+          );
+
+          if (savedPath == null || savedPath.isEmpty) {
+            throw StateError('Save was cancelled for $type');
+          }
+        }
       }
 
       if (mounted) {
