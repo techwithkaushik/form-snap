@@ -622,9 +622,9 @@ object FormSnapOpenCvProcessor {
                     val centerX = candidate.cols() / 2.0
                     val centerY = candidate.rows() * 0.44
                     val centerPenalty =
-                        min(1.0, hypot(fx - centerX, fy - centerY) /
+                        min(1.0, kotlin.math.hypot(fx - centerX, fy - centerY) /
                             max(1.0, candidate.cols().toDouble() * 0.45))
-                    val sizeRatio = face.width.toDouble() / candidate.width.toDouble()
+                    val sizeRatio = face.width.toDouble() / candidate.cols().toDouble()
                     val sizeScore = 1.0 - min(1.0, abs(sizeRatio - 0.42) / 0.35)
                     1.0 - centerPenalty * 0.35 + sizeScore * 0.35
                 } else {
