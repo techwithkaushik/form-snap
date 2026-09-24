@@ -1026,8 +1026,34 @@ object FormSnapOpenCvProcessor {
     )
 
     private fun detectCloseUpPhotoBox(source: Mat): Rect? {
-        val boxes = findCloseUpBoxes(source)
-        return boxes.photo
+        val gray = Mat()
+        val edges = Mat()
+        Imgproc.cvtColor(source, gray, Imgproc.COLOR_BGR2GRAY)
+        Imgproc.GaussianBlur(gray, gray, Size(3.0, 3.0), 0.0)
+        Imgproc.Canny(gray, edges, 60.0, 150.0)
+
+        val contours = ArrayList<MatOfPoint>()
+        Imgproc.findContours(edges, contours, Mat(), Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
+
+        val imageArea = source.rows().toDouble() * source.cols().toDouble()
+        var best: Rect? = null
+        var bestScore = Double.NEGATIVE_INFINITY
+        for (contour in contours) {
+            val area = abs(Imgproc.contourArea(contour))
+            val box = Imgproc.boundingRect(contour)
+            val ratio = box.width.toDouble() / max(1, box.height).toDouble()
+            val rectangularity = area / max(1.0, box.width.toDouble() * box.height)
+            if (area >= imageArea * 0.05 && ratio in 0.60..1.05 && rectangularity > 0.65) {
+                val ratioScore = 1.0 - min(1.0, abs(ratio - 0.80) / 0.28)
+                val centerScore = 1.0 - min(1.0, abs(box.x + box.width / 2.0 - source.cols() / 2.0) / max(1.0, source.cols() / 2.0))
+                val score = ratioScore * 0.60 + rectangularity * 0.25 + centerScore * 0.15
+                if (score > bestScore) { bestScore = score; best = box }
+            }
+            contour.release()
+        }
+        gray.release()
+        edges.release()
+        return best
     }
 
     /**
@@ -1201,16 +1227,7 @@ object FormSnapOpenCvProcessor {
         return found
     }
 
-    // Expand a detected box outward; never remove pixels from inside it.
-    private fun cropWithOuterPadding(source: Mat, box: Rect, pad: Int): Mat {
-        val x1 = (box.x - pad).coerceIn(0, source.cols() - 1)
-        val y1 = (box.y - pad).coerceIn(0, source.rows() - 1)
-        val x2 = (box.x + box.width + pad).coerceIn(x1 + 1, source.cols())
-        val y2 = (box.y + box.height + pad).coerceIn(y1 + 1, source.rows())
-        return source.submat(y1, y2, x1, x2).clone()
-    }
-
-    /**
+        /**
      * Fallback for a partial capture where the printed signature box is not
      * detected. Locate actual pen ink, remove long printed rules only from
      * the detection mask, and crop OUTWARD around all remaining ink.
