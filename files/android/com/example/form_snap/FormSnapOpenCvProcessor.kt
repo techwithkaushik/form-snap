@@ -1,417 +1,555 @@
 package com.example.form_snap
 
 import android.content.Context
-import org.opencv.android.Utils
 import org.opencv.core.Core
+import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.MatOfByte
+import org.opencv.core.MatOfInt
 import org.opencv.core.MatOfPoint
-import org.opencv.core.MatOfPoint2f
-import org.opencv.core.Point
+import org.opencv.core.Rect
 import org.opencv.core.Size
 import org.opencv.imgcodecs.Imgcodecs
 import org.opencv.imgproc.Imgproc
 import java.io.File
 import java.io.FileOutputStream
-import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.pow
-import kotlin.math.sqrt
 
+/*
+ * Native port of the user's working Python OpenCV extractors.
+ *
+ * Whole form = form_cropper.py
+ * Close capture = close_up_cropping.py / bulk_folder_cropper.py
+ *
+ * The important detection rules are intentionally kept the same:
+ * adaptiveThreshold -> RETR_EXTERNAL -> boundingRect -> area > 5%.
+ */
 object FormSnapOpenCvProcessor {
-    private const val MAX_DETECTION_SIDE = 1800
 
     @JvmStatic
     fun process(context: Context, args: Map<*, *>): Map<String, Any?> {
-        val sourcePath = args["sourcePath"] as? String ?: error("sourcePath is required")
+        val sourcePath = args["sourcePath"] as? String
+            ?: error("sourcePath is required")
         val mode = args["mode"] as? String ?: "wholeForm"
-        val photo = args["photo"] as? Map<*, *> ?: emptyMap<String, Any>()
-        val signature = args["signature"] as? Map<*, *> ?: emptyMap<String, Any>()
+
         val source = Imgcodecs.imread(sourcePath, Imgcodecs.IMREAD_COLOR)
         if (source.empty()) error("OpenCV could not decode the selected image")
-        val w = source.cols()
-        val h = source.rows()
+
         return try {
             when (mode) {
-                "wholeForm" -> processWhole(context, source, photo, signature).toMutableMap().apply {
-                    put("width", w); put("height", h)
-                }
-                "closePhoto" -> processClose(context, source, 0.8, 40.0, 50.0, 100, "photo").toMutableMap().apply {
-                    put("width", w); put("height", h)
-                }
-                "closeSignature" -> processClose(context, source, 2.5, 50.0, 20.0, 60, "signature").toMutableMap().apply {
-                    put("width", w); put("height", h)
-                }
-                "inspect" -> mapOf("width" to w, "height" to h)
-                else -> error("Unknown capture mode: $mode")
+                "wholeForm" -> processWholeForm(context, source)
+                "closePhoto" -> processCloseUp(context, source, true)
+                "closeSignature" -> processCloseUp(context, source, false)
+                "inspect" -> mapOf(
+                    "width" to source.cols(),
+                    "height" to source.rows(),
+                )
+                else -> error("Unknown capture mode: " + mode)
             }
         } finally {
             source.release()
         }
     }
 
-    private fun processWhole(context: Context, source: Mat, photo: Map<*, *>, signature: Map<*, *>): Map<String, Any?> {
-        val page = detectDocument(source)
-        var rectified = if (page != null) warpDocument(source, page) else source.clone()
-        if (rectified.cols() > rectified.rows()) {
-            val rotated = Mat()
-            Core.rotate(rectified, rotated, Core.ROTATE_90_CLOCKWISE)
-            rectified.release()
-            rectified = rotated
-        }
+    // Exact algorithm from form_cropper.py.
+    private fun processWholeForm(
+        context: Context,
+        source: Mat,
+    ): Map<String, Any?> {
+        val h = source.rows()
+        val w = source.cols()
+        val roiStartX = (w * 0.55).toInt().coerceIn(0, w - 1)
+        val roi = source.submat(0, h, roiStartX, w)
 
-        val photoCrop = cropTemplate(rectified, photo, 0.035, 0.035)
-        val signatureCrop = cropTemplate(rectified, signature, 0.035, 0.08)
-        val photoPath = saveJpeg(context, photoCrop, "photo", 40.0, 50.0, 100)
-        val signaturePath = saveJpeg(context, signatureCrop, "signature", 50.0, 20.0, 60)
-        photoCrop.release()
-        signatureCrop.release()
-        rectified.release()
+        try {
+            val boxes = findWholeFormBoxes(roi)
+            val pad = 6
 
-        return mapOf(
-            "photoPath" to photoPath,
-            "signaturePath" to signaturePath,
-            "photoDetected" to (page != null),
-            "signatureDetected" to (page != null),
-            "detector" to if (page != null) "opencv-document-quad" else "template-fallback"
-        )
-    }
-
-    private fun detectDocument(source: Mat): Array<Point>? {
-        val scale = min(1.0, MAX_DETECTION_SIDE.toDouble() / max(source.cols(), source.rows()))
-        val small = Mat()
-        Imgproc.resize(source, small, Size(), scale, scale, Imgproc.INTER_AREA)
-        val gray = Mat()
-        Imgproc.cvtColor(small, gray, Imgproc.COLOR_BGR2GRAY)
-        Imgproc.GaussianBlur(gray, gray, Size(5.0, 5.0), 0.0)
-
-        val variants = ArrayList<Mat>()
-        val canny = Mat()
-        Imgproc.Canny(gray, canny, 35.0, 130.0)
-        val k = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(5.0, 5.0))
-        Imgproc.dilate(canny, canny, k)
-        variants.add(canny)
-
-        val adaptive = Mat()
-        Imgproc.adaptiveThreshold(gray, adaptive, 255.0, Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C, Imgproc.THRESH_BINARY, 31, 7.0)
-        variants.add(adaptive)
-
-        val imageArea = small.cols().toDouble() * small.rows()
-        var best: Array<Point>? = null
-        var bestScore = 0.0
-
-        for (binary in variants) {
-            val contours = ArrayList<MatOfPoint>()
-            Imgproc.findContours(binary, contours, Mat(), Imgproc.RETR_LIST, Imgproc.CHAIN_APPROX_SIMPLE)
-            for (contour in contours) {
-                val area = abs(Imgproc.contourArea(contour))
-                if (area < imageArea * 0.05) {
-                    contour.release()
-                    continue
-                }
-                val curve = MatOfPoint2f(*contour.toArray())
-                val approx = MatOfPoint2f()
-                Imgproc.approxPolyDP(curve, approx, Imgproc.arcLength(curve, true) * 0.018, true)
-                if (approx.total() == 4L) {
-                    val pts = order(approx.toArray())
-                    val convex = Imgproc.isContourConvex(MatOfPoint(*pts))
-                    if (convex) {
-                        val score = documentScore(pts, area, imageArea)
-                        if (score > bestScore) {
-                            bestScore = score
-                            best = pts
-                        }
-                    }
-                }
-                curve.release()
-                approx.release()
-                contour.release()
+            val photoCrop = if (boxes.first != null) {
+                cropWithPadding(roi, boxes.first!!, pad)
+            } else {
+                cropNormalized(source, 0.20, 0.325, 0.75, 0.925, 6)
             }
+
+            val signCrop = if (boxes.second != null) {
+                cropWithPadding(roi, boxes.second!!, pad)
+            } else {
+                cropNormalized(source, 0.373, 0.432, 0.745, 0.930, 7)
+            }
+
+            val photo = enhancePhotoQuality(photoCrop)
+            val sign = enhanceSignQuality(signCrop)
+            photoCrop.release()
+            signCrop.release()
+
+            val photoPath = saveJpeg(context, photo, "photo", 40.0, 50.0, 100)
+            val signPath = saveJpeg(context, sign, "signature", 50.0, 20.0, 60)
+            photo.release()
+            sign.release()
+
+            return mapOf(
+                "photoPath" to photoPath,
+                "signaturePath" to signPath,
+                "photoDetected" to (boxes.first != null),
+                "signatureDetected" to (boxes.second != null),
+                "detector" to "python-form-cropper",
+            )
+        } finally {
+            roi.release()
         }
-
-        variants.forEach { it.release() }
-        k.release()
-        gray.release()
-        small.release()
-
-        return best?.map { Point(it.x / scale, it.y / scale) }?.toTypedArray()
     }
 
-    private fun documentScore(p: Array<Point>, area: Double, imageArea: Double): Double {
-        val tl = p[0]; val tr = p[1]; val br = p[2]; val bl = p[3]
-        val width = (distance(tl, tr) + distance(bl, br)) / 2.0
-        val height = (distance(tl, bl) + distance(tr, br)) / 2.0
-        if (width <= 0 || height <= 0) return 0.0
-        val ratio = width / height
-        val ratioQuality = 1.0 - min(1.0, abs(ratio - 0.7071) / 0.55)
-        val angleQuality = 1.0 - min(1.0, max(max(cosine(tl, tr, br), cosine(tr, br, bl)), max(cosine(br, bl, tl), cosine(bl, tl, tr))) / 0.55)
-        val areaRatio = area / imageArea
-        return areaRatio * 0.55 + angleQuality * 0.30 + ratioQuality * 0.15
-    }
-
-    private fun warpDocument(source: Mat, points: Array<Point>): Mat {
-        val p = order(points)
-        val width = max(distance(p[0], p[1]), distance(p[3], p[2]))
-        val height = max(distance(p[0], p[3]), distance(p[1], p[2]))
-        val maxSide = 2200.0
-        val scale = min(1.0, maxSide / max(width, height))
-        val outW = max(1000, (width * scale).toInt())
-        val outH = max(1400, (height * scale).toInt())
-        val srcPts = MatOfPoint2f(*p)
-        val dstPts = MatOfPoint2f(Point(0.0, 0.0), Point(outW - 1.0, 0.0), Point(outW - 1.0, outH - 1.0), Point(0.0, outH - 1.0))
-        val matrix = Imgproc.getPerspectiveTransform(srcPts, dstPts)
-        val out = Mat()
-        Imgproc.warpPerspective(source, out, matrix, Size(outW.toDouble(), outH.toDouble()), Imgproc.INTER_CUBIC, Core.BORDER_REPLICATE)
-        srcPts.release(); dstPts.release(); matrix.release()
-        return out
-    }
-
-    private fun cropTemplate(image: Mat, region: Map<*, *>, xInset: Double, yInset: Double): Mat {
-        val left = number(region["left"], 0.746)
-        val top = number(region["top"], 0.190)
-        val width = number(region["width"], 0.193)
-        val height = number(region["height"], 0.169)
-
-        val x = (image.cols() * left).toInt().coerceIn(0, image.cols() - 2)
-        val y = (image.rows() * top).toInt().coerceIn(0, image.rows() - 2)
-        val w = (image.cols() * width).toInt().coerceAtLeast(10).coerceAtMost(image.cols() - x)
-        val h = (image.rows() * height).toInt().coerceAtLeast(10).coerceAtMost(image.rows() - y)
-        val ix = (w * xInset).toInt()
-        val iy = (h * yInset).toInt()
-        val x1 = (x + ix).coerceAtMost(image.cols() - 1)
-        val y1 = (y + iy).coerceAtMost(image.rows() - 1)
-        val x2 = (x + w - ix).coerceIn(x1 + 1, image.cols())
-        val y2 = (y + h - iy).coerceIn(y1 + 1, image.rows())
-        return image.submat(y1, y2, x1, x2).clone()
-    }
-
-    private fun processClose(context: Context, source: Mat, targetRatio: Double, widthMm: Double, heightMm: Double, maxKb: Int, prefix: String): Map<String, Any?> {
-        val quad = detectCloseRectangle(source, targetRatio)
-        val crop = if (quad != null) perspectiveCrop(source, quad, targetRatio) else centerCrop(source, targetRatio)
-        val path = saveJpeg(context, crop, prefix, widthMm, heightMm, maxKb)
-        crop.release()
-        return mapOf(
-            "photoPath" to if (prefix == "photo") path else null,
-            "signaturePath" to if (prefix == "signature") path else null,
-            "photoDetected" to (prefix == "photo" && quad != null),
-            "signatureDetected" to (prefix == "signature" && quad != null),
-            "detector" to if (quad != null) "opencv-close-rectangle" else "center-fallback"
-        )
-    }
-
-    private fun detectCloseRectangle(source: Mat, targetRatio: Double): Array<Point>? {
-        val scale = min(1.0, 1800.0 / max(source.cols(), source.rows()))
-        val small = Mat()
-        Imgproc.resize(source, small, Size(), scale, scale, Imgproc.INTER_AREA)
+    // Returns photo box and signature box independently, selecting the
+    // largest matching contour exactly as form_cropper.py does.
+    private fun findWholeFormBoxes(roi: Mat): Pair<Rect?, Rect?> {
         val gray = Mat()
-        Imgproc.cvtColor(small, gray, Imgproc.COLOR_BGR2GRAY)
-        Imgproc.GaussianBlur(gray, gray, Size(5.0, 5.0), 0.0)
+        val blurred = Mat()
+        val threshold = Mat()
 
-        val edge = Mat()
-        Imgproc.Canny(gray, edge, 25.0, 110.0)
-        val kernel = Imgproc.getStructuringElement(
-            Imgproc.MORPH_RECT,
-            Size(3.0, 3.0),
+        Imgproc.cvtColor(roi, gray, Imgproc.COLOR_BGR2GRAY)
+        Imgproc.GaussianBlur(gray, blurred, Size(5.0, 5.0), 0.0)
+        Imgproc.adaptiveThreshold(
+            blurred, threshold, 255.0,
+            Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
+            Imgproc.THRESH_BINARY_INV,
+            15, 5.0,
         )
-        Imgproc.morphologyEx(edge, edge, Imgproc.MORPH_CLOSE, kernel)
 
         val contours = ArrayList<MatOfPoint>()
         Imgproc.findContours(
-            edge,
-            contours,
-            Mat(),
-            Imgproc.RETR_LIST,
+            threshold, contours, Mat(),
+            Imgproc.RETR_EXTERNAL,
             Imgproc.CHAIN_APPROX_SIMPLE,
         )
 
-        val imageArea = small.cols().toDouble() * small.rows()
-        var best: Array<Point>? = null
-        var bestScore = 0.0
+        val minArea = roi.rows().toDouble() * roi.cols().toDouble() * 0.05
+        var photo: Rect? = null
+        var sign: Rect? = null
+        var maxPhotoArea = 0.0
+        var maxSignArea = 0.0
 
         for (contour in contours) {
-            val area = abs(Imgproc.contourArea(contour))
-            val areaRatio = area / imageArea
+            val box = Imgproc.boundingRect(contour)
+            val area = box.width.toDouble() * box.height.toDouble()
 
-            // Ignore the whole paper/background. A close photo/signature should
-            // be a smaller rectangle inside the captured image.
-            if (areaRatio < 0.01 || areaRatio > 0.65) {
-                contour.release()
-                continue
-            }
+            if (area > minArea && box.height > 0) {
+                val ratio = box.width.toDouble() / box.height.toDouble()
 
-            val curve = MatOfPoint2f(*contour.toArray())
-            val approx = MatOfPoint2f()
-            Imgproc.approxPolyDP(
-                curve,
-                approx,
-                Imgproc.arcLength(curve, true) * 0.018,
-                true,
-            )
-
-            if (approx.total() == 4L) {
-                val pts = order(approx.toArray())
-                val intPts = MatOfPoint(*pts)
-
-                if (Imgproc.isContourConvex(intPts)) {
-                    val w = (distance(pts[0], pts[1]) + distance(pts[3], pts[2])) / 2.0
-                    val h = (distance(pts[0], pts[3]) + distance(pts[1], pts[2])) / 2.0
-
-                    if (w > 60 && h > 40) {
-                        val ratio = w / h
-                        val ratioError = abs(ratio - targetRatio) / targetRatio
-
-                        // The photo is portrait (0.8), while the full A4 sheet
-                        // is about 0.707. Use a tighter ratio score so the page
-                        // border is not mistaken for the photo.
-                        val ratioScore = max(
-                            0.0,
-                            1.0 - ratioError / 0.35,
-                        )
-
-                        val perimeter = Imgproc.arcLength(curve, true)
-                        val rectangularArea = w * h
-                        val rectangularity = if (rectangularArea > 0.0) {
-                            min(1.0, area / rectangularArea)
-                        } else {
-                            0.0
-                        }
-
-                        // Prefer a clear internal rectangle with the expected
-                        // photo/signature aspect ratio. Avoid simply choosing
-                        // the largest contour.
-                        val sizeScore = when {
-                            areaRatio in 0.02..0.30 -> 1.0
-                            areaRatio < 0.02 -> areaRatio / 0.02
-                            else -> max(0.0, 1.0 - (areaRatio - 0.30) / 0.35)
-                        }
-
-                        val score =
-                            ratioScore * 0.55 +
-                            rectangularity * 0.20 +
-                            sizeScore * 0.25
-
-                        if (score > bestScore) {
-                            bestScore = score
-                            best = pts.map {
-                                Point(it.x / scale, it.y / scale)
-                            }.toTypedArray()
-                        }
-                    }
+                if (
+                    box.width > roi.cols() * 0.30 &&
+                    box.height > roi.rows() * 0.10 &&
+                    ratio > 0.6 && ratio < 1.0 &&
+                    area > maxPhotoArea
+                ) {
+                    maxPhotoArea = area
+                    photo = Rect(box.x, box.y, box.width, box.height)
                 }
 
-                intPts.release()
+                if (
+                    box.width > roi.cols() * 0.30 &&
+                    box.height > roi.rows() * 0.04 &&
+                    ratio > 1.8 && ratio < 3.2 &&
+                    area > maxSignArea
+                ) {
+                    maxSignArea = area
+                    sign = Rect(box.x, box.y, box.width, box.height)
+                }
             }
-
-            curve.release()
-            approx.release()
             contour.release()
         }
 
-        edge.release()
-        kernel.release()
         gray.release()
-        small.release()
+        blurred.release()
+        threshold.release()
 
-        return if (bestScore >= 0.50) best else null
+        return Pair(photo, sign)
     }
 
-    private fun perspectiveCrop(source: Mat, points: Array<Point>, targetRatio: Double): Mat {
-        val p = order(points)
-        val rawW = max(distance(p[0], p[1]), distance(p[3], p[2]))
-        val rawH = max(distance(p[0], p[3]), distance(p[1], p[2]))
-        var outW = max(300, rawW.toInt())
-        var outH = max(200, rawH.toInt())
-        if (outW.toDouble() / outH > targetRatio) outH = max(1, (outW / targetRatio).toInt()) else outW = max(1, (outH * targetRatio).toInt())
+    // Exact algorithm from close_up_cropping.py / bulk_folder_cropper.py.
+    private fun processCloseUp(
+        context: Context,
+        source: Mat,
+        isPhoto: Boolean,
+    ): Map<String, Any?> {
+        val boxes = findCloseUpBoxes(source)
 
-        val srcPts = MatOfPoint2f(*p)
-        val dstPts = MatOfPoint2f(Point(0.0, 0.0), Point(outW - 1.0, 0.0), Point(outW - 1.0, outH - 1.0), Point(0.0, outH - 1.0))
-        val matrix = Imgproc.getPerspectiveTransform(srcPts, dstPts)
-        val out = Mat()
-        Imgproc.warpPerspective(source, out, matrix, Size(outW.toDouble(), outH.toDouble()), Imgproc.INTER_CUBIC, Core.BORDER_REPLICATE)
-        srcPts.release(); dstPts.release(); matrix.release()
-        val ix = max(1, (out.cols() * 0.035).toInt())
-        val iy = max(1, (out.rows() * 0.035).toInt())
-        val cropped = out.submat(iy, max(iy + 1, out.rows() - iy), ix, max(ix + 1, out.cols() - ix)).clone()
-        out.release()
-        return cropped
+        if (boxes.size < 2) {
+            val ratio = if (isPhoto) 0.8 else 2.5
+            val crop = centerCrop(source, ratio)
+
+            if (isPhoto) {
+                val clean = removeBlackBorderLines(crop)
+                val finalImage = enhanceCloseUpPhoto(clean)
+                clean.release()
+                crop.release()
+
+                val path = saveJpeg(context, finalImage, "photo", 40.0, 50.0, 100)
+                finalImage.release()
+
+                return mapOf(
+                    "photoPath" to path,
+                    "signaturePath" to null,
+                    "photoDetected" to false,
+                    "signatureDetected" to false,
+                    "detector" to "python-close-up-fallback",
+                )
+            }
+
+            val clean = removeBlackBorderLines(crop)
+            val finalImage = enhanceCloseUpSignature(clean)
+            clean.release()
+            crop.release()
+
+            val path = saveJpeg(context, finalImage, "signature", 50.0, 20.0, 60)
+            finalImage.release()
+
+            return mapOf(
+                "photoPath" to null,
+                "signaturePath" to path,
+                "photoDetected" to false,
+                "signatureDetected" to false,
+                "detector" to "python-close-up-fallback",
+            )
+        }
+
+        // Python uses valid_boxes[0] as photo and valid_boxes[1] as sign.
+        if (isPhoto) {
+            val crop = cropWithPadding(source, boxes[0], 8)
+            val clean = removeBlackBorderLines(crop)
+            val finalImage = enhanceCloseUpPhoto(clean)
+            clean.release()
+            crop.release()
+
+            val path = saveJpeg(context, finalImage, "photo", 40.0, 50.0, 100)
+            finalImage.release()
+
+            return mapOf(
+                "photoPath" to path,
+                "signaturePath" to null,
+                "photoDetected" to true,
+                "signatureDetected" to true,
+                "detector" to "python-close-up",
+            )
+        }
+
+        val crop = cropWithPadding(source, boxes[1], 8)
+        val clean = removeBlackBorderLines(crop)
+        val finalImage = enhanceCloseUpSignature(clean)
+        clean.release()
+        crop.release()
+
+        val path = saveJpeg(context, finalImage, "signature", 50.0, 20.0, 60)
+        finalImage.release()
+
+        return mapOf(
+            "photoPath" to null,
+            "signaturePath" to path,
+            "photoDetected" to true,
+            "signatureDetected" to true,
+            "detector" to "python-close-up",
+        )
+    }
+
+    private fun findCloseUpBoxes(source: Mat): List<Rect> {
+        val gray = Mat()
+        val blurred = Mat()
+        val threshold = Mat()
+
+        Imgproc.cvtColor(source, gray, Imgproc.COLOR_BGR2GRAY)
+        Imgproc.GaussianBlur(gray, blurred, Size(5.0, 5.0), 0.0)
+        Imgproc.adaptiveThreshold(
+            blurred, threshold, 255.0,
+            Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
+            Imgproc.THRESH_BINARY_INV,
+            15, 5.0,
+        )
+
+        val contours = ArrayList<MatOfPoint>()
+        Imgproc.findContours(
+            threshold, contours, Mat(),
+            Imgproc.RETR_EXTERNAL,
+            Imgproc.CHAIN_APPROX_SIMPLE,
+        )
+
+        val minArea = source.rows().toDouble() * source.cols().toDouble() * 0.05
+        val boxes = ArrayList<Rect>()
+
+        for (contour in contours) {
+            val box = Imgproc.boundingRect(contour)
+            val area = box.width.toDouble() * box.height.toDouble()
+            if (area > minArea) {
+                boxes.add(Rect(box.x, box.y, box.width, box.height))
+            }
+            contour.release()
+        }
+
+        gray.release()
+        blurred.release()
+        threshold.release()
+
+        // Python: sorted(valid_boxes, key=lambda b: b), where tuple starts y,x.
+        return boxes.sortedWith(
+            compareBy<Rect> { it.y }
+                .thenBy { it.x }
+                .thenBy { it.width }
+                .thenBy { it.height }
+        )
+    }
+
+    // Exact form_cropper.py photo enhancement.
+    private fun enhancePhotoQuality(cropped: Mat): Mat {
+        val enlarged = Mat()
+        Imgproc.resize(
+            cropped, enlarged, Size(),
+            2.0, 2.0, Imgproc.INTER_LANCZOS4,
+        )
+
+        val blur = Mat()
+        Imgproc.GaussianBlur(enlarged, blur, Size(), 2.0)
+
+        val sharpened = Mat()
+        Core.addWeighted(enlarged, 1.8, blur, -0.8, 0.0, sharpened)
+
+        val finalPhoto = Mat()
+        sharpened.convertTo(finalPhoto, -1, 1.05, 2.0)
+
+        enlarged.release()
+        blur.release()
+        sharpened.release()
+        return finalPhoto
+    }
+
+    // Exact form_cropper.py signature enhancement.
+    private fun enhanceSignQuality(cropped: Mat): Mat {
+        val enlarged = Mat()
+        Imgproc.resize(
+            cropped, enlarged, Size(),
+            2.0, 2.0, Imgproc.INTER_CUBIC,
+        )
+
+        val gray = Mat()
+        Imgproc.cvtColor(enlarged, gray, Imgproc.COLOR_BGR2GRAY)
+
+        val clean = Mat()
+        Imgproc.adaptiveThreshold(
+            gray, clean, 255.0,
+            Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
+            Imgproc.THRESH_BINARY,
+            25, 12.0,
+        )
+
+        val result = Mat()
+        Imgproc.cvtColor(clean, result, Imgproc.COLOR_GRAY2BGR)
+
+        enlarged.release()
+        gray.release()
+        clean.release()
+        return result
+    }
+
+    // Exact close_up_cropping.py / bulk_folder_cropper.py photo sharpening.
+    private fun enhanceCloseUpPhoto(cropped: Mat): Mat {
+        val kernel = Mat(3, 3, CvType.CV_32F)
+        kernel.put(
+            0, 0,
+            0.0, -0.5, 0.0,
+            -0.5, 3.0, -0.5,
+            0.0, -0.5, 0.0,
+        )
+
+        val result = Mat()
+        Imgproc.filter2D(cropped, result, -1, kernel)
+        kernel.release()
+        return result
+    }
+
+    private fun enhanceCloseUpSignature(cropped: Mat): Mat {
+        val gray = Mat()
+        Imgproc.cvtColor(cropped, gray, Imgproc.COLOR_BGR2GRAY)
+
+        val clean = Mat()
+        Imgproc.adaptiveThreshold(
+            gray, clean, 255.0,
+            Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
+            Imgproc.THRESH_BINARY,
+            25, 12.0,
+        )
+
+        val result = Mat()
+        Imgproc.cvtColor(clean, result, Imgproc.COLOR_GRAY2BGR)
+
+        gray.release()
+        clean.release()
+        return result
+    }
+
+    // Exact border cleanup used by both close-up Python scripts.
+    private fun removeBlackBorderLines(crop: Mat): Mat {
+        val gray = Mat()
+        Imgproc.cvtColor(crop, gray, Imgproc.COLOR_BGR2GRAY)
+
+        val threshold = Mat()
+        Imgproc.threshold(
+            gray, threshold, 60.0, 255.0, Imgproc.THRESH_BINARY_INV,
+        )
+
+        val h = threshold.rows()
+        val w = threshold.cols()
+        var top = 0
+        var bottom = h
+        var left = 0
+        var right = w
+
+        for (r in 0 until min(12, h)) {
+            if (blackRowCount(threshold, r) > w * 0.15) top = r + 1
+        }
+        for (r in h - 1 downTo max(h - 12, 0)) {
+            if (blackRowCount(threshold, r) > w * 0.15) bottom = r
+        }
+        for (c in 0 until min(12, w)) {
+            if (blackColumnCount(threshold, c) > h * 0.15) left = c + 1
+        }
+        for (c in w - 1 downTo max(w - 12, 0)) {
+            if (blackColumnCount(threshold, c) > h * 0.15) right = c
+        }
+
+        gray.release()
+        threshold.release()
+
+        val x1 = left.coerceIn(0, w - 1)
+        val y1 = top.coerceIn(0, h - 1)
+        val x2 = right.coerceIn(x1 + 1, w)
+        val y2 = bottom.coerceIn(y1 + 1, h)
+        return crop.submat(y1, y2, x1, x2).clone()
+    }
+
+    private fun blackRowCount(binary: Mat, row: Int): Int {
+        var count = 0
+        for (x in 0 until binary.cols()) {
+            if (binary.get(row, x)[0] > 0.0) count++
+        }
+        return count
+    }
+
+    private fun blackColumnCount(binary: Mat, col: Int): Int {
+        var count = 0
+        for (y in 0 until binary.rows()) {
+            if (binary.get(y, col)[0] > 0.0) count++
+        }
+        return count
+    }
+
+    private fun cropWithPadding(source: Mat, box: Rect, pad: Int): Mat {
+        val x1 = (box.x + pad).coerceIn(0, source.cols() - 1)
+        val y1 = (box.y + pad).coerceIn(0, source.rows() - 1)
+        val x2 = (box.x + box.width - pad).coerceIn(x1 + 1, source.cols())
+        val y2 = (box.y + box.height - pad).coerceIn(y1 + 1, source.rows())
+        return source.submat(y1, y2, x1, x2).clone()
+    }
+
+    // left/top/right/bottom are normalized coordinates.
+    private fun cropNormalized(
+        source: Mat,
+        top: Double,
+        bottom: Double,
+        left: Double,
+        right: Double,
+        pad: Int,
+    ): Mat {
+        val x1 = (source.cols() * left).toInt() + pad
+        val y1 = (source.rows() * top).toInt() + pad
+        val x2 = (source.cols() * right).toInt() - pad
+        val y2 = (source.rows() * bottom).toInt() - pad
+
+        val sx1 = x1.coerceIn(0, source.cols() - 1)
+        val sy1 = y1.coerceIn(0, source.rows() - 1)
+        val sx2 = x2.coerceIn(sx1 + 1, source.cols())
+        val sy2 = y2.coerceIn(sy1 + 1, source.rows())
+
+        return source.submat(sy1, sy2, sx1, sx2).clone()
     }
 
     private fun centerCrop(source: Mat, targetRatio: Double): Mat {
-        var w = source.cols()
-        var h = (w / targetRatio).toInt()
-        if (h > source.rows()) {
-            h = source.rows()
-            w = (h * targetRatio).toInt()
+        var width = source.cols()
+        var height = (width / targetRatio).toInt()
+
+        if (height > source.rows()) {
+            height = source.rows()
+            width = (height * targetRatio).toInt()
         }
-        val x = max(0, (source.cols() - w) / 2)
-        val y = max(0, (source.rows() - h) / 2)
-        return source.submat(y, min(source.rows(), y + h), x, min(source.cols(), x + w)).clone()
+
+        val x = max(0, (source.cols() - width) / 2)
+        val y = max(0, (source.rows() - height) / 2)
+
+        return source.submat(
+            y,
+            min(source.rows(), y + height),
+            x,
+            min(source.cols(), x + width),
+        ).clone()
     }
 
-    private fun saveJpeg(context: Context, source: Mat, prefix: String, widthMm: Double, heightMm: Double, maxKb: Int): String {
+    private fun saveJpeg(
+        context: Context,
+        source: Mat,
+        prefix: String,
+        widthMm: Double,
+        heightMm: Double,
+        maxKb: Int,
+    ): String {
         val targetW = max(1, (widthMm / 25.4 * 300.0).toInt())
         val targetH = max(1, (heightMm / 25.4 * 300.0).toInt())
+
         val resized = Mat()
-        Imgproc.resize(source, resized, Size(targetW.toDouble(), targetH.toDouble()), 0.0, 0.0, Imgproc.INTER_LANCZOS4)
+        Imgproc.resize(
+            source,
+            resized,
+            Size(targetW.toDouble(), targetH.toDouble()),
+            0.0,
+            0.0,
+            Imgproc.INTER_LANCZOS4,
+        )
 
         var low = 45
         var high = 95
         var best: ByteArray? = null
+
         while (low <= high) {
-            val q = (low + high) / 2
+            val quality = (low + high) / 2
             val buffer = MatOfByte()
-            val params = org.opencv.core.MatOfInt(Imgcodecs.IMWRITE_JPEG_QUALITY, q)
+            val params = MatOfInt(Imgcodecs.IMWRITE_JPEG_QUALITY, quality)
             Imgcodecs.imencode(".jpg", resized, buffer, params)
             val bytes = buffer.toArray()
-            buffer.release(); params.release()
+            buffer.release()
+            params.release()
+
             if (bytes.size <= maxKb * 1024) {
                 best = bytes
-                low = q + 1
-            } else high = q - 1
+                low = quality + 1
+            } else {
+                high = quality - 1
+            }
         }
+
         if (best == null) {
             val buffer = MatOfByte()
-            val params = org.opencv.core.MatOfInt(Imgcodecs.IMWRITE_JPEG_QUALITY, 45)
+            val params = MatOfInt(Imgcodecs.IMWRITE_JPEG_QUALITY, 45)
             Imgcodecs.imencode(".jpg", resized, buffer, params)
             best = buffer.toArray()
-            buffer.release(); params.release()
+            buffer.release()
+            params.release()
         }
 
-        val dir = File(context.cacheDir, "formsnap_outputs")
-        dir.mkdirs()
-        val file = File(dir, prefix + "_" + System.currentTimeMillis() + ".jpg")
-        FileOutputStream(file).use { it.write(best) }
+        val outputDir = File(context.cacheDir, "formsnap_outputs")
+        outputDir.mkdirs()
+        val output = File(
+            outputDir,
+            prefix + "_" + System.currentTimeMillis() + ".jpg",
+        )
+
+        FileOutputStream(output).use { it.write(best) }
         resized.release()
-        return file.absolutePath
+        return output.absolutePath
     }
-
-    private fun order(points: Array<Point>): Array<Point> {
-        require(points.size == 4)
-        var tl = points[0]; var tr = points[0]; var br = points[0]; var bl = points[0]
-        var minSum = Double.POSITIVE_INFINITY; var maxSum = Double.NEGATIVE_INFINITY
-        var minDiff = Double.POSITIVE_INFINITY; var maxDiff = Double.NEGATIVE_INFINITY
-        for (p in points) {
-            val sum = p.x + p.y
-            val diff = p.y - p.x
-            if (sum < minSum) { minSum = sum; tl = p }
-            if (sum > maxSum) { maxSum = sum; br = p }
-            if (diff < minDiff) { minDiff = diff; tr = p }
-            if (diff > maxDiff) { maxDiff = diff; bl = p }
-        }
-        return arrayOf(tl, tr, br, bl)
-    }
-
-    private fun cosine(a: Point, b: Point, c: Point): Double {
-        val abx = a.x - b.x; val aby = a.y - b.y
-        val cbx = c.x - b.x; val cby = c.y - b.y
-        val denom = sqrt((abx * abx + aby * aby) * (cbx * cbx + cby * cby))
-        if (denom == 0.0) return 1.0
-        return abs((abx * cbx + aby * cby) / denom)
-    }
-
-    private fun distance(a: Point, b: Point): Double =
-        sqrt((a.x - b.x).pow(2) + (a.y - b.y).pow(2))
-
-    private fun number(v: Any?, fallback: Double): Double = if (v is Number) v.toDouble() else fallback
 }
