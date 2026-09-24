@@ -13,6 +13,7 @@ import org.opencv.imgcodecs.Imgcodecs
 import org.opencv.imgproc.Imgproc
 import java.io.File
 import java.io.FileOutputStream
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
@@ -119,7 +120,7 @@ object FormSnapOpenCvProcessor {
         val contours = ArrayList<MatOfPoint>()
         Imgproc.findContours(
             threshold, contours, Mat(),
-            Imgproc.RETR_LIST,
+            Imgproc.RETR_EXTERNAL,
             Imgproc.CHAIN_APPROX_SIMPLE,
         )
 
