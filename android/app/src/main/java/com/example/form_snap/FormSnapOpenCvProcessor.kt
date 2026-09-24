@@ -506,7 +506,7 @@ object FormSnapOpenCvProcessor {
             val photoRect = bestPhoto.rect
             val photoCenterX = photoRect.x + photoRect.width / 2.0
 
-            signatureCandidates
+            val detected = signatureCandidates
                 .filter {
                     val r = it.rect
                     val centerX = r.x + r.width / 2.0
@@ -520,10 +520,35 @@ object FormSnapOpenCvProcessor {
                     val r = it.rect
                     val centerX = r.x + r.width / 2.0
                     val horizontalAlignment =
-                        1.0 - min(1.0, abs(centerX - photoCenterX) / max(1.0, photoRect.width.toDouble()))
+                        1.0 - min(1.0, abs(centerX - photoCenterX) /
+                            max(1.0, photoRect.width.toDouble()))
                     it.score + horizontalAlignment * 0.20
                 }
-                ?: signatureCandidates.maxByOrNull { it.score }
+
+            // Under shadows the printed signature rectangle can disappear
+            // from Canny/contour detection. Build a geometry-guided fallback
+            // from the already detected photo and let handwriting evidence
+            // decide whether that region really contains a signature.
+            val predicted = predictedSignatureBox(source, photoRect)
+            val predictedCandidate = predicted?.let { rect ->
+                val ink = signatureInkScore(source, rect)
+                val centerX = rect.x + rect.width / 2.0
+                val horizontalAlignment =
+                    1.0 - min(1.0, abs(centerX - photoCenterX) /
+                        max(1.0, photoRect.width.toDouble()))
+                FieldCandidate(
+                    quad = rectToQuad(rect),
+                    rect = rect,
+                    score = 0.62 + ink * 0.30 + horizontalAlignment * 0.08,
+                )
+            }
+
+            when {
+                detected == null -> predictedCandidate
+                predictedCandidate == null -> detected
+                predictedCandidate.score > detected.score + 0.08 -> predictedCandidate
+                else -> detected
+            }
         } else {
             signatureCandidates.maxByOrNull { it.score }
         }
@@ -533,6 +558,29 @@ object FormSnapOpenCvProcessor {
             signature = signature,
         )
     }
+
+    private fun predictedSignatureBox(source: Mat, photo: Rect): Rect? {
+        // The signature box on this template is wider than the photo and sits
+        // immediately below it. Keep generous margins so handwriting is not cut.
+        val width = (photo.width * 1.25).toInt()
+        val height = (photo.height * 0.42).toInt()
+        if (width < 20 || height < 10) return null
+
+        val centerX = photo.x + photo.width / 2
+        val x = (centerX - width / 2).coerceIn(0, max(0, source.cols() - width))
+        val y = (photo.y + photo.height + photo.height * 0.10).toInt()
+            .coerceIn(0, max(0, source.rows() - height))
+
+        if (x + width > source.cols() || y + height > source.rows()) return null
+        return Rect(x, y, width, height)
+    }
+
+    private fun rectToQuad(rect: Rect): Array<Point> = arrayOf(
+        Point(rect.x.toDouble(), rect.y.toDouble()),
+        Point((rect.x + rect.width).toDouble(), rect.y.toDouble()),
+        Point((rect.x + rect.width).toDouble(), (rect.y + rect.height).toDouble()),
+        Point(rect.x.toDouble(), (rect.y + rect.height).toDouble()),
+    )
 
     // Warp a detected field quadrilateral to a stable, front-facing rectangle.
     // This makes the extraction independent of camera tilt/perspective.
