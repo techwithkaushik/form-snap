@@ -1,3 +1,4 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 package com.example.form_snap
 
 import android.Manifest
@@ -479,7 +480,7 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                         enabled = !processing,
-                        Modifier.fillMaxWidth().height(54.dp),
+                        modifier = Modifier.fillMaxWidth().height(54.dp),
                     ) {
                         if (processing) CircularProgressIndicator(Modifier.size(20.dp))
                         else Text("Extract Photo & Signature")
@@ -584,17 +585,17 @@ class MainActivity : ComponentActivity() {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Photo (mm)", fontWeight = FontWeight.Bold)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(pw, { pw = it }, label = { Text("Width") }, Modifier.weight(1f), singleLine = true)
-                        OutlinedTextField(ph, { ph = it }, label = { Text("Height") }, Modifier.weight(1f), singleLine = true)
+                        OutlinedTextField(value = pw, onValueChange = { value -> pw = value }, modifier = Modifier.weight(1f), label = { Text("Width") }, singleLine = true)
+                        OutlinedTextField(value = ph, onValueChange = { value -> ph = value }, modifier = Modifier.weight(1f), label = { Text("Height") }, singleLine = true)
                     }
                     Text("Signature (mm)", fontWeight = FontWeight.Bold)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(sw, { sw = it }, label = { Text("Width") }, Modifier.weight(1f), singleLine = true)
-                        OutlinedTextField(sh, { sh = it }, label = { Text("Height") }, Modifier.weight(1f), singleLine = true)
+                        OutlinedTextField(value = sw, onValueChange = { value -> sw = value }, modifier = Modifier.weight(1f), label = { Text("Width") }, singleLine = true)
+                        OutlinedTextField(value = sh, onValueChange = { value -> sh = value }, modifier = Modifier.weight(1f), label = { Text("Height") }, singleLine = true)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(dpi, { dpi = it }, label = { Text("DPI") }, Modifier.weight(1f), singleLine = true)
-                        OutlinedTextField(kb, { kb = it }, label = { Text("Max KB") }, Modifier.weight(1f), singleLine = true)
+                        OutlinedTextField(value = dpi, onValueChange = { value -> dpi = value }, modifier = Modifier.weight(1f), label = { Text("DPI") }, singleLine = true)
+                        OutlinedTextField(value = kb, onValueChange = { value -> kb = value }, modifier = Modifier.weight(1f), label = { Text("Max KB") }, singleLine = true)
                     }
                     if (invalid) {
                         Text("Enter valid positive sizes, DPI ≥72 and Max KB between 5 and 200.", color = MaterialTheme.colorScheme.error)
