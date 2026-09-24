@@ -35,6 +35,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.opencv.android.OpenCVLoader
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.util.Locale
 
@@ -52,8 +53,6 @@ private data class OutputSettings(
 private data class Outputs(
     val photo: String? = null,
     val signature: String? = null,
-    val photoDetected: Boolean = false,
-    val signatureDetected: Boolean = false,
 )
 
 class MainActivity : ComponentActivity() {
@@ -66,6 +65,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
+        clearTempFiles()
         setContent { FormSnapTheme { FormSnapApp() } }
     }
 
@@ -312,8 +312,9 @@ class MainActivity : ComponentActivity() {
                 "image/jpeg",
                 name,
             ) ?: return false
-            contentResolver.openOutputStream(target)?.use { it.write(File(path).readBytes()) }
-                ?: return false
+            contentResolver.openOutputStream(target)?.use { output ->
+                FileInputStream(path).use { input -> input.copyTo(output) }
+            } ?: return false
             true
         } catch (_: Throwable) {
             false
@@ -356,8 +357,6 @@ class MainActivity : ComponentActivity() {
         Outputs(
             photo = result["photoPath"] as? String,
             signature = result["signaturePath"] as? String,
-            photoDetected = result["photoDetected"] == true,
-            signatureDetected = result["signatureDetected"] == true,
         )
     }
 
@@ -644,7 +643,7 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun BitmapImage(file: File, modifier: Modifier = Modifier) {
-        val bitmap = remember(file.absolutePath) { decodeSampled(file, 1200) }
+        val bitmap = remember(file.absolutePath) { decodeSampled(file, 900) }
         if (bitmap != null) {
             Image(
                 bitmap.asImageBitmap(),
