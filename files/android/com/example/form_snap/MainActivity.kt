@@ -143,6 +143,19 @@ class FormSnapMainActivity : FlutterActivity() {
 
         try {
             val treeUri = Uri.parse(uriString)
+            if (!DocumentsContract.isTreeUri(treeUri)) {
+                throw IllegalArgumentException("Selected folder permission is invalid. Please choose the folder again.")
+            }
+
+            // Some Downloads/Documents providers reject a tree URI directly
+            // in createDocument(). Convert the persisted tree URI to its
+            // corresponding document URI first.
+            val treeDocumentId = DocumentsContract.getTreeDocumentId(treeUri)
+            val parentDocumentUri = DocumentsContract.buildDocumentUriUsingTree(
+                treeUri,
+                treeDocumentId,
+            )
+
             val mime = when {
                 fileName.endsWith(".jpg", ignoreCase = true) ||
                     fileName.endsWith(".jpeg", ignoreCase = true) -> "image/jpeg"
@@ -152,7 +165,7 @@ class FormSnapMainActivity : FlutterActivity() {
 
             val fileUri = DocumentsContract.createDocument(
                 contentResolver,
-                treeUri,
+                parentDocumentUri,
                 mime,
                 fileName,
             ) ?: throw IllegalStateException("Android could not create " + fileName)
