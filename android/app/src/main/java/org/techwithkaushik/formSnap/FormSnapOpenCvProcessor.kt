@@ -1402,7 +1402,7 @@ object FormSnapOpenCvProcessor {
         val saturationMask = Mat()
         val darkMask = Mat()
         Imgproc.threshold(hsv, saturationMask, 28.0, 255.0, Imgproc.THRESH_BINARY)
-        Imgproc.threshold(gray, darkMask, 175.0, 255.0, Imgproc.THRESH_BINARY_INV)
+        Imgproc.threshold(gray, darkMask, 145.0, 255.0, Imgproc.THRESH_BINARY_INV)
 
         val mask = Mat()
         Core.bitwise_or(saturationMask, darkMask, mask)
