@@ -832,34 +832,63 @@ object FormSnapOpenCvProcessor {
         val gray = Mat()
         Imgproc.cvtColor(cropped, gray, Imgproc.COLOR_BGR2GRAY)
 
+        // Suppress paper/scan speckles before estimating the local background.
+        val denoised = Mat()
+        Imgproc.GaussianBlur(gray, denoised, Size(3.0, 3.0), 0.0)
+
         val background = Mat()
-        Imgproc.GaussianBlur(gray, background, Size(0.0, 0.0), 11.0)
+        Imgproc.GaussianBlur(denoised, background, Size(0.0, 0.0), 13.0)
 
         val diff = Mat()
-        Core.subtract(background, gray, diff)
+        Core.subtract(background, denoised, diff)
 
-        val inkMask = Mat()
-        Imgproc.threshold(diff, inkMask, 4.0, 255.0, Imgproc.THRESH_BINARY)
+        // Keep real pen strokes but reject very small brightness variations.
+        val mask = Mat()
+        Imgproc.threshold(diff, mask, 9.0, 255.0, Imgproc.THRESH_BINARY)
 
-        val k = Imgproc.getStructuringElement(
-            Imgproc.MORPH_ELLIPSE, Size(2.0, 2.0),
+        // Remove isolated paper dust while retaining thin handwritten strokes.
+        val openKernel = Imgproc.getStructuringElement(
+            Imgproc.MORPH_ELLIPSE, Size(3.0, 3.0),
         )
-        Imgproc.morphologyEx(inkMask, inkMask, Imgproc.MORPH_OPEN, k)
-        Imgproc.morphologyEx(inkMask, inkMask, Imgproc.MORPH_CLOSE, k)
+        Imgproc.morphologyEx(mask, mask, Imgproc.MORPH_OPEN, openKernel)
 
-        // Slightly darker paper than before and darker original ink.
-        // This avoids the over-bright signature produced by the old 250-white
-        // canvas while retaining natural handwritten stroke variation.
+        // Remove tiny connected components. Long/large handwritten strokes
+        // survive even when individual strokes are thin.
+        val labels = Mat()
+        val stats = Mat()
+        val centroids = Mat()
+        val count = Imgproc.connectedComponentsWithStats(
+            mask, labels, stats, centroids, 8, CvType.CV_32S,
+        )
+        val cleanMask = Mat.zeros(mask.size(), CvType.CV_8UC1)
+
+        // Rebuild the mask without allocating a per-component comparison
+        // matrix; this is deliberately simple for ARM32 devices.
+        cleanMask.setTo(org.opencv.core.Scalar(0.0))
+        for (i in 1 until count) {
+            val area = stats.get(i, Imgproc.CC_STAT_AREA)[0]
+            val width = stats.get(i, Imgproc.CC_STAT_WIDTH)[0]
+            val height = stats.get(i, Imgproc.CC_STAT_HEIGHT)[0]
+            val keep = area >= 28.0 ||
+                (area >= 10.0 && (width >= 8.0 || height >= 8.0))
+            if (!keep) continue
+
+            val component = Mat()
+            Core.compare(labels, org.opencv.core.Scalar(i.toDouble()), component, Core.CMP_EQ)
+            component.copyTo(cleanMask, component)
+            component.release()
+        }
+
+        // Preserve the natural dark variation of the handwriting rather than
+        // turning it into a harsh binary black/white image.
         val result = Mat(
             gray.size(),
             CvType.CV_8UC1,
-            org.opencv.core.Scalar(248.0),
+            org.opencv.core.Scalar(255.0),
         )
-        val darkerInk = Mat()
-        Core.convertScaleAbs(gray, darkerInk, 0.72, 0.0)
-        darkerInk.copyTo(result, inkMask)
-
-        Imgproc.GaussianBlur(result, result, Size(3.0, 3.0), 0.0)
+        val ink = Mat()
+        Core.convertScaleAbs(gray, ink, 0.82, -8.0)
+        ink.copyTo(result, cleanMask)
 
         val enlarged = Mat()
         Imgproc.resize(
@@ -867,12 +896,17 @@ object FormSnapOpenCvProcessor {
         )
 
         gray.release()
+        denoised.release()
         background.release()
         diff.release()
-        inkMask.release()
-        k.release()
+        mask.release()
+        openKernel.release()
+        labels.release()
+        stats.release()
+        centroids.release()
+        cleanMask.release()
         result.release()
-        darkerInk.release()
+        ink.release()
         return enlarged
     }
 
@@ -895,31 +929,68 @@ object FormSnapOpenCvProcessor {
     private fun enhanceCloseUpSignature(cropped: Mat): Mat {
         val gray = Mat()
         Imgproc.cvtColor(cropped, gray, Imgproc.COLOR_BGR2GRAY)
+
+        val denoised = Mat()
+        Imgproc.GaussianBlur(gray, denoised, Size(3.0, 3.0), 0.0)
+
         val bg = Mat()
-        Imgproc.GaussianBlur(gray, bg, Size(0.0, 0.0), 9.0)
+        Imgproc.GaussianBlur(denoised, bg, Size(0.0, 0.0), 11.0)
+
         val diff = Mat()
-        Core.subtract(bg, gray, diff)
+        Core.subtract(bg, denoised, diff)
+
         val mask = Mat()
-        Imgproc.threshold(diff, mask, 4.0, 255.0, Imgproc.THRESH_BINARY)
+        Imgproc.threshold(diff, mask, 8.0, 255.0, Imgproc.THRESH_BINARY)
+
+        val kernel = Imgproc.getStructuringElement(
+            Imgproc.MORPH_ELLIPSE, Size(3.0, 3.0),
+        )
+        Imgproc.morphologyEx(mask, mask, Imgproc.MORPH_OPEN, kernel)
+
+        val labels = Mat()
+        val stats = Mat()
+        val centroids = Mat()
+        val count = Imgproc.connectedComponentsWithStats(
+            mask, labels, stats, centroids, 8, CvType.CV_32S,
+        )
+        val cleanMask = Mat.zeros(mask.size(), CvType.CV_8UC1)
+
+        for (i in 1 until count) {
+            val area = stats.get(i, Imgproc.CC_STAT_AREA)[0]
+            val width = stats.get(i, Imgproc.CC_STAT_WIDTH)[0]
+            val height = stats.get(i, Imgproc.CC_STAT_HEIGHT)[0]
+            if (area < 28.0 && (width < 8.0 && height < 8.0)) continue
+
+            val component = Mat()
+            Core.compare(labels, org.opencv.core.Scalar(i.toDouble()), component, Core.CMP_EQ)
+            component.copyTo(cleanMask, component)
+            component.release()
+        }
 
         val result = Mat(
             gray.size(),
             CvType.CV_8UC1,
-            org.opencv.core.Scalar(248.0),
+            org.opencv.core.Scalar(255.0),
         )
-        val darkerInk = Mat()
-        Core.convertScaleAbs(gray, darkerInk, 0.72, 0.0)
-        darkerInk.copyTo(result, mask)
-        Imgproc.GaussianBlur(result, result, Size(3.0, 3.0), 0.0)
+        val ink = Mat()
+        Core.convertScaleAbs(gray, ink, 0.82, -8.0)
+        ink.copyTo(result, cleanMask)
 
         val bgr = Mat()
         Imgproc.cvtColor(result, bgr, Imgproc.COLOR_GRAY2BGR)
+
         gray.release()
+        denoised.release()
         bg.release()
         diff.release()
         mask.release()
+        kernel.release()
+        labels.release()
+        stats.release()
+        centroids.release()
+        cleanMask.release()
         result.release()
-        darkerInk.release()
+        ink.release()
         return bgr
     }
 
