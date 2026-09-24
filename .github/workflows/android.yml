@@ -26,6 +26,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '9.6.0'
+          cache-provider: enhanced
 
       - name: Decode Keystore
         id: keystore
@@ -43,7 +44,7 @@ jobs:
           SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
         run: |
           set -e
-          gradle :app:assembleRelease --no-daemon
+          gradle :app:assembleRelease --no-daemon --build-cache
 
       - name: Verify APK
         if: github.event_name == 'push'
