@@ -75,10 +75,16 @@ object FormSnapOpenCvProcessor {
             cropNormalized(source, 0.373, 0.432, 0.745, 0.930, 7)
         }
 
-        val photo = enhancePhotoQuality(photoCrop)
-        val sign = enhanceSignQuality(signCrop)
+        // The detector returns the printed frame. Trim the remaining frame
+        // line before enhancement so the saved output contains only the image/sign.
+        val photoClean = trimPrintedFrame(photoCrop, 10)
+        val signClean = trimPrintedFrame(signCrop, 10)
+        val photo = enhancePhotoQuality(photoClean)
+        val sign = enhanceSignQuality(signClean)
         photoCrop.release()
         signCrop.release()
+        photoClean.release()
+        signClean.release()
 
         val photoPath = saveJpeg(context, photo, "photo", 40.0, 50.0, 50)
         val signPath = saveJpeg(context, sign, "signature", 50.0, 20.0, 50)
@@ -252,18 +258,20 @@ object FormSnapOpenCvProcessor {
         }
 
         val crop = cropWithPadding(source, box, if (isPhoto) 10 else 8)
+        val frameClean = trimPrintedFrame(crop, 10)
         val finalImage = if (isPhoto) {
-            val clean = removeBlackBorderLines(crop)
+            val clean = removeBlackBorderLines(frameClean)
             val result = enhanceCloseUpPhoto(clean)
             clean.release()
             result
         } else {
-            val clean = removeBlackBorderLines(crop)
+            val clean = removeBlackBorderLines(frameClean)
             val result = enhanceCloseUpSignature(clean)
             clean.release()
             result
         }
         crop.release()
+        frameClean.release()
 
         val path = if (isPhoto) {
             saveJpeg(context, finalImage, "photo", 40.0, 50.0, 50)
@@ -382,32 +390,139 @@ object FormSnapOpenCvProcessor {
         return finalPhoto
     }
 
-    // Exact form_cropper.py signature enhancement.
+    // Signature is deliberately cleaned as ink-on-white instead of keeping
+    // the photographed paper texture. Small isolated dust/noise components
+    // are removed, while the connected handwritten strokes are preserved.
     private fun enhanceSignQuality(cropped: Mat): Mat {
-        val enlarged = Mat()
-        Imgproc.resize(
-            cropped, enlarged, Size(),
-            2.0, 2.0, Imgproc.INTER_CUBIC,
-        )
-
         val gray = Mat()
-        Imgproc.cvtColor(enlarged, gray, Imgproc.COLOR_BGR2GRAY)
+        Imgproc.cvtColor(cropped, gray, Imgproc.COLOR_BGR2GRAY)
+        Imgproc.GaussianBlur(gray, gray, Size(3.0, 3.0), 0.0)
 
-        val clean = Mat()
+        val binary = Mat()
         Imgproc.adaptiveThreshold(
-            gray, clean, 255.0,
+            gray, binary, 255.0,
             Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
             Imgproc.THRESH_BINARY,
-            25, 12.0,
+            51, 10.0,
         )
 
-        val result = Mat()
-        Imgproc.cvtColor(clean, result, Imgproc.COLOR_GRAY2BGR)
+        val ink = Mat()
+        Core.bitwise_not(binary, ink)
 
-        enlarged.release()
+        // Remove tiny isolated marks before enlarging. The actual handwriting
+        // strokes are much larger connected components.
+        val labels = Mat()
+        val stats = Mat()
+        val centroids = Mat()
+        Imgproc.connectedComponentsWithStats(
+            ink, labels, stats, centroids, 8, CvType.CV_32S,
+        )
+
+        val filtered = Mat.zeros(ink.size(), CvType.CV_8UC1)
+        val minComponentArea = 20
+        for (label in 1 until stats.rows()) {
+            val area = stats.get(label, Imgproc.CC_STAT_AREA)[0].toInt()
+            if (area >= minComponentArea) {
+                val mask = Mat()
+                Core.compare(
+                    labels,
+                    Mat.ones(labels.size(), labels.type()).apply {
+                        setTo(org.opencv.core.Scalar(label.toDouble()))
+                    },
+                    mask,
+                    Core.CMP_EQ,
+                )
+                filtered.setTo(org.opencv.core.Scalar(255.0), mask)
+                mask.release()
+            }
+        }
+
+        // Keep the signature compact and centered. A fixed 2.5:1 canvas matches
+        // the required 50 x 20 mm output without stretching the handwriting.
+        val points = MatOfPoint()
+        val contours = ArrayList<MatOfPoint>()
+        Imgproc.findContours(
+            filtered.clone(),
+            contours,
+            Mat(),
+            Imgproc.RETR_EXTERNAL,
+            Imgproc.CHAIN_APPROX_SIMPLE,
+        )
+
+        var union: Rect? = null
+        for (contour in contours) {
+            val rect = Imgproc.boundingRect(contour)
+            union = if (union == null) {
+                rect
+            } else {
+                val current = union!!
+                val x1 = min(current.x, rect.x)
+                val y1 = min(current.y, rect.y)
+                val x2 = max(current.x + current.width, rect.x + rect.width)
+                val y2 = max(current.y + current.height, rect.y + rect.height)
+                Rect(x1, y1, x2 - x1, y2 - y1)
+            }
+            contour.release()
+        }
+
+        val resultGray = if (union != null) {
+            val r = union!!
+            val margin = max(6, min(r.width, r.height) / 12)
+            val x1 = (r.x - margin).coerceIn(0, filtered.cols() - 1)
+            val y1 = (r.y - margin).coerceIn(0, filtered.rows() - 1)
+            val x2 = (r.x + r.width + margin).coerceIn(x1 + 1, filtered.cols())
+            val y2 = (r.y + r.height + margin).coerceIn(y1 + 1, filtered.rows())
+            filtered.submat(y1, y2, x1, x2).clone()
+        } else {
+            Mat.ones(80, 200, CvType.CV_8UC1).apply {
+                Core.multiply(this, org.opencv.core.Scalar(255.0), this)
+            }
+        }
+
+        val contentW = resultGray.cols()
+        val contentH = resultGray.rows()
+        val canvasW = max(contentW, (contentH * 2.5).toInt())
+        val canvasH = max(contentH, (canvasW / 2.5).toInt())
+
+        val canvas = Mat(
+            canvasH,
+            canvasW,
+            CvType.CV_8UC1,
+            org.opencv.core.Scalar(255.0),
+        )
+        val offsetX = (canvasW - contentW) / 2
+        val offsetY = (canvasH - contentH) / 2
+        val target = canvas.submat(
+            offsetY,
+            offsetY + contentH,
+            offsetX,
+            offsetX + contentW,
+        )
+        resultGray.copyTo(target)
+        target.release()
+
+        // filtered is white ink on black; convert to the required black ink
+        // on white background before final resize.
+        Core.bitwise_not(canvas, canvas)
+
+        val enlarged = Mat()
+        Imgproc.resize(
+            canvas, enlarged, Size(),
+            2.0, 2.0, Imgproc.INTER_LANCZOS4,
+        )
+
         gray.release()
-        clean.release()
-        return result
+        binary.release()
+        ink.release()
+        labels.release()
+        stats.release()
+        centroids.release()
+        filtered.release()
+        resultGray.release()
+        canvas.release()
+        points.release()
+
+        return enlarged
     }
 
     // Exact close_up_cropping.py / bulk_folder_cropper.py photo sharpening.
@@ -500,6 +615,20 @@ object FormSnapOpenCvProcessor {
             if (binary.get(y, col)[0] > 0.0) count++
         }
         return count
+    }
+
+    // The printed photo/signature frame can remain inside the detected
+    // bounding rectangle. Remove a small safety inset from every side before
+    // enhancement; this is intentionally shared by whole-form and close-up
+    // capture so both camera and imported images behave identically.
+    private fun trimPrintedFrame(crop: Mat, inset: Int): Mat {
+        val safeX = min(inset, max(0, (crop.cols() - 2) / 4))
+        val safeY = min(inset, max(0, (crop.rows() - 2) / 4))
+        val x1 = safeX
+        val y1 = safeY
+        val x2 = max(x1 + 1, crop.cols() - safeX)
+        val y2 = max(y1 + 1, crop.rows() - safeY)
+        return crop.submat(y1, y2, x1, x2).clone()
     }
 
     private fun cropWithPadding(source: Mat, box: Rect, pad: Int): Mat {
