@@ -15,6 +15,13 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // FormSnap's CI produces the ARM32 APK. OpenCV otherwise packages
+        // native libraries for several ABIs, which makes the APK unnecessarily
+        // large. Keep only the ABI that the requested APK actually contains.
+        ndk {
+            abiFilters += "armeabi-v7a"
+        }
     }
     signingConfigs {
         create("release") {
