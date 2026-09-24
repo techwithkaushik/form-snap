@@ -1,4 +1,4 @@
-package com.example.form_snap
+package org.techwithkaushik.formSnap
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -86,16 +86,20 @@ object FormSnapOpenCvProcessor {
             // Class-8 2026-27 template coordinates.
             val photoTemplate = cropTemplate(rectified, 0.746, 0.190, 0.193, 0.169)
             val photoCrop = findPastedPhotoInsideBox(photoTemplate)
-            val signatureCrop = cropTemplate(rectified, 0.722, 0.374, 0.240, 0.068)
+
+            // Detect the actual printed signature field instead of relying on
+            // a fixed inner crop. This preserves strokes close to the field edge.
+            val detectedFields = findFieldBoxes(rectified)
+            val signatureCrop = detectedFields.signature?.let { field ->
+                warpField(rectified, field.quad, 1000, 400)
+            } ?: cropTemplate(rectified, 0.700, 0.350, 0.280, 0.110)
 
             val photoBorderFree = trimPhotoFrame(photoCrop)
             val photoEdgeClean = removeTemplateEdgeLines(photoBorderFree, true)
             val signatureEdgeClean = removeTemplateEdgeLines(signatureCrop, false)
-            val signatureBorderFree = trimSignatureFrame(signatureEdgeClean)
             val photo = enhancePhotoQuality(photoEdgeClean)
-            val sign = enhanceSignQuality(signatureBorderFree)
+            val sign = enhanceSignQuality(signatureEdgeClean)
             photoBorderFree.release()
-            signatureBorderFree.release()
 
             photoTemplate.release()
             photoCrop.release()
@@ -1104,8 +1108,10 @@ object FormSnapOpenCvProcessor {
     // The signature frame is printed, not handwritten. After perspective
     // correction it is safe to remove a narrow edge strip on all sides.
     private fun trimSignatureFrame(crop: Mat): Mat {
-        val insetX = max(4, min(18, crop.cols() / 60))
-        val insetY = max(4, min(14, crop.rows() / 28))
+        // Keep almost the entire detected field; aggressive insets can cut
+        // off real pen strokes near the printed border.
+        val insetX = max(1, min(3, crop.cols() / 300))
+        val insetY = max(1, min(3, crop.rows() / 300))
         val x1 = insetX.coerceAtMost((crop.cols() - 2) / 4)
         val y1 = insetY.coerceAtMost((crop.rows() - 2) / 4)
         val x2 = (crop.cols() - insetX).coerceAtLeast(x1 + 1)
@@ -1204,6 +1210,11 @@ object FormSnapOpenCvProcessor {
             result, enlarged, Size(), 2.0, 2.0, Imgproc.INTER_LANCZOS4,
         )
 
+        // Slightly reduce brightness without removing the handwritten strokes.
+        val dimmed = Mat()
+        Core.convertScaleAbs(enlarged, dimmed, 0.94, 0.0)
+        enlarged.release()
+
         gray.release()
         denoised.release()
         background.release()
@@ -1216,7 +1227,7 @@ object FormSnapOpenCvProcessor {
         cleanMask.release()
         result.release()
         ink.release()
-        return enlarged
+        return dimmed
     }
 
     // Lightweight close-up photo cleanup: denoise first, then apply a very
