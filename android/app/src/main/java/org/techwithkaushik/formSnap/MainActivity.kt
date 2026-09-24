@@ -162,8 +162,9 @@ class MainActivity : ComponentActivity() {
                         requestCamera.launch(Manifest.permission.CAMERA)
                     }
                 },
-                onImport = {
-                    importKeepsCurrentMode = false
+                onImport = { selected ->
+                    importKeepsCurrentMode = true
+                    mode = selected
                     openDocument.launch(arrayOf("image/*"))
                 },
             )
@@ -365,7 +366,7 @@ class MainActivity : ComponentActivity() {
         settings: OutputSettings,
         onSettings: () -> Unit,
         onCamera: (CaptureMode) -> Unit,
-        onImport: () -> Unit,
+        onImport: (CaptureMode) -> Unit,
     ) {
         Scaffold(
             topBar = {
@@ -409,7 +410,7 @@ class MainActivity : ComponentActivity() {
                             onCamera(CaptureMode.WHOLE_FORM)
                         }
                         ActionCard("Import Form", "Existing image", "▤", Modifier.weight(1f)) {
-                            onImport()
+                            onImport(CaptureMode.WHOLE_FORM)
                         }
                     }
                 }
@@ -420,6 +421,16 @@ class MainActivity : ComponentActivity() {
                         }
                         ActionCard("Signature", "Close capture", "✎", Modifier.weight(1f)) {
                             onCamera(CaptureMode.SIGNATURE)
+                        }
+                    }
+                }
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        ActionCard("Import Photo", "Photo only", "◉", Modifier.weight(1f)) {
+                            onImport(CaptureMode.PHOTO)
+                        }
+                        ActionCard("Import Sign", "Signature only", "✎", Modifier.weight(1f)) {
+                            onImport(CaptureMode.SIGNATURE)
                         }
                     }
                 }
