@@ -1184,33 +1184,43 @@ object FormSnapOpenCvProcessor {
     // background, darken only pixels that are genuinely ink-like, and retain
     // the original grayscale instead of forcing a pure-white threshold image.
     private fun enhanceSignQuality(cropped: Mat): Mat {
-        // Remove long printed guide lines before ink/background analysis.
         val guideClean = removeSignatureGuideLines(cropped)
+
         val gray = Mat()
         Imgproc.cvtColor(guideClean, gray, Imgproc.COLOR_BGR2GRAY)
 
-        // Suppress paper/scan speckles before estimating the local background.
-        val denoised = Mat()
-        Imgproc.GaussianBlur(gray, denoised, Size(3.0, 3.0), 0.0)
+        val blur = Mat()
+        Imgproc.GaussianBlur(gray, blur, Size(3.0, 3.0), 0.0)
 
+        // Local background makes black signatures survive uneven paper/shadows.
         val background = Mat()
-        Imgproc.GaussianBlur(denoised, background, Size(0.0, 0.0), 13.0)
+        Imgproc.GaussianBlur(blur, background, Size(0.0, 0.0), 11.0)
 
         val diff = Mat()
-        Core.subtract(background, denoised, diff)
+        Core.subtract(background, blur, diff)
 
-        // Keep real pen strokes but reject very small brightness variations.
+        // Also keep coloured pen ink. This is important for blue/purple
+        // signatures whose grayscale contrast can be weak after a photo.
+        val hsv = Mat()
+        Imgproc.cvtColor(guideClean, hsv, Imgproc.COLOR_BGR2HSV)
+        val saturation = Mat()
+        Core.extractChannel(hsv, saturation, 1)
+
+        val darkMask = Mat()
+        Imgproc.threshold(diff, darkMask, 4.0, 255.0, Imgproc.THRESH_BINARY)
+
+        val colourMask = Mat()
+        Imgproc.threshold(saturation, colourMask, 28.0, 255.0, Imgproc.THRESH_BINARY)
+
         val mask = Mat()
-        Imgproc.threshold(diff, mask, 9.0, 255.0, Imgproc.THRESH_BINARY)
+        Core.bitwise_or(darkMask, colourMask, mask)
 
-        // Remove isolated paper dust while retaining thin handwritten strokes.
+        // Remove tiny camera/paper noise but keep thin handwriting.
         val openKernel = Imgproc.getStructuringElement(
-            Imgproc.MORPH_ELLIPSE, Size(3.0, 3.0),
+            Imgproc.MORPH_ELLIPSE, Size(2.0, 2.0),
         )
         Imgproc.morphologyEx(mask, mask, Imgproc.MORPH_OPEN, openKernel)
 
-        // Remove tiny connected components. Long/large handwritten strokes
-        // survive even when individual strokes are thin.
         val labels = Mat()
         val stats = Mat()
         val centroids = Mat()
@@ -1219,32 +1229,26 @@ object FormSnapOpenCvProcessor {
         )
         val cleanMask = Mat.zeros(mask.size(), CvType.CV_8UC1)
 
-        // Rebuild the mask without allocating a per-component comparison
-        // matrix; this is deliberately simple for ARM32 devices.
-        cleanMask.setTo(org.opencv.core.Scalar(0.0))
         for (i in 1 until count) {
             val area = stats.get(i, Imgproc.CC_STAT_AREA)[0]
             val width = stats.get(i, Imgproc.CC_STAT_WIDTH)[0]
             val height = stats.get(i, Imgproc.CC_STAT_HEIGHT)[0]
-            val keep = area >= 28.0 ||
-                (area >= 10.0 && (width >= 8.0 || height >= 8.0))
-            if (!keep) continue
-
-            val component = Mat()
-            Core.compare(labels, org.opencv.core.Scalar(i.toDouble()), component, Core.CMP_EQ)
-            component.copyTo(cleanMask, component)
-            component.release()
+            if (area >= 6.0 && (area >= 14.0 || width >= 5.0 || height >= 5.0)) {
+                val component = Mat()
+                Core.compare(labels, org.opencv.core.Scalar(i.toDouble()), component, Core.CMP_EQ)
+                component.copyTo(cleanMask, component)
+                component.release()
+            }
         }
 
-        // Preserve the natural dark variation of the handwriting rather than
-        // turning it into a harsh binary black/white image.
+        // Keep original ink tone on a clean white background.
         val result = Mat(
             gray.size(),
             CvType.CV_8UC1,
             org.opencv.core.Scalar(255.0),
         )
         val ink = Mat()
-        Core.convertScaleAbs(gray, ink, 0.70, -12.0)
+        Core.convertScaleAbs(gray, ink, 0.82, -8.0)
         ink.copyTo(result, cleanMask)
 
         val enlarged = Mat()
@@ -1254,9 +1258,13 @@ object FormSnapOpenCvProcessor {
 
         guideClean.release()
         gray.release()
-        denoised.release()
+        blur.release()
         background.release()
         diff.release()
+        hsv.release()
+        saturation.release()
+        darkMask.release()
+        colourMask.release()
         mask.release()
         openKernel.release()
         labels.release()
@@ -1273,39 +1281,29 @@ object FormSnapOpenCvProcessor {
 
         val gray = Mat()
         Imgproc.cvtColor(crop, gray, Imgproc.COLOR_BGR2GRAY)
+
+        // Detect only the actual long printed guide rows. Do not erase a
+        // large top/bottom band because the real handwriting may be there.
         val dark = Mat()
         Imgproc.threshold(gray, dark, 185.0, 255.0, Imgproc.THRESH_BINARY_INV)
-
-        // The form's printed guide is a long line near the top/bottom edge.
-        // Detect it by row density and blank that small edge band completely.
-        // This is faster and more reliable than running Hough on ARM32.
-        val topLimit = (crop.rows() * 0.28).toInt().coerceAtLeast(1)
-        var hasTopGuide = false
-        for (y in 0 until topLimit) {
-            if (Core.countNonZero(dark.row(y)) > crop.cols() * 0.20) {
-                hasTopGuide = true
-                break
-            }
-        }
-
-        val bottomStart = (crop.rows() * 0.92).toInt().coerceAtMost(crop.rows() - 1)
-        var hasBottomGuide = false
-        for (y in bottomStart until crop.rows()) {
-            if (Core.countNonZero(dark.row(y)) > crop.cols() * 0.20) {
-                hasBottomGuide = true
-                break
-            }
-        }
-
         val cleaned = crop.clone()
-        if (hasTopGuide) {
-            cleaned.submat(0, topLimit, 0, crop.cols())
-                .setTo(org.opencv.core.Scalar(255.0, 255.0, 255.0))
+
+        fun removeGuideRows(start: Int, end: Int) {
+            val from = start.coerceIn(0, crop.rows() - 1)
+            val to = end.coerceIn(from + 1, crop.rows())
+            for (y in from until to) {
+                val density = Core.countNonZero(dark.row(y)).toDouble() / crop.cols()
+                if (density > 0.18) {
+                    val y1 = (y - 3).coerceAtLeast(0)
+                    val y2 = (y + 4).coerceAtMost(crop.rows())
+                    cleaned.submat(y1, y2, 0, crop.cols())
+                        .setTo(org.opencv.core.Scalar(255.0, 255.0, 255.0))
+                }
+            }
         }
-        if (hasBottomGuide) {
-            cleaned.submat(bottomStart, crop.rows(), 0, crop.cols())
-                .setTo(org.opencv.core.Scalar(255.0, 255.0, 255.0))
-        }
+
+        removeGuideRows(0, (crop.rows() * 0.35).toInt())
+        removeGuideRows((crop.rows() * 0.82).toInt(), crop.rows())
 
         gray.release()
         dark.release()
