@@ -3,10 +3,10 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 android {
-    namespace = "com.example.form_snap"
+    namespace = "org.techwithkaushik.formSnap"
     compileSdk = 37
     defaultConfig {
-        applicationId = "com.example.form_snap"
+        applicationId = "org.techwithkaushik.formSnap"
         minSdk = 23
         targetSdk = 37
         versionCode = 3
