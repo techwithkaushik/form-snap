@@ -262,9 +262,11 @@ object FormSnapOpenCvProcessor {
         Imgproc.cvtColor(image, hsv, Imgproc.COLOR_BGR2HSV)
         Imgproc.cvtColor(image, gray, Imgproc.COLOR_BGR2GRAY)
 
+        val saturation = Mat()
         val colouredInk = Mat()
         val darkInk = Mat()
-        Imgproc.threshold(hsv, colouredInk, 32.0, 255.0, Imgproc.THRESH_BINARY)
+        Core.extractChannel(hsv, saturation, 1)
+        Imgproc.threshold(saturation, colouredInk, 32.0, 255.0, Imgproc.THRESH_BINARY)
         Imgproc.threshold(gray, darkInk, 155.0, 255.0, Imgproc.THRESH_BINARY_INV)
 
         // Coloured pen gets priority; dark ink is retained for black signatures.
@@ -303,6 +305,11 @@ object FormSnapOpenCvProcessor {
             val centerY: Double,
         )
 
+        val face = detectFace(image)
+        val minimumY = face?.let {
+            (it.y + it.height * 1.65).toInt().coerceIn(0, image.rows())
+        } ?: (image.rows() * 0.35).toInt()
+
         val components = ArrayList<InkComponent>()
         for (i in 1 until count) {
             val x = stats.get(i, Imgproc.CC_STAT_LEFT)[0].toInt()
@@ -312,12 +319,13 @@ object FormSnapOpenCvProcessor {
             val area = stats.get(i, Imgproc.CC_STAT_AREA)[0]
 
             if (area < 8.0 || w < 2 || h < 2) continue
+            if (y < minimumY) continue
             if (w > image.cols() * 0.55 && h < image.rows() * 0.06) continue
             components.add(InkComponent(Rect(x, y, w, h), area, y + h / 2.0))
         }
 
         if (components.isEmpty()) {
-            hsv.release(); gray.release(); colouredInk.release(); darkInk.release()
+            hsv.release(); saturation.release(); gray.release(); colouredInk.release(); darkInk.release()
             ink.release(); smallKernel.release(); hKernel.release(); vKernel.release()
             horizontal.release(); vertical.release()
             labels.release(); stats.release(); centroids.release()
@@ -383,7 +391,7 @@ object FormSnapOpenCvProcessor {
             image.submat(y1, y2, x1, x2).clone()
         }
 
-        hsv.release(); gray.release(); colouredInk.release(); darkInk.release()
+        hsv.release(); saturation.release(); gray.release(); colouredInk.release(); darkInk.release()
         ink.release(); smallKernel.release(); hKernel.release(); vKernel.release()
         horizontal.release(); vertical.release()
         labels.release(); stats.release(); centroids.release()
