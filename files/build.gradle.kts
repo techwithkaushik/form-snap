@@ -20,7 +20,19 @@ android {
         // native libraries for several ABIs, which makes the APK unnecessarily
         // large. Keep only the ABI that the requested APK actually contains.
         ndk {
-            abiFilters += "armeabi-v7a"
+            abiFilters.clear()
+            abiFilters.add("armeabi-v7a")
+        }
+    }
+    // The Flutter ARM32 build still allows the OpenCV AAR to contribute
+    // other native ABIs. Explicitly exclude them so the APK contains only
+    // armeabi-v7a. This removes the 24 MB arm64 and 59 MB x86_64 OpenCV
+    // binaries from the release APK.
+    packaging {
+        jniLibs {
+            excludes += "lib/arm64-v8a/**"
+            excludes += "lib/x86/**"
+            excludes += "lib/x86_64/**"
         }
     }
     signingConfigs {
