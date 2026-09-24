@@ -10,6 +10,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
@@ -76,6 +77,16 @@ class MainActivity : ComponentActivity() {
         var source by remember { mutableStateOf<File?>(null) }
         var mode by remember { mutableStateOf(CaptureMode.WHOLE_FORM) }
         var saveMessage by remember { mutableStateOf<String?>(null) }
+
+        // Compose must consume the system Back button while an editor or
+        // settings dialog is open. Previously only the top-bar Back button
+        // changed state, so the Android Back button finished the Activity.
+        BackHandler(enabled = settingsOpen) {
+            settingsOpen = false
+        }
+        BackHandler(enabled = source != null && !settingsOpen) {
+            source = null
+        }
 
         val openCamera = rememberLauncherForActivityResult(
             ActivityResultContracts.TakePicture(),
@@ -580,44 +591,102 @@ class MainActivity : ComponentActivity() {
 
         AlertDialog(
             onDismissRequest = onDismiss,
-            title = { Text("Manual output size") },
+            title = { Text("Output size") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Photo (mm)", fontWeight = FontWeight.Bold)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(value = pw, onValueChange = { value -> pw = value }, modifier = Modifier.weight(1f), label = { Text("Width") }, singleLine = true)
-                        OutlinedTextField(value = ph, onValueChange = { value -> ph = value }, modifier = Modifier.weight(1f), label = { Text("Height") }, singleLine = true)
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Card(shape = RoundedCornerShape(14.dp)) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Photo size", fontWeight = FontWeight.Bold)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedTextField(
+                                    value = pw,
+                                    onValueChange = { pw = it },
+                                    modifier = Modifier.weight(1f),
+                                    label = { Text("Width (mm)") },
+                                    singleLine = true,
+                                )
+                                OutlinedTextField(
+                                    value = ph,
+                                    onValueChange = { ph = it },
+                                    modifier = Modifier.weight(1f),
+                                    label = { Text("Height (mm)") },
+                                    singleLine = true,
+                                )
+                            }
+                        }
                     }
-                    Text("Signature (mm)", fontWeight = FontWeight.Bold)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(value = sw, onValueChange = { value -> sw = value }, modifier = Modifier.weight(1f), label = { Text("Width") }, singleLine = true)
-                        OutlinedTextField(value = sh, onValueChange = { value -> sh = value }, modifier = Modifier.weight(1f), label = { Text("Height") }, singleLine = true)
+                    Card(shape = RoundedCornerShape(14.dp)) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Signature size", fontWeight = FontWeight.Bold)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedTextField(
+                                    value = sw,
+                                    onValueChange = { sw = it },
+                                    modifier = Modifier.weight(1f),
+                                    label = { Text("Width (mm)") },
+                                    singleLine = true,
+                                )
+                                OutlinedTextField(
+                                    value = sh,
+                                    onValueChange = { sh = it },
+                                    modifier = Modifier.weight(1f),
+                                    label = { Text("Height (mm)") },
+                                    singleLine = true,
+                                )
+                            }
+                        }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(value = dpi, onValueChange = { value -> dpi = value }, modifier = Modifier.weight(1f), label = { Text("DPI") }, singleLine = true)
-                        OutlinedTextField(value = kb, onValueChange = { value -> kb = value }, modifier = Modifier.weight(1f), label = { Text("Max KB") }, singleLine = true)
+                        OutlinedTextField(
+                            value = dpi,
+                            onValueChange = { dpi = it },
+                            modifier = Modifier.weight(1f),
+                            label = { Text("DPI") },
+                            singleLine = true,
+                        )
+                        OutlinedTextField(
+                            value = kb,
+                            onValueChange = { kb = it },
+                            modifier = Modifier.weight(1f),
+                            label = { Text("Max KB") },
+                            singleLine = true,
+                        )
                     }
+                    Text(
+                        "Photo and signature dimensions are independent. DPI and Max KB apply to both outputs.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                     if (invalid) {
-                        Text("Enter valid positive sizes, DPI ≥72 and Max KB between 5 and 200.", color = MaterialTheme.colorScheme.error)
+                        Text(
+                            "Enter valid positive sizes, DPI ≥72 and Max KB between 5 and 200.",
+                            color = MaterialTheme.colorScheme.error,
+                        )
                     }
                 }
             },
             confirmButton = {
                 Button(onClick = {
-                    val values = listOf(
-                        pw.toDoubleOrNull(), ph.toDoubleOrNull(),
-                        sw.toDoubleOrNull(), sh.toDoubleOrNull(),
-                        dpi.toDoubleOrNull(),
-                    )
-                    val k = kb.toIntOrNull()
-                    if (values.all { it != null && it > 0.0 } &&
-                        values[4]!! >= 72.0 && k != null && k in 5..200
+                    val photoW = pw.toDoubleOrNull()
+                    val photoH = ph.toDoubleOrNull()
+                    val signW = sw.toDoubleOrNull()
+                    val signH = sh.toDoubleOrNull()
+                    val dpiValue = dpi.toDoubleOrNull()
+                    val kbValue = kb.toIntOrNull()
+                    if (photoW != null && photoW > 0.0 &&
+                        photoH != null && photoH > 0.0 &&
+                        signW != null && signW > 0.0 &&
+                        signH != null && signH > 0.0 &&
+                        dpiValue != null && dpiValue >= 72.0 &&
+                        kbValue != null && kbValue in 5..200
                     ) {
                         onSave(
                             OutputSettings(
-                                values[0]!!, values[1]!!,
-                                values[2]!!, values[3]!!,
-                                values[4]!!, k,
+                                photoWidthMm = photoW,
+                                photoHeightMm = photoH,
+                                signatureWidthMm = signW,
+                                signatureHeightMm = signH,
+                                dpi = dpiValue,
+                                maxKb = kbValue,
                             ),
                         )
                     } else {
