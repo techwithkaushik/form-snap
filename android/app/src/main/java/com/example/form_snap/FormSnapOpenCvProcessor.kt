@@ -77,42 +77,124 @@ object FormSnapOpenCvProcessor {
         maxKb: Int,
     ): Map<String, Any?> {
         val rectified = rectifyDocument(source)
-        val page = rectified ?: source
 
-        // A4 Class 8 2026-27 template, normalized to the corrected page.
-        val photoTemplate = cropTemplate(page, 0.746, 0.190, 0.193, 0.169)
-        val photoCrop = findPastedPhotoInsideBox(photoTemplate)
-        val signatureCrop = cropTemplate(page, 0.722, 0.374, 0.240, 0.068)
+        if (rectified != null) {
+            // Full A4 form: perspective-correct first, then use the fixed
+            // Class-8 2026-27 template coordinates.
+            val photoTemplate = cropTemplate(rectified, 0.746, 0.190, 0.193, 0.169)
+            val photoCrop = findPastedPhotoInsideBox(photoTemplate)
+            val signatureCrop = cropTemplate(rectified, 0.722, 0.374, 0.240, 0.068)
 
-        // Only inspect the outer edge of the template crop. The previous wide
-        // edge search could erase real hair/ink near the top of the content.
-        val photoEdgeClean = removeTemplateEdgeLines(photoCrop, true)
-        val signatureEdgeClean = removeTemplateEdgeLines(signatureCrop, false)
-        val photo = enhancePhotoQuality(photoEdgeClean)
-        val sign = enhanceSignQuality(signatureEdgeClean)
+            val photoEdgeClean = removeTemplateEdgeLines(photoCrop, true)
+            val signatureEdgeClean = removeTemplateEdgeLines(signatureCrop, false)
+            val photo = enhancePhotoQuality(photoEdgeClean)
+            val sign = enhanceSignQuality(signatureEdgeClean)
 
-        photoTemplate.release()
-        photoCrop.release()
-        signatureCrop.release()
-        photoEdgeClean.release()
-        signatureEdgeClean.release()
-        rectified?.release()
+            photoTemplate.release()
+            photoCrop.release()
+            signatureCrop.release()
+            photoEdgeClean.release()
+            signatureEdgeClean.release()
+            rectified.release()
 
-        val photoPath = saveJpeg(
-            context, photo, "photo", photoWidthMm, photoHeightMm, dpi, maxKb,
-        )
-        val signPath = saveJpeg(
-            context, sign, "signature", signatureWidthMm, signatureHeightMm, dpi, maxKb,
-        )
-        photo.release()
-        sign.release()
+            val photoPath = saveJpeg(
+                context, photo, "photo", photoWidthMm, photoHeightMm, dpi, maxKb,
+            )
+            val signPath = saveJpeg(
+                context, sign, "signature", signatureWidthMm, signatureHeightMm, dpi, maxKb,
+            )
+            photo.release()
+            sign.release()
+
+            return mapOf(
+                "photoPath" to photoPath,
+                "signaturePath" to signPath,
+                "photoDetected" to true,
+                "signatureDetected" to true,
+                "detector" to "document-perspective-template",
+            )
+        }
+
+        // The camera/import image may contain only the photo + signature
+        // section of the form (as happens when the user captures the page
+        // close-up). In that case there is no A4 page contour to rectify.
+        // Detect the two printed rectangles directly, using only their
+        // characteristic aspect ratios. This keeps capture and import on the
+        // exact same pipeline and works at different distances/scales.
+        val fields = findFieldBoxes(source)
+
+        val photoBase = fields.photo?.let {
+            val box = cropWithPadding(source, it, 2)
+            val inner = findPastedPhotoInsideBox(box)
+            box.release()
+            inner
+        }
+
+        val signatureBase = fields.signature?.let {
+            cropWithPadding(source, it, 10)
+        }
+
+        val photo = photoBase?.let {
+            val cleaned = removeTemplateEdgeLines(it, true)
+            val result = enhancePhotoQuality(cleaned)
+            cleaned.release()
+            it.release()
+            result
+        }
+
+        val sign = signatureBase?.let {
+            val framed = trimPrintedFrame(it, 15)
+            val cleaned = removePrintedEdgeLines(framed, false)
+            val result = enhanceSignQuality(cleaned)
+            framed.release()
+            cleaned.release()
+            it.release()
+            result
+        }
+
+        val photoPath = photo?.let {
+            saveJpeg(context, it, "photo", photoWidthMm, photoHeightMm, dpi, maxKb)
+        }
+        val signPath = sign?.let {
+            saveJpeg(context, it, "signature", signatureWidthMm, signatureHeightMm, dpi, maxKb)
+        }
+        photo?.release()
+        sign?.release()
+
+        if (photoPath == null && signPath == null) {
+            // Last-resort fallback: keep the old behavior for unusual images
+            // where neither field rectangle can be detected.
+            val photoFallback = centerCrop(source, 0.8)
+            val signFallback = centerCrop(source, 2.5)
+            val photoClean = enhancePhotoQuality(removeBlackBorderLines(photoFallback))
+            val signClean = enhanceSignQuality(removeBlackBorderLines(signFallback))
+            photoFallback.release()
+            signFallback.release()
+
+            val fallbackPhotoPath = saveJpeg(
+                context, photoClean, "photo", photoWidthMm, photoHeightMm, dpi, maxKb,
+            )
+            val fallbackSignPath = saveJpeg(
+                context, signClean, "signature", signatureWidthMm, signatureHeightMm, dpi, maxKb,
+            )
+            photoClean.release()
+            signClean.release()
+
+            return mapOf(
+                "photoPath" to fallbackPhotoPath,
+                "signaturePath" to fallbackSignPath,
+                "photoDetected" to false,
+                "signatureDetected" to false,
+                "detector" to "field-detection-fallback",
+            )
+        }
 
         return mapOf(
             "photoPath" to photoPath,
             "signaturePath" to signPath,
-            "photoDetected" to true,
-            "signatureDetected" to true,
-            "detector" to if (rectified != null) "document-perspective-template" else "template-fallback",
+            "photoDetected" to (photoPath != null),
+            "signatureDetected" to (signPath != null),
+            "detector" to "partial-form-field-rectangles",
         )
     }
 
@@ -253,6 +335,98 @@ object FormSnapOpenCvProcessor {
         val sx2 = x2.coerceIn(sx1 + 1, source.cols())
         val sy2 = y2.coerceIn(sy1 + 1, source.rows())
         return source.submat(sy1, sy2, sx1, sx2).clone()
+    }
+
+    private data class FieldBoxes(
+        val photo: Rect?,
+        val signature: Rect?,
+    )
+
+    // Detect the field rectangles directly when the image is a partial-form
+    // capture/import rather than a complete A4 page. The photo is close to
+    // 40:50 (ratio 0.80) and the signature box is close to 50:20 (ratio 2.50).
+    // Detection is scale-independent, so the same code works when the form is
+    // captured from near or farther away.
+    private fun findFieldBoxes(source: Mat): FieldBoxes {
+        val gray = Mat()
+        val blurred = Mat()
+        val edges = Mat()
+        val closed = Mat()
+
+        Imgproc.cvtColor(source, gray, Imgproc.COLOR_BGR2GRAY)
+        Imgproc.GaussianBlur(gray, blurred, Size(5.0, 5.0), 0.0)
+        Imgproc.Canny(blurred, edges, 45.0, 140.0)
+
+        val kernel = Imgproc.getStructuringElement(
+            Imgproc.MORPH_RECT, Size(5.0, 5.0),
+        )
+        Imgproc.morphologyEx(edges, closed, Imgproc.MORPH_CLOSE, kernel)
+
+        val contours = ArrayList<MatOfPoint>()
+        Imgproc.findContours(
+            closed,
+            contours,
+            Mat(),
+            Imgproc.RETR_EXTERNAL,
+            Imgproc.CHAIN_APPROX_SIMPLE,
+        )
+
+        val imageArea = source.cols().toDouble() * source.rows().toDouble()
+        val photoCandidates = ArrayList<Pair<Rect, Double>>()
+        val signatureCandidates = ArrayList<Pair<Rect, Double>>()
+
+        for (contour in contours) {
+            val area = abs(Imgproc.contourArea(contour))
+            val box = Imgproc.boundingRect(contour)
+            val boxArea = box.width.toDouble() * box.height.toDouble()
+            val ratio = box.width.toDouble() / max(1, box.height).toDouble()
+            val rectangularity = area / max(1.0, boxArea)
+            val points = MatOfPoint2f(*contour.toArray())
+            val perimeter = Imgproc.arcLength(points, true)
+            val approx = MatOfPoint2f()
+            Imgproc.approxPolyDP(points, approx, perimeter * 0.025, true)
+            val quadBonus = if (approx.rows() == 4) 1.0 else 0.0
+
+            // Allow small boxes so a distant capture is still detectable.
+            if (area >= imageArea * 0.008 && rectangularity >= 0.72) {
+                if (ratio in 0.62..1.00) {
+                    val ratioScore = 1.0 - min(1.0, abs(ratio - 0.80) / 0.22)
+                    val sizeScore = min(1.0, boxArea / (imageArea * 0.45))
+                    val score =
+                        ratioScore * 0.55 +
+                        rectangularity * 0.25 +
+                        quadBonus * 0.10 +
+                        sizeScore * 0.10
+                    photoCandidates.add(box to score)
+                }
+
+                if (ratio in 1.80..3.20) {
+                    val ratioScore = 1.0 - min(1.0, abs(ratio - 2.50) / 0.70)
+                    val sizeScore = min(1.0, boxArea / (imageArea * 0.30))
+                    val score =
+                        ratioScore * 0.55 +
+                        rectangularity * 0.25 +
+                        quadBonus * 0.10 +
+                        sizeScore * 0.10
+                    signatureCandidates.add(box to score)
+                }
+            }
+
+            points.release()
+            approx.release()
+            contour.release()
+        }
+
+        gray.release()
+        blurred.release()
+        edges.release()
+        closed.release()
+        kernel.release()
+
+        return FieldBoxes(
+            photo = photoCandidates.maxByOrNull { it.second }?.first,
+            signature = signatureCandidates.maxByOrNull { it.second }?.first,
+        )
     }
 
     // The printed form has a PHOTO BOX, and the pasted passport photo can
