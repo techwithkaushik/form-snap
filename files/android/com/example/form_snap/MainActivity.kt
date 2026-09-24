@@ -13,16 +13,16 @@ import java.util.concurrent.Executors
 
 class FormSnapMainActivity : FlutterActivity() {
     private val executor = Executors.newSingleThreadExecutor()
-    private val storagePrefs by lazy {
-        getSharedPreferences("formsnap_storage", MODE_PRIVATE)
-    }
+    private val storagePrefs by lazy { getSharedPreferences("formsnap_storage", MODE_PRIVATE) }
     private var pendingDirectoryResult: MethodChannel.Result? = null
+    private var pendingDirectoryType = "photo"
 
     companion object {
         private const val DIRECTORY_REQUEST = 9017
         private const val STORAGE_CHANNEL = "formsnap/storage"
         private const val OPENCV_CHANNEL = "formsnap/opencv"
-        private const val PREF_DIRECTORY_URI = "directory_uri"
+        private const val PHOTO_DIRECTORY_URI = "photo_directory_uri"
+        private const val SIGNATURE_DIRECTORY_URI = "signature_directory_uri"
     }
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
@@ -34,13 +34,11 @@ class FormSnapMainActivity : FlutterActivity() {
                     result.notImplemented()
                     return@setMethodCallHandler
                 }
-
                 val args = call.arguments as? Map<*, *>
                 if (args == null) {
                     result.error("BAD_ARGS", "Missing processing arguments", null)
                     return@setMethodCallHandler
                 }
-
                 executor.execute {
                     try {
                         if (!OpenCVLoader.initLocal()) {
@@ -66,10 +64,12 @@ class FormSnapMainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, STORAGE_CHANNEL)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
-                    "hasDirectory" -> result.success(hasPersistedDirectory())
-                    "chooseDirectory" -> chooseDirectory(result)
+                    "hasDirectory" ->
+                        result.success(hasPersistedDirectory(call.argument<String>("type")))
+                    "chooseDirectory" ->
+                        chooseDirectory(call.argument<String>("type") ?: "photo", result)
                     "clearDirectory" -> {
-                        clearPersistedDirectory()
+                        clearPersistedDirectory(call.argument<String>("type"))
                         result.success(true)
                     }
                     "saveFile" -> saveFile(call, result)
@@ -78,8 +78,15 @@ class FormSnapMainActivity : FlutterActivity() {
             }
     }
 
-    private fun hasPersistedDirectory(): Boolean {
-        val uriString = storagePrefs.getString(PREF_DIRECTORY_URI, null) ?: return false
+    private fun prefKey(type: String?): String =
+        if (type.equals("signature", ignoreCase = true)) {
+            SIGNATURE_DIRECTORY_URI
+        } else {
+            PHOTO_DIRECTORY_URI
+        }
+
+    private fun hasPersistedDirectory(type: String?): Boolean {
+        val uriString = storagePrefs.getString(prefKey(type), null) ?: return false
         return try {
             val uri = Uri.parse(uriString)
             contentResolver.persistedUriPermissions.any {
@@ -90,13 +97,13 @@ class FormSnapMainActivity : FlutterActivity() {
         }
     }
 
-    private fun chooseDirectory(result: MethodChannel.Result) {
+    private fun chooseDirectory(type: String, result: MethodChannel.Result) {
         if (pendingDirectoryResult != null) {
             result.error("BUSY", "A folder picker is already open", null)
             return
         }
-
         pendingDirectoryResult = result
+        pendingDirectoryType = type
 
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -114,9 +121,15 @@ class FormSnapMainActivity : FlutterActivity() {
     }
 
     private fun saveFile(call: MethodCall, result: MethodChannel.Result) {
-        val uriString = storagePrefs.getString(PREF_DIRECTORY_URI, null)
-        if (uriString == null || !hasPersistedDirectory()) {
-            result.error("NO_DIRECTORY", "Please choose an output folder first", null)
+        val type = call.argument<String>("type") ?: "photo"
+        val uriString = storagePrefs.getString(prefKey(type), null)
+
+        if (uriString == null || !hasPersistedDirectory(type)) {
+            result.error(
+                "NO_DIRECTORY",
+                "Please choose the " + type + " output folder first",
+                null,
+            )
             return
         }
 
@@ -142,7 +155,7 @@ class FormSnapMainActivity : FlutterActivity() {
                 treeUri,
                 mime,
                 fileName,
-            ) ?: throw IllegalStateException("Android could not create $fileName")
+            ) ?: throw IllegalStateException("Android could not create " + fileName)
 
             contentResolver.openOutputStream(fileUri)?.use { output ->
                 output.write(bytes)
@@ -155,34 +168,34 @@ class FormSnapMainActivity : FlutterActivity() {
         } catch (t: Throwable) {
             result.error(
                 "SAVE_FAILED",
-                t.message ?: "Could not save $fileName",
+                t.message ?: "Could not save " + fileName,
                 null,
             )
         }
     }
 
-    private fun clearPersistedDirectory() {
-        val uriString = storagePrefs.getString(PREF_DIRECTORY_URI, null)
+    private fun clearPersistedDirectory(type: String?) {
+        val key = prefKey(type)
+        val uriString = storagePrefs.getString(key, null)
         if (uriString != null) {
             try {
                 contentResolver.releasePersistableUriPermission(
                     Uri.parse(uriString),
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
                 )
-            } catch (_: Throwable) {
-                // Permission may already have been revoked by Android.
-            }
+            } catch (_: Throwable) {}
         }
-        storagePrefs.edit().remove(PREF_DIRECTORY_URI).apply()
+        storagePrefs.edit().remove(key).apply()
     }
 
     @Deprecated("Use Activity Result APIs when the app's minimum Android setup is modernized.")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-
         if (requestCode != DIRECTORY_REQUEST) return
 
         val callback = pendingDirectoryResult
+        val type = pendingDirectoryType
         pendingDirectoryResult = null
 
         if (resultCode != RESULT_OK || data?.data == null) {
@@ -192,14 +205,14 @@ class FormSnapMainActivity : FlutterActivity() {
 
         val uri = data.data!!
         try {
-            val takeFlags = data.flags and
-                (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-
+            val takeFlags = data.flags and (
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
             if (takeFlags != 0) {
                 contentResolver.takePersistableUriPermission(uri, takeFlags)
             }
-
-            storagePrefs.edit().putString(PREF_DIRECTORY_URI, uri.toString()).apply()
+            storagePrefs.edit().putString(prefKey(type), uri.toString()).apply()
             callback?.success(uri.toString())
         } catch (t: Throwable) {
             callback?.error(
