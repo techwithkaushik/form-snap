@@ -63,6 +63,7 @@ class MainActivity : ComponentActivity() {
     private var pendingFolderType = "photo"
     private var pendingSaveType: String? = null
     private var pendingSavePath: String? = null
+    private var pendingSaveName: String = ""
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
@@ -77,6 +78,7 @@ class MainActivity : ComponentActivity() {
         var source by remember { mutableStateOf<File?>(null) }
         var mode by remember { mutableStateOf(CaptureMode.WHOLE_FORM) }
         var saveMessage by remember { mutableStateOf<String?>(null) }
+        var importKeepsCurrentMode by remember { mutableStateOf(false) }
 
         // Compose must consume the system Back button while an editor or
         // settings dialog is open. Previously only the top-bar Back button
@@ -108,7 +110,9 @@ class MainActivity : ComponentActivity() {
         ) { uri ->
             if (uri != null) {
                 source = uriToFile(uri, "import")
-                mode = CaptureMode.WHOLE_FORM
+                if (!importKeepsCurrentMode) {
+                    mode = CaptureMode.WHOLE_FORM
+                }
             }
         }
 
@@ -128,7 +132,7 @@ class MainActivity : ComponentActivity() {
                 val saveType = pendingSaveType
                 val savePath = pendingSavePath
                 if (saveType != null && savePath != null) {
-                    if (saveOutput(saveType, savePath)) {
+                    if (saveOutput(saveType, savePath, pendingSaveName)) {
                         saveMessage = "${saveType.replaceFirstChar { it.uppercase() }} saved successfully."
                     } else {
                         saveMessage = "Could not save the file."
@@ -139,6 +143,7 @@ class MainActivity : ComponentActivity() {
             } finally {
                 pendingSaveType = null
                 pendingSavePath = null
+                pendingSaveName = ""
             }
         }
 
@@ -158,7 +163,10 @@ class MainActivity : ComponentActivity() {
                         requestCamera.launch(Manifest.permission.CAMERA)
                     }
                 },
-                onImport = { openDocument.launch(arrayOf("image/*")) },
+                onImport = {
+                    importKeepsCurrentMode = false
+                    openDocument.launch(arrayOf("image/*"))
+                },
             )
         } else {
             EditorScreen(
@@ -167,10 +175,25 @@ class MainActivity : ComponentActivity() {
                 settings = settings,
                 onSettings = { settingsOpen = true },
                 onBack = { source = null },
+                onCaptureAgain = {
+                    if (ContextCompat.checkSelfPermission(
+                            this@MainActivity,
+                            Manifest.permission.CAMERA,
+                        ) == PackageManager.PERMISSION_GRANTED
+                    ) {
+                        launchCamera(openCamera)
+                    } else {
+                        requestCamera.launch(Manifest.permission.CAMERA)
+                    }
+                },
+                onImportAgain = {
+                    importKeepsCurrentMode = true
+                    openDocument.launch(arrayOf("image/*"))
+                },
                 onExtract = { processSource(source!!, mode, settings) },
-                onSave = { type, path ->
+                onSave = { type, path, personName ->
                     if (hasFolder(type)) {
-                        saveMessage = if (saveOutput(type, path)) {
+                        saveMessage = if (saveOutput(type, path, personName)) {
                             "${type.replaceFirstChar { it.uppercase() }} saved successfully."
                         } else {
                             "Could not save the file."
@@ -179,6 +202,7 @@ class MainActivity : ComponentActivity() {
                         pendingFolderType = type
                         pendingSaveType = type
                         pendingSavePath = path
+                        pendingSaveName = personName
                         folderPicker.launch(null)
                     }
                 },
@@ -252,7 +276,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun saveOutput(type: String, path: String): Boolean {
+    private fun saveOutput(type: String, path: String, personName: String): Boolean {
         val uriString = prefs.getString("${type}_directory_uri", null) ?: return false
         val treeUri = Uri.parse(uriString)
         if (!hasFolder(type)) return false
@@ -260,7 +284,9 @@ class MainActivity : ComponentActivity() {
         return try {
             val documentId = DocumentsContract.getTreeDocumentId(treeUri)
             val parent = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId)
-            val name = "FormSnap_${System.currentTimeMillis()}_${type}.jpg"
+            val safeName = sanitizePersonName(personName)
+            if (safeName.isBlank()) return false
+            val name = safeName + "-" + type + ".jpg"
             val target = DocumentsContract.createDocument(
                 contentResolver,
                 parent,
@@ -273,6 +299,14 @@ class MainActivity : ComponentActivity() {
         } catch (_: Throwable) {
             false
         }
+    }
+
+    private fun sanitizePersonName(value: String): String {
+        return value.trim()
+            .replace(Regex("[\\\\/:*?"<>|\\r\\n]+"), "_")
+            .replace(Regex("\\s+"), " ")
+            .take(80)
+            .trim(' ', '.', '_')
     }
 
     private suspend fun processSource(
@@ -414,14 +448,35 @@ class MainActivity : ComponentActivity() {
         settings: OutputSettings,
         onSettings: () -> Unit,
         onBack: () -> Unit,
+        onCaptureAgain: () -> Unit,
+        onImportAgain: () -> Unit,
         onExtract: suspend () -> Outputs,
-        onSave: (String, String) -> Unit,
+        onSave: (String, String, String) -> Unit,
         onFolder: (String) -> Unit,
     ) {
         val scope = rememberCoroutineScope()
         var processing by remember { mutableStateOf(false) }
-        var status by remember { mutableStateOf("Ready") }
+        var status by remember { mutableStateOf("Extracting…") }
         var outputs by remember { mutableStateOf(Outputs()) }
+        var personName by remember { mutableStateOf("") }
+
+        LaunchedEffect(file.absolutePath, mode, settings) {
+            processing = true
+            status = "Extracting photo & signature…"
+            outputs = Outputs()
+            try {
+                outputs = onExtract()
+                status = if (outputs.photo != null || outputs.signature != null) {
+                    "Extraction complete"
+                } else {
+                    "Photo/signature could not be detected"
+                }
+            } catch (t: Throwable) {
+                status = t.message ?: "Extraction failed"
+            } finally {
+                processing = false
+            }
+        }
 
         Scaffold(
             topBar = {
@@ -470,31 +525,36 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 item {
-                    Button(
-                        onClick = {
-                            processing = true
-                            status = "Detecting boxes and preparing output…"
-                            scope.launch {
-                                try {
-                                    outputs = onExtract()
-                                    status = buildString {
-                                        append("Output ready")
-                                        if (outputs.photoDetected || outputs.signatureDetected) {
-                                            append(" • boxes detected")
-                                        }
-                                    }
-                                } catch (t: Throwable) {
-                                    status = t.message ?: "Extraction failed"
-                                } finally {
-                                    processing = false
-                                }
-                            }
+                    OutlinedTextField(
+                        value = personName,
+                        onValueChange = { personName = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text("Student / Person Name") },
+                        placeholder = { Text("e.g. Ishant") },
+                        supportingText = {
+                            Text(
+                                "Save as: " + personName.ifBlank { "PersonName" } +
+                                    "-photo.jpg / -signature.jpg"
+                            )
                         },
-                        enabled = !processing,
-                        modifier = Modifier.fillMaxWidth().height(54.dp),
+                    )
+                }
+                item {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        if (processing) CircularProgressIndicator(Modifier.size(20.dp))
-                        else Text("Extract Photo & Signature")
+                        OutlinedButton(
+                            onClick = onCaptureAgain,
+                            modifier = Modifier.weight(1f),
+                            enabled = !processing,
+                        ) { Text("Capture Again") }
+                        OutlinedButton(
+                            onClick = onImportAgain,
+                            modifier = Modifier.weight(1f),
+                            enabled = !processing,
+                        ) { Text("Import Again") }
                     }
                 }
                 item {
@@ -505,7 +565,7 @@ class MainActivity : ComponentActivity() {
                         OutputCard(
                             "Photo", path,
                             "${fmt(settings.photoWidthMm)} × ${fmt(settings.photoHeightMm)} mm • ${settings.dpi.toInt()} DPI",
-                            onSave, onFolder,
+                            personName, onSave, onFolder,
                         )
                     }
                 }
@@ -514,7 +574,7 @@ class MainActivity : ComponentActivity() {
                         OutputCard(
                             "Signature", path,
                             "${fmt(settings.signatureWidthMm)} × ${fmt(settings.signatureHeightMm)} mm • ${settings.dpi.toInt()} DPI",
-                            onSave, onFolder,
+                            personName, onSave, onFolder,
                         )
                     }
                 }
@@ -527,7 +587,8 @@ class MainActivity : ComponentActivity() {
         title: String,
         path: String,
         subtitle: String,
-        onSave: (String, String) -> Unit,
+        personName: String,
+        onSave: (String, String, String) -> Unit,
         onFolder: (String) -> Unit,
     ) {
         val type = if (title == "Photo") "photo" else "signature"
@@ -545,8 +606,13 @@ class MainActivity : ComponentActivity() {
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     OutlinedButton(
-                        onClick = { onSave(type, path) },
-                        Modifier.weight(1f),
+                        onClick = {
+                            if (personName.trim().isNotBlank()) {
+                                onSave(type, path, personName)
+                            }
+                        },
+                        enabled = personName.trim().isNotBlank(),
+                        modifier = Modifier.weight(1f),
                     ) { Text("Save $title") }
                     OutlinedButton(
                         onClick = { onFolder(type) },
