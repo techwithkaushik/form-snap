@@ -285,7 +285,8 @@ class MainActivity : ComponentActivity() {
             val parent = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId)
             val safeName = sanitizePersonName(personName)
             if (safeName.isBlank()) return false
-            val name = safeName + "-" + type + ".jpg"
+            val suffix = if (type == "signature") "sign" else "photo"
+            val name = safeName + "-" + suffix + ".jpg"
             val target = DocumentsContract.createDocument(
                 contentResolver,
                 parent,
