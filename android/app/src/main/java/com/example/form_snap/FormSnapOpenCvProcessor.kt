@@ -466,7 +466,7 @@ object FormSnapOpenCvProcessor {
                     val r = it.rect
                     val centerX = r.x + r.width / 2.0
                     val horizontalAlignment =
-                        1.0 - min(1.0, abs(centerX - photoCenterX) / max(1.0, photoRect.width))
+                        1.0 - min(1.0, abs(centerX - photoCenterX) / max(1.0, photoRect.width.toDouble()))
                     it.score + horizontalAlignment * 0.20
                 }
                 ?: signatureCandidates.maxByOrNull { it.score }
