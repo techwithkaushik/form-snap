@@ -86,7 +86,7 @@ object FormSnapOpenCvProcessor {
             // Class-8 2026-27 template coordinates.
             val photoTemplate = cropTemplate(rectified, 0.746, 0.190, 0.193, 0.169)
             val photoCrop = findPastedPhotoInsideBox(photoTemplate)
-            val signatureCrop = cropTemplate(rectified, 0.625, 0.807, 0.255, 0.841)
+            val signatureCrop = cropTemplate(rectified, 0.255, 0.625, 0.586, 0.182)
 
             val photoBorderFree = trimPhotoFrame(photoCrop)
             val photoEdgeClean = removeTemplateEdgeLines(photoBorderFree, true)
