@@ -534,7 +534,7 @@ class MainActivity : ComponentActivity() {
                         supportingText = {
                             Text(
                                 "Save as: " + personName.ifBlank { "PersonName" } +
-                                    "-photo.jpg / -signature.jpg"
+                                    "-photo.jpg / -sign.jpg"
                             )
                         },
                     )
