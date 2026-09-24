@@ -86,17 +86,14 @@ object FormSnapOpenCvProcessor {
             // Class-8 2026-27 template coordinates.
             val photoTemplate = cropTemplate(rectified, 0.746, 0.190, 0.193, 0.169)
             val photoCrop = findPastedPhotoInsideBox(photoTemplate)
-            val signatureCrop = cropTemplate(rectified, 0.722, 0.374, 0.240, 0.068)
+            val signatureCrop = cropTemplate(rectified, 0.625, 0.807, 0.255, 0.841)
 
             val photoBorderFree = trimPhotoFrame(photoCrop)
             val photoEdgeClean = removeTemplateEdgeLines(photoBorderFree, true)
-            val signatureEdgeClean = removeTemplateEdgeLines(signatureCrop, false)
-            val signatureBorderFree = trimSignatureFrame(signatureEdgeClean)
+            val signatureEdgeClean = trimSignatureFrame(signatureCrop)
             val photo = enhancePhotoQuality(photoEdgeClean)
-            val sign = enhanceSignQuality(signatureBorderFree)
+            val sign = extractSignatureInk(signatureEdgeClean)
             photoBorderFree.release()
-            signatureBorderFree.release()
-
             photoTemplate.release()
             photoCrop.release()
             signatureCrop.release()
@@ -1183,6 +1180,122 @@ object FormSnapOpenCvProcessor {
     // made the signature look unnaturally bright/thin. We estimate the paper
     // background, darken only pixels that are genuinely ink-like, and retain
     // the original grayscale instead of forcing a pure-white threshold image.
+    private fun extractSignatureInk(cropped: Mat): Mat {
+        if (cropped.cols() < 80 || cropped.rows() < 40) return cropped.clone()
+
+        val hsv = Mat()
+        val gray = Mat()
+        Imgproc.cvtColor(cropped, hsv, Imgproc.COLOR_BGR2HSV)
+        Imgproc.cvtColor(cropped, gray, Imgproc.COLOR_BGR2GRAY)
+
+        // Blue/purple pen: saturation. Black pen: darkness.
+        val saturationMask = Mat()
+        val darkMask = Mat()
+        Imgproc.threshold(hsv, saturationMask, 28.0, 255.0, Imgproc.THRESH_BINARY)
+        Imgproc.threshold(gray, darkMask, 175.0, 255.0, Imgproc.THRESH_BINARY_INV)
+
+        val mask = Mat()
+        Core.bitwise_or(saturationMask, darkMask, mask)
+
+        // Remove small dust and connect broken pen strokes.
+        val open = Imgproc.getStructuringElement(
+            Imgproc.MORPH_ELLIPSE, Size(2.0, 2.0),
+        )
+        val close = Imgproc.getStructuringElement(
+            Imgproc.MORPH_ELLIPSE, Size(3.0, 3.0),
+        )
+        Imgproc.morphologyEx(mask, mask, Imgproc.MORPH_OPEN, open)
+        Imgproc.morphologyEx(mask, mask, Imgproc.MORPH_CLOSE, close)
+
+        // Ignore the field frame. It is already inset, but this also protects
+        // against a dark residual edge becoming the "signature".
+        val edgeX = max(8, cropped.cols() / 30)
+        val edgeY = max(8, cropped.rows() / 18)
+        mask.submat(0, edgeY, 0, cropped.cols()).setTo(org.opencv.core.Scalar(0.0))
+        mask.submat(cropped.rows() - edgeY, cropped.rows(), 0, cropped.cols())
+            .setTo(org.opencv.core.Scalar(0.0))
+        mask.submat(0, cropped.rows(), 0, edgeX).setTo(org.opencv.core.Scalar(0.0))
+        mask.submat(0, cropped.rows(), cropped.cols() - edgeX, cropped.cols())
+            .setTo(org.opencv.core.Scalar(0.0))
+
+        // Remove only components that are clearly long printed rules.
+        val labels = Mat()
+        val stats = Mat()
+        val centroids = Mat()
+        val count = Imgproc.connectedComponentsWithStats(
+            mask, labels, stats, centroids, 8, CvType.CV_32S,
+        )
+        val clean = Mat.zeros(mask.size(), CvType.CV_8UC1)
+        for (i in 1 until count) {
+            val area = stats.get(i, Imgproc.CC_STAT_AREA)[0]
+            val w = stats.get(i, Imgproc.CC_STAT_WIDTH)[0]
+            val h = stats.get(i, Imgproc.CC_STAT_HEIGHT)[0]
+            val looksLikeRule = w > cropped.cols() * 0.55 && h < cropped.rows() * 0.055
+            val useful = area >= 5.0 && (area >= 12.0 || w >= 5.0 || h >= 5.0)
+            if (!looksLikeRule && useful) {
+                val component = Mat()
+                Core.compare(labels, org.opencv.core.Scalar(i.toDouble()), component, Core.CMP_EQ)
+                component.copyTo(clean, component)
+                component.release()
+            }
+        }
+
+        val points = MatOfPoint()
+        Core.findNonZero(clean, points)
+        if (points.empty()) {
+            points.release()
+            hsv.release(); gray.release()
+            saturationMask.release(); darkMask.release(); mask.release()
+            open.release(); close.release()
+            labels.release(); stats.release(); centroids.release(); clean.release()
+            return Mat.zeros(max(1, cropped.rows()), max(1, cropped.cols()), CvType.CV_8UC3)
+                .apply { setTo(org.opencv.core.Scalar(255.0, 255.0, 255.0)) }
+        }
+
+        val bbox = Imgproc.boundingRect(points)
+        points.release()
+
+        val pad = max(10, min(35, min(bbox.width, bbox.height) / 4))
+        var x1 = max(0, bbox.x - pad)
+        var y1 = max(0, bbox.y - pad)
+        var x2 = min(cropped.cols(), bbox.x + bbox.width + pad)
+        var y2 = min(cropped.rows(), bbox.y + bbox.height + pad)
+
+        // Preserve the requested 50:20 aspect ratio without stretching ink.
+        val targetRatio = 2.5
+        var w = x2 - x1
+        var h = y2 - y1
+        if (w.toDouble() / h.toDouble() > targetRatio) {
+            val wantedH = (w / targetRatio).toInt()
+            val extra = wantedH - h
+            y1 = max(0, y1 - extra / 2)
+            y2 = min(cropped.rows(), y1 + wantedH)
+            h = y2 - y1
+        } else {
+            val wantedW = (h * targetRatio).toInt()
+            val extra = wantedW - w
+            x1 = max(0, x1 - extra / 2)
+            x2 = min(cropped.cols(), x1 + wantedW)
+            w = x2 - x1
+        }
+
+        val result = Mat(
+            Size(w.toDouble(), h.toDouble()),
+            CvType.CV_8UC3,
+            org.opencv.core.Scalar(255.0, 255.0, 255.0),
+        )
+        val sourceCrop = cropped.submat(y1, y2, x1, x2)
+        val sourceMask = clean.submat(y1, y2, x1, x2)
+        sourceCrop.copyTo(result, sourceMask)
+
+        hsv.release(); gray.release()
+        saturationMask.release(); darkMask.release(); mask.release()
+        open.release(); close.release()
+        labels.release(); stats.release(); centroids.release(); clean.release()
+        sourceCrop.release(); sourceMask.release()
+        return result
+    }
+
     private fun enhanceSignQuality(cropped: Mat): Mat {
         val guideClean = removeSignatureGuideLines(cropped)
 
