@@ -1,6 +1,9 @@
 package com.example.form_snap
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.PointF
+import org.opencv.android.Utils
 import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
@@ -357,6 +360,55 @@ object FormSnapOpenCvProcessor {
         val signature: FieldCandidate?,
     )
 
+    // Signature boxes are selected using handwriting density, not only
+    // the 50:20 rectangle ratio. Printed empty boxes contain mostly paper;
+    // a real signature has connected dark strokes in its interior.
+    private fun signatureInkScore(image: Mat, box: Rect): Double {
+        val x1 = (box.x + box.width * 0.06).toInt().coerceIn(0, image.cols() - 1)
+        val y1 = (box.y + box.height * 0.10).toInt().coerceIn(0, image.rows() - 1)
+        val x2 = (box.x + box.width * 0.94).toInt().coerceIn(x1 + 1, image.cols())
+        val y2 = (box.y + box.height * 0.90).toInt().coerceIn(y1 + 1, image.rows())
+        val roi = image.submat(y1, y2, x1, x2)
+        val gray = Mat()
+        val blur = Mat()
+        val ink = Mat()
+        Imgproc.cvtColor(roi, gray, Imgproc.COLOR_BGR2GRAY)
+        Imgproc.GaussianBlur(gray, blur, Size(3.0, 3.0), 0.0)
+        Imgproc.adaptiveThreshold(
+            blur, ink, 255.0,
+            Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
+            Imgproc.THRESH_BINARY_INV,
+            31, 11.0,
+        )
+
+        // Printed border is outside this ROI. Count meaningful connected ink.
+        val components = Mat()
+        val stats = Mat()
+        val centroids = Mat()
+        val count = Imgproc.connectedComponentsWithStats(
+            ink, components, stats, centroids, 8, CvType.CV_32S,
+        )
+        var useful = 0.0
+        for (i in 1 until count) {
+            val area = stats.get(i, Imgproc.CC_STAT_AREA)[0]
+            val w = stats.get(i, Imgproc.CC_STAT_WIDTH)[0]
+            val h = stats.get(i, Imgproc.CC_STAT_HEIGHT)[0]
+            if (area >= 8.0 && (area >= 20.0 || w >= 7.0 || h >= 7.0)) {
+                useful += area
+            }
+        }
+
+        val density = useful / max(1.0, (x2 - x1).toDouble() * (y2 - y1))
+        roi.release()
+        gray.release()
+        blur.release()
+        ink.release()
+        components.release()
+        stats.release()
+        centroids.release()
+        return min(1.0, density * 14.0)
+    }
+
     // Detect the field rectangles directly when the image is a partial-form
     // capture/import rather than a complete A4 page. The quadrilateral is kept
     // (not just its boundingRect) so a tilted/skewed capture can be perspective
@@ -425,11 +477,13 @@ object FormSnapOpenCvProcessor {
 
                 if (ratio in 1.75..3.25) {
                     val ratioScore = 1.0 - min(1.0, abs(ratio - 2.50) / 0.75)
+                    val handwriting = signatureInkScore(source, box)
                     val score =
-                        ratioScore * 0.50 +
-                        rectangularity * 0.18 +
-                        quadRectangularity.coerceIn(0.0, 1.0) * 0.12 +
-                        sizeScore * 0.10 +
+                        ratioScore * 0.35 +
+                        rectangularity * 0.12 +
+                        quadRectangularity.coerceIn(0.0, 1.0) * 0.08 +
+                        sizeScore * 0.08 +
+                        handwriting * 0.27 +
                         0.10
                     signatureCandidates.add(FieldCandidate(quad, box, score))
                 }
@@ -512,53 +566,167 @@ object FormSnapOpenCvProcessor {
     // rectangle when it is clearly present; otherwise use the template box.
     // This is important when a user sticks a smaller photo inside the printed
     // frame instead of filling it edge-to-edge.
+    // Find the actual pasted photo by combining rectangle geometry with
+    // Android's lightweight offline FaceDetector. The face is used as a strong
+    // semantic signal: a printed frame has no face, while the real photo does.
     private fun findPastedPhotoInsideBox(template: Mat): Mat {
-        val gray=Mat()
-        val blur=Mat()
-        val edges=Mat()
-        Imgproc.cvtColor(template,gray,Imgproc.COLOR_BGR2GRAY)
-        Imgproc.GaussianBlur(gray,blur,Size(3.0,3.0),0.0)
-        Imgproc.Canny(blur,edges,45.0,130.0)
-        val kernel=Imgproc.getStructuringElement(Imgproc.MORPH_RECT,Size(3.0,3.0))
-        Imgproc.morphologyEx(edges,edges,Imgproc.MORPH_CLOSE,kernel)
-        val contours=ArrayList<MatOfPoint>()
-        Imgproc.findContours(edges,contours,Mat(),Imgproc.RETR_LIST,Imgproc.CHAIN_APPROX_SIMPLE)
+        val gray = Mat()
+        val blur = Mat()
+        val edges = Mat()
+        Imgproc.cvtColor(template, gray, Imgproc.COLOR_BGR2GRAY)
+        Imgproc.GaussianBlur(gray, blur, Size(3.0, 3.0), 0.0)
+        Imgproc.Canny(blur, edges, 45.0, 130.0)
 
-        val area=template.cols().toDouble()*template.rows().toDouble()
-        var best:Rect?=null
-        var bestScore=Double.NEGATIVE_INFINITY
-        for(c in contours){
-            val r=Imgproc.boundingRect(c)
-            val a=abs(Imgproc.contourArea(c))
-            val ratio=r.width.toDouble()/max(1,r.height).toDouble()
-            val fill=a/max(1.0,r.width.toDouble()*r.height)
-            val marginX=min(r.x,template.cols()-(r.x+r.width)).toDouble()/template.cols()
-            val marginY=min(r.y,template.rows()-(r.y+r.height)).toDouble()/template.rows()
-            val centered=1.0-(abs((r.x+r.width/2.0)/template.cols()-0.5)*2.0)
-            // Inner photo should not be the outer printed frame itself.
-            val sizeFraction=r.width.toDouble()*r.height.toDouble()/area
-            val plausible=ratio in 0.55..1.05 && sizeFraction in 0.45..0.96 &&
-                marginX>0.025 && marginY>0.025 && fill>0.45
-            if(plausible){
-                val ratioScore=1.0-min(1.0,abs(ratio-0.80)/0.30)
-                val score=ratioScore*0.35+fill*0.20+centered*0.15+sizeFraction*0.30
-                if(score>bestScore){bestScore=score;best=r}
+        val kernel = Imgproc.getStructuringElement(
+            Imgproc.MORPH_RECT, Size(3.0, 3.0),
+        )
+        Imgproc.morphologyEx(edges, edges, Imgproc.MORPH_CLOSE, kernel)
+
+        val contours = ArrayList<MatOfPoint>()
+        Imgproc.findContours(
+            edges, contours, Mat(), Imgproc.RETR_LIST, Imgproc.CHAIN_APPROX_SIMPLE,
+        )
+
+        val area = template.cols().toDouble() * template.rows().toDouble()
+        var best: Rect? = null
+        var bestScore = Double.NEGATIVE_INFINITY
+        var bestFace: Rect? = null
+
+        for (contour in contours) {
+            val r = Imgproc.boundingRect(contour)
+            val a = abs(Imgproc.contourArea(contour))
+            val ratio = r.width.toDouble() / max(1, r.height).toDouble()
+            val fill = a / max(1.0, r.width.toDouble() * r.height)
+            val marginX = min(r.x, template.cols() - (r.x + r.width)).toDouble() / template.cols()
+            val marginY = min(r.y, template.rows() - (r.y + r.height)).toDouble() / template.rows()
+            val centered = 1.0 - (abs((r.x + r.width / 2.0) / template.cols() - 0.5) * 2.0)
+            val sizeFraction = r.width.toDouble() * r.height.toDouble() / area
+
+            val plausible = ratio in 0.55..1.05 &&
+                sizeFraction in 0.40..0.98 &&
+                marginX > 0.015 && marginY > 0.015 &&
+                fill > 0.38
+
+            if (plausible) {
+                val candidate = template.submat(
+                    r.y.coerceIn(0, template.rows() - 1),
+                    (r.y + r.height).coerceIn(r.y + 1, template.rows()),
+                    r.x.coerceIn(0, template.cols() - 1),
+                    (r.x + r.width).coerceIn(r.x + 1, template.cols()),
+                ).clone()
+
+                val face = detectFace(candidate)
+                val faceScore = if (face != null) {
+                    val fx = face.x + face.width / 2.0
+                    val fy = face.y + face.height / 2.0
+                    val centerX = candidate.cols() / 2.0
+                    val centerY = candidate.rows() * 0.44
+                    val centerPenalty =
+                        min(1.0, hypot(fx - centerX, fy - centerY) /
+                            max(1.0, candidate.cols().toDouble() * 0.45))
+                    val sizeRatio = face.width.toDouble() / candidate.width.toDouble()
+                    val sizeScore = 1.0 - min(1.0, abs(sizeRatio - 0.42) / 0.35)
+                    1.0 - centerPenalty * 0.35 + sizeScore * 0.35
+                } else {
+                    0.0
+                }
+
+                val ratioScore = 1.0 - min(1.0, abs(ratio - 0.80) / 0.30)
+                val geometryScore =
+                    ratioScore * 0.25 + fill * 0.12 + centered * 0.08 + sizeFraction * 0.15
+                val score = geometryScore + if (face != null) 0.95 + faceScore * 0.30 else 0.0
+
+                if (score > bestScore) {
+                    bestScore = score
+                    best = r
+                    bestFace = face
+                }
+                candidate.release()
             }
-            c.release()
+            contour.release()
         }
-        val result=if(best!=null){
-            val r=best!!
-            val padX=max(2,(r.width*0.008).toInt())
-            val padY=max(2,(r.height*0.008).toInt())
+
+        val result = if (best != null) {
+            val r = best!!
+            val padX = max(2, (r.width * 0.008).toInt())
+            val padY = max(2, (r.height * 0.008).toInt())
             template.submat(
-                (r.y+padY).coerceIn(0,template.rows()-1),
-                (r.y+r.height-padY).coerceIn(r.y+padY+1,template.rows()),
-                (r.x+padX).coerceIn(0,template.cols()-1),
-                (r.x+r.width-padX).coerceIn(r.x+padX+1,template.cols())
+                (r.y + padY).coerceIn(0, template.rows() - 1),
+                (r.y + r.height - padY).coerceIn(r.y + padY + 1, template.rows()),
+                (r.x + padX).coerceIn(0, template.cols() - 1),
+                (r.x + r.width - padX).coerceIn(r.x + padX + 1, template.cols()),
             ).clone()
-        } else template.clone()
-        gray.release();blur.release();edges.release();kernel.release()
+        } else {
+            template.clone()
+        }
+
+        gray.release()
+        blur.release()
+        edges.release()
+        kernel.release()
         return result
+    }
+
+    // Android's platform FaceDetector is local/offline and avoids adding a
+    // large ML model to the ARM32 APK. It is used only as a semantic signal
+    // for photo selection, not as a replacement for perspective correction.
+    private fun detectFace(image: Mat): Rect? {
+        if (image.cols() < 80 || image.rows() < 80) return null
+
+        val maxSide = max(image.cols(), image.rows())
+        val scale = min(1.0, 640.0 / maxSide.toDouble())
+        val small = Mat()
+        Imgproc.resize(
+            image, small,
+            Size(image.cols() * scale, image.rows() * scale),
+            0.0, 0.0, Imgproc.INTER_AREA,
+        )
+
+        val bitmap = Bitmap.createBitmap(
+            small.cols(), small.rows(), Bitmap.Config.RGB_565,
+        )
+        Utils.matToBitmap(small, bitmap)
+
+        val detector = android.media.FaceDetector(bitmap.width, bitmap.height, 4)
+        val faces = arrayOfNulls<android.media.FaceDetector.Face>(4)
+        val count = detector.findFaces(bitmap, faces)
+
+        var best: Rect? = null
+        var bestConfidence = 0.0
+
+        for (i in 0 until count) {
+            val face = faces[i] ?: continue
+            val confidence = face.confidence().toDouble()
+            val midpoint = PointF()
+            face.getMidPoint(midpoint)
+            val eyeDistance = face.eyesDistance()
+
+            // FaceDetector returns an eye-distance based face estimate.
+            // Reject tiny/low-confidence detections that are usually paper noise.
+            if (confidence < 0.35 || eyeDistance < 8f) continue
+
+            val halfW = eyeDistance * 1.65f
+            val halfH = eyeDistance * 2.10f
+            val x = ((midpoint.x - halfW) / scale).toInt()
+            val y = ((midpoint.y - halfH) / scale).toInt()
+            val w = (halfW * 2f / scale).toInt()
+            val h = (halfH * 2f / scale).toInt()
+
+            val rect = Rect(
+                x.coerceAtLeast(0),
+                y.coerceAtLeast(0),
+                w.coerceIn(1, image.cols()),
+                h.coerceIn(1, image.rows()),
+            )
+            if (confidence > bestConfidence) {
+                bestConfidence = confidence
+                best = rect
+            }
+        }
+
+        bitmap.recycle()
+        small.release()
+        return best
     }
 
     private fun removeTemplateEdgeLines(crop: Mat, isPhoto: Boolean): Mat {
