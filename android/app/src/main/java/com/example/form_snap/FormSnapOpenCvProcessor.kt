@@ -82,23 +82,25 @@ object FormSnapOpenCvProcessor {
         val rectified = rectifyDocument(source)
 
         if (rectified != null) {
-            // Full A4 form: perspective-correct first, then use the fixed
-            // Class-8 2026-27 template coordinates.
-            val photoTemplate = cropTemplate(rectified, 0.746, 0.190, 0.193, 0.169)
-            val photoCrop = findPastedPhotoInsideBox(photoTemplate)
-            val signatureCrop = cropTemplate(rectified, 0.255, 0.625, 0.586, 0.182)
+            // Semantic extraction: form dimensions are not assumed.
+            // Photo is located from a real face; signature from handwriting ink.
+            val photoRegion = detectPhotoRegion(rectified)
+            val signatureRegion = detectSignatureRegion(rectified)
 
-            val photoBorderFree = trimPhotoFrame(photoCrop)
-            val photoEdgeClean = removeTemplateEdgeLines(photoBorderFree, true)
-            val signatureEdgeClean = trimSignatureFrame(signatureCrop)
-            val photo = enhancePhotoQuality(photoEdgeClean)
-            val sign = extractSignatureInk(signatureEdgeClean)
-            photoBorderFree.release()
-            photoTemplate.release()
-            photoCrop.release()
-            signatureCrop.release()
-            photoEdgeClean.release()
-            signatureEdgeClean.release()
+            val photo = photoRegion?.let {
+                val clean = removeBlackBorderLines(it)
+                val result = enhancePhotoQuality(clean)
+                clean.release()
+                it.release()
+                result
+            }
+
+            val sign = signatureRegion?.let {
+                val result = extractSignatureInk(it)
+                it.release()
+                result
+            }
+
             rectified.release()
 
             val photoPath = saveJpeg(
@@ -205,6 +207,187 @@ object FormSnapOpenCvProcessor {
             "signatureDetected" to (signPath != null),
             "detector" to "partial-form-field-rectangles",
         )
+    }
+
+    private fun detectPhotoRegion(image: Mat): Mat? {
+        val face = detectFace(image) ?: return null
+        val candidates = listOf(
+            1.55 to 1.90,
+            1.75 to 2.10,
+            1.95 to 2.30,
+            2.20 to 2.55,
+        )
+        var best: Mat? = null
+        var bestScore = Double.NEGATIVE_INFINITY
+
+        for ((widthFactor, heightFactor) in candidates) {
+            val w = (face.width * widthFactor).toInt()
+            val h = (face.height * heightFactor).toInt()
+            if (w < 80 || h < 100) continue
+
+            val cx = face.x + face.width / 2
+            val cy = face.y + face.height * 0.50 + h * 0.10
+            val x1 = (cx - w / 2).toInt().coerceIn(0, image.cols() - 1)
+            val y1 = (cy - h * 0.50).toInt().coerceIn(0, image.rows() - 1)
+            val x2 = (x1 + w).coerceAtMost(image.cols())
+            val y2 = (y1 + h).coerceAtMost(image.rows())
+            if (x2 - x1 < 80 || y2 - y1 < 100) continue
+
+            val candidate = image.submat(y1, y2, x1, x2).clone()
+            val localFace = detectFace(candidate)
+            val faceScore = if (localFace != null) {
+                val area = localFace.width.toDouble() * localFace.height /
+                    max(1.0, candidate.cols().toDouble() * candidate.rows())
+                min(1.0, area * 10.0)
+            } else 0.0
+
+            val aspect = candidate.cols().toDouble() / candidate.rows().toDouble()
+            val aspectScore = 1.0 - min(1.0, abs(aspect - 0.80) / 0.45)
+            val score = faceScore * 0.82 + aspectScore * 0.18
+
+            if (score > bestScore) {
+                best?.release()
+                best = candidate
+                bestScore = score
+            } else {
+                candidate.release()
+            }
+        }
+        return best
+    }
+
+    private fun detectSignatureRegion(image: Mat): Mat? {
+        val hsv = Mat()
+        val gray = Mat()
+        Imgproc.cvtColor(image, hsv, Imgproc.COLOR_BGR2HSV)
+        Imgproc.cvtColor(image, gray, Imgproc.COLOR_BGR2GRAY)
+
+        val colouredInk = Mat()
+        val darkInk = Mat()
+        Imgproc.threshold(hsv, colouredInk, 32.0, 255.0, Imgproc.THRESH_BINARY)
+        Imgproc.threshold(gray, darkInk, 155.0, 255.0, Imgproc.THRESH_BINARY_INV)
+
+        // Coloured pen gets priority; dark ink is retained for black signatures.
+        val ink = Mat()
+        Core.bitwise_or(colouredInk, darkInk, ink)
+
+        val smallKernel = Imgproc.getStructuringElement(
+            Imgproc.MORPH_ELLIPSE, Size(2.0, 2.0),
+        )
+        Imgproc.morphologyEx(ink, ink, Imgproc.MORPH_OPEN, smallKernel)
+
+        // Printed rules are long and straight; remove them before grouping ink.
+        val hKernel = Imgproc.getStructuringElement(
+            Imgproc.MORPH_RECT, Size(max(20, image.cols() / 8).toDouble(), 1.0),
+        )
+        val vKernel = Imgproc.getStructuringElement(
+            Imgproc.MORPH_RECT, Size(1.0, max(20, image.rows() / 8).toDouble()),
+        )
+        val horizontal = Mat()
+        val vertical = Mat()
+        Imgproc.morphologyEx(ink, horizontal, Imgproc.MORPH_OPEN, hKernel)
+        Imgproc.morphologyEx(ink, vertical, Imgproc.MORPH_OPEN, vKernel)
+        Core.subtract(ink, horizontal, ink)
+        Core.subtract(ink, vertical, ink)
+
+        val labels = Mat()
+        val stats = Mat()
+        val centroids = Mat()
+        val count = Imgproc.connectedComponentsWithStats(
+            ink, labels, stats, centroids, 8, CvType.CV_32S,
+        )
+
+        data class InkComponent(
+            val rect: Rect,
+            val area: Double,
+            val centerY: Double,
+        )
+
+        val components = ArrayList<InkComponent>()
+        for (i in 1 until count) {
+            val x = stats.get(i, Imgproc.CC_STAT_LEFT)[0].toInt()
+            val y = stats.get(i, Imgproc.CC_STAT_TOP)[0].toInt()
+            val w = stats.get(i, Imgproc.CC_STAT_WIDTH)[0].toInt()
+            val h = stats.get(i, Imgproc.CC_STAT_HEIGHT)[0].toInt()
+            val area = stats.get(i, Imgproc.CC_STAT_AREA)[0]
+
+            if (area < 8.0 || w < 2 || h < 2) continue
+            if (w > image.cols() * 0.55 && h < image.rows() * 0.06) continue
+            components.add(InkComponent(Rect(x, y, w, h), area, y + h / 2.0))
+        }
+
+        if (components.isEmpty()) {
+            hsv.release(); gray.release(); colouredInk.release(); darkInk.release()
+            ink.release(); smallKernel.release(); hKernel.release(); vKernel.release()
+            horizontal.release(); vertical.release()
+            labels.release(); stats.release(); centroids.release()
+            return null
+        }
+
+        // Group nearby components into handwriting lines.
+        val groups = ArrayList<MutableList<InkComponent>>()
+        for (component in components.sortedBy { it.centerY }) {
+            var target: MutableList<InkComponent>? = null
+            for (group in groups) {
+                val minY = group.minOf { it.rect.y }
+                val maxY = group.maxOf { it.rect.y + it.rect.height }
+                val gap = max(0, maxOf(
+                    component.rect.y - maxY,
+                    minY - (component.rect.y + component.rect.height),
+                ))
+                if (gap <= image.rows() * 0.035) {
+                    target = group
+                    break
+                }
+            }
+            if (target == null) groups.add(mutableListOf(component))
+            else target.add(component)
+        }
+
+        var bestRect: Rect? = null
+        var bestScore = Double.NEGATIVE_INFINITY
+        for (group in groups) {
+            val x1 = group.minOf { it.rect.x }
+            val y1 = group.minOf { it.rect.y }
+            val x2 = group.maxOf { it.rect.x + it.rect.width }
+            val y2 = group.maxOf { it.rect.y + it.rect.height }
+            val w = x2 - x1
+            val h = y2 - y1
+            if (w < image.cols() * 0.08 || h < image.rows() * 0.006) continue
+
+            val area = group.sumOf { it.area }
+            val density = area / max(1.0, w.toDouble() * h)
+            val aspect = w.toDouble() / max(1, h).toDouble()
+            val aspectScore = 1.0 - min(1.0, abs(aspect - 3.0) / 4.0)
+            val widthScore = min(1.0, w.toDouble() / (image.cols() * 0.45))
+            val densityScore = min(1.0, density * 10.0)
+
+            // Handwriting normally forms a compact horizontal band. A huge
+            // dense block is more likely printed text than a signature.
+            val score = widthScore * 0.30 + aspectScore * 0.20 +
+                densityScore * 0.35 + min(1.0, area / 5000.0) * 0.15
+
+            if (score > bestScore) {
+                bestScore = score
+                bestRect = Rect(x1, y1, w, h)
+            }
+        }
+
+        val result = bestRect?.let { r ->
+            val padX = max(12, min(50, r.width / 8))
+            val padY = max(12, min(45, r.height / 2))
+            val x1 = (r.x - padX).coerceAtLeast(0)
+            val y1 = (r.y - padY).coerceAtLeast(0)
+            val x2 = (r.x + r.width + padX).coerceAtMost(image.cols())
+            val y2 = (r.y + r.height + padY).coerceAtMost(image.rows())
+            image.submat(y1, y2, x1, x2).clone()
+        }
+
+        hsv.release(); gray.release(); colouredInk.release(); darkInk.release()
+        ink.release(); smallKernel.release(); hKernel.release(); vKernel.release()
+        horizontal.release(); vertical.release()
+        labels.release(); stats.release(); centroids.release()
+        return result
     }
 
     // Fast document detection on a downscaled copy. A large phone image is
