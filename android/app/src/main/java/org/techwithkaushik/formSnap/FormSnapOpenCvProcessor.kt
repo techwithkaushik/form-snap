@@ -271,7 +271,7 @@ object FormSnapOpenCvProcessor {
         val darkInk = Mat()
         Core.extractChannel(hsv, saturation, 1)
         Imgproc.threshold(saturation, colouredInk, 32.0, 255.0, Imgproc.THRESH_BINARY)
-        Imgproc.threshold(gray, darkInk, 155.0, 255.0, Imgproc.THRESH_BINARY_INV)
+        Imgproc.threshold(gray, darkInk, 175.0, 255.0, Imgproc.THRESH_BINARY_INV)
 
         // Coloured pen gets priority; dark ink is retained for black signatures.
         val ink = Mat()
@@ -281,6 +281,11 @@ object FormSnapOpenCvProcessor {
             Imgproc.MORPH_ELLIPSE, Size(2.0, 2.0),
         )
         Imgproc.morphologyEx(ink, ink, Imgproc.MORPH_OPEN, smallKernel)
+
+        // A printed rule may touch handwriting. Remove long straight rules
+        // before connected-components so they cannot become one component
+        // with the actual signature.
+        val ruleFreeInk = removeLongPrintedRules(ink)
 
         // Printed rules are long and straight; remove them before grouping ink.
         val hKernel = Imgproc.getStructuringElement(
@@ -300,7 +305,7 @@ object FormSnapOpenCvProcessor {
         val stats = Mat()
         val centroids = Mat()
         val count = Imgproc.connectedComponentsWithStats(
-            ink, labels, stats, centroids, 8, CvType.CV_32S,
+            ruleFreeInk, labels, stats, centroids, 8, CvType.CV_32S,
         )
 
         data class InkComponent(
@@ -396,7 +401,8 @@ object FormSnapOpenCvProcessor {
         }
 
         hsv.release(); saturation.release(); gray.release(); colouredInk.release(); darkInk.release()
-        ink.release(); smallKernel.release(); hKernel.release(); vKernel.release()
+        ink.release(); ruleFreeInk.release()
+        smallKernel.release(); hKernel.release(); vKernel.release()
         horizontal.release(); vertical.release()
         labels.release(); stats.release(); centroids.release()
         return result
@@ -1375,6 +1381,65 @@ object FormSnapOpenCvProcessor {
     // made the signature look unnaturally bright/thin. We estimate the paper
     // background, darken only pixels that are genuinely ink-like, and retain
     // the original grayscale instead of forcing a pure-white threshold image.
+    // Removes printed horizontal/vertical guide rules without assuming
+    // their position or the size of the signature field.
+    private fun removeLongPrintedRules(mask: Mat): Mat {
+        if (mask.empty() || mask.cols() < 80 || mask.rows() < 30) return mask.clone()
+
+        val cleaned = mask.clone()
+
+        // Printed horizontal rules occupy a large fraction of a row.
+        // Handwritten strokes normally do not occupy 42% of the full row.
+        val rowThreshold = mask.cols().toDouble() * 0.42
+        for (y in 0 until mask.rows()) {
+            val row = mask.row(y)
+            val density = Core.countNonZero(row).toDouble()
+            row.release()
+
+            if (density >= rowThreshold) {
+                val y1 = (y - 2).coerceAtLeast(0)
+                val y2 = (y + 3).coerceAtMost(mask.rows())
+                cleaned.submat(y1, y2, 0, mask.cols())
+                    .setTo(org.opencv.core.Scalar(0.0))
+            }
+        }
+
+        // Also remove long continuous rules that are fragmented enough to
+        // avoid the row-density test.
+        val horizontalKernel = Imgproc.getStructuringElement(
+            Imgproc.MORPH_RECT,
+            Size(max(30.0, mask.cols() * 0.28), 1.0),
+        )
+        val verticalKernel = Imgproc.getStructuringElement(
+            Imgproc.MORPH_RECT,
+            Size(1.0, max(30.0, mask.rows() * 0.28)),
+        )
+        val horizontal = Mat()
+        val vertical = Mat()
+        Imgproc.morphologyEx(mask, horizontal, Imgproc.MORPH_OPEN, horizontalKernel)
+        Imgproc.morphologyEx(mask, vertical, Imgproc.MORPH_OPEN, verticalKernel)
+
+        val inverseHorizontal = Mat()
+        val withoutHorizontal = Mat()
+        Core.bitwise_not(horizontal, inverseHorizontal)
+        Core.bitwise_and(cleaned, inverseHorizontal, withoutHorizontal)
+
+        val inverseVertical = Mat()
+        val result = Mat()
+        Core.bitwise_not(vertical, inverseVertical)
+        Core.bitwise_and(withoutHorizontal, inverseVertical, result)
+
+        cleaned.release()
+        horizontalKernel.release()
+        verticalKernel.release()
+        horizontal.release()
+        vertical.release()
+        inverseHorizontal.release()
+        withoutHorizontal.release()
+        inverseVertical.release()
+        return result
+    }
+
     private fun extractSignatureInk(cropped: Mat): Mat {
         if (cropped.cols() < 80 || cropped.rows() < 40) return cropped.clone()
 
@@ -1402,6 +1467,24 @@ object FormSnapOpenCvProcessor {
         Imgproc.morphologyEx(mask, mask, Imgproc.MORPH_OPEN, open)
         Imgproc.morphologyEx(mask, mask, Imgproc.MORPH_CLOSE, close)
 
+        // Remove guide rules before connected-components. This also handles
+        // the case where the signature physically touches a printed rule.
+        val ruleFreeMask = removeLongPrintedRules(mask)
+        ruleFreeMask.submat(
+            0, max(8, cropped.rows() / 18), 0, cropped.cols(),
+        ).setTo(org.opencv.core.Scalar(0.0))
+        ruleFreeMask.submat(
+            cropped.rows() - max(8, cropped.rows() / 18),
+            cropped.rows(), 0, cropped.cols(),
+        ).setTo(org.opencv.core.Scalar(0.0))
+        ruleFreeMask.submat(
+            0, cropped.rows(), 0, max(8, cropped.cols() / 30),
+        ).setTo(org.opencv.core.Scalar(0.0))
+        ruleFreeMask.submat(
+            0, cropped.rows(),
+            cropped.cols() - max(8, cropped.cols() / 30), cropped.cols(),
+        ).setTo(org.opencv.core.Scalar(0.0))
+
         // Ignore the field frame. It is already inset, but this also protects
         // against a dark residual edge becoming the "signature".
         val edgeX = max(8, cropped.cols() / 30)
@@ -1418,9 +1501,9 @@ object FormSnapOpenCvProcessor {
         val stats = Mat()
         val centroids = Mat()
         val count = Imgproc.connectedComponentsWithStats(
-            mask, labels, stats, centroids, 8, CvType.CV_32S,
+            ruleFreeMask, labels, stats, centroids, 8, CvType.CV_32S,
         )
-        val clean = Mat.zeros(mask.size(), CvType.CV_8UC1)
+        val clean = Mat.zeros(ruleFreeMask.size(), CvType.CV_8UC1)
         for (i in 1 until count) {
             val area = stats.get(i, Imgproc.CC_STAT_AREA)[0]
             val w = stats.get(i, Imgproc.CC_STAT_WIDTH)[0]
@@ -1440,7 +1523,7 @@ object FormSnapOpenCvProcessor {
         if (points.empty()) {
             points.release()
             hsv.release(); gray.release()
-            saturationMask.release(); darkMask.release(); mask.release()
+            saturationMask.release(); darkMask.release(); mask.release(); ruleFreeMask.release()
             open.release(); close.release()
             labels.release(); stats.release(); centroids.release(); clean.release()
             return Mat.zeros(max(1, cropped.rows()), max(1, cropped.cols()), CvType.CV_8UC3)
@@ -1484,7 +1567,7 @@ object FormSnapOpenCvProcessor {
         sourceCrop.copyTo(result, sourceMask)
 
         hsv.release(); gray.release()
-        saturationMask.release(); darkMask.release(); mask.release()
+        saturationMask.release(); darkMask.release(); mask.release(); ruleFreeMask.release()
         open.release(); close.release()
         labels.release(); stats.release(); centroids.release(); clean.release()
         sourceCrop.release(); sourceMask.release()
