@@ -446,9 +446,37 @@ object FormSnapOpenCvProcessor {
         closed.release()
         kernel.release()
 
+        val bestPhoto = photoCandidates.maxByOrNull { it.score }
+
+        val signature = if (bestPhoto != null) {
+            val photoRect = bestPhoto.rect
+            val photoCenterX = photoRect.x + photoRect.width / 2.0
+
+            signatureCandidates
+                .filter {
+                    val r = it.rect
+                    val centerX = r.x + r.width / 2.0
+                    // Signature must be below the photo, not an unrelated
+                    // horizontal rectangle elsewhere in the image.
+                    r.y > photoRect.y + photoRect.height * 0.55 &&
+                        centerX > photoRect.x - photoRect.width * 0.60 &&
+                        centerX < photoRect.x + photoRect.width * 1.60
+                }
+                .maxByOrNull {
+                    val r = it.rect
+                    val centerX = r.x + r.width / 2.0
+                    val horizontalAlignment =
+                        1.0 - min(1.0, abs(centerX - photoCenterX) / max(1.0, photoRect.width))
+                    it.score + horizontalAlignment * 0.20
+                }
+                ?: signatureCandidates.maxByOrNull { it.score }
+        } else {
+            signatureCandidates.maxByOrNull { it.score }
+        }
+
         return FieldBoxes(
-            photo = photoCandidates.maxByOrNull { it.score },
-            signature = signatureCandidates.maxByOrNull { it.score },
+            photo = bestPhoto,
+            signature = signature,
         )
     }
 
@@ -811,7 +839,7 @@ object FormSnapOpenCvProcessor {
         Core.subtract(background, gray, diff)
 
         val inkMask = Mat()
-        Imgproc.threshold(diff, inkMask, 7.0, 255.0, Imgproc.THRESH_BINARY)
+        Imgproc.threshold(diff, inkMask, 4.0, 255.0, Imgproc.THRESH_BINARY)
 
         val k = Imgproc.getStructuringElement(
             Imgproc.MORPH_ELLIPSE, Size(2.0, 2.0),
@@ -825,10 +853,10 @@ object FormSnapOpenCvProcessor {
         val result = Mat(
             gray.size(),
             CvType.CV_8UC1,
-            org.opencv.core.Scalar(242.0),
+            org.opencv.core.Scalar(248.0),
         )
         val darkerInk = Mat()
-        Core.convertScaleAbs(gray, darkerInk, 0.90, 0.0)
+        Core.convertScaleAbs(gray, darkerInk, 0.72, 0.0)
         darkerInk.copyTo(result, inkMask)
 
         Imgproc.GaussianBlur(result, result, Size(3.0, 3.0), 0.0)
@@ -872,15 +900,15 @@ object FormSnapOpenCvProcessor {
         val diff = Mat()
         Core.subtract(bg, gray, diff)
         val mask = Mat()
-        Imgproc.threshold(diff, mask, 7.0, 255.0, Imgproc.THRESH_BINARY)
+        Imgproc.threshold(diff, mask, 4.0, 255.0, Imgproc.THRESH_BINARY)
 
         val result = Mat(
             gray.size(),
             CvType.CV_8UC1,
-            org.opencv.core.Scalar(242.0),
+            org.opencv.core.Scalar(248.0),
         )
         val darkerInk = Mat()
-        Core.convertScaleAbs(gray, darkerInk, 0.90, 0.0)
+        Core.convertScaleAbs(gray, darkerInk, 0.72, 0.0)
         darkerInk.copyTo(result, mask)
         Imgproc.GaussianBlur(result, result, Size(3.0, 3.0), 0.0)
 
