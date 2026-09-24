@@ -11,6 +11,7 @@ import org.opencv.core.Rect
 import org.opencv.core.Size
 import org.opencv.imgcodecs.Imgcodecs
 import org.opencv.imgproc.Imgproc
+import org.opencv.photo.Photo
 import java.io.File
 import java.io.FileOutputStream
 import kotlin.math.abs
@@ -79,8 +80,8 @@ object FormSnapOpenCvProcessor {
         // line before enhancement so the saved output contains only the image/sign.
         val photoTrimmed = trimPrintedFrame(photoCrop, 15)
         val signTrimmed = trimPrintedFrame(signCrop, 15)
-        val photoClean = removePrintedEdgeLines(photoTrimmed)
-        val signClean = removePrintedEdgeLines(signTrimmed)
+        val photoClean = removePrintedEdgeLines(photoTrimmed, true)
+        val signClean = removePrintedEdgeLines(signTrimmed, false)
         val photo = enhancePhotoQuality(photoClean)
         val sign = enhanceSignQuality(signClean)
         photoTrimmed.release()
@@ -263,7 +264,7 @@ object FormSnapOpenCvProcessor {
 
         val crop = cropWithPadding(source, box, if (isPhoto) 10 else 8)
         val frameClean = trimPrintedFrame(crop, 15)
-        val edgeClean = removePrintedEdgeLines(frameClean)
+        val edgeClean = removePrintedEdgeLines(frameClean, isPhoto)
         val finalImage = if (isPhoto) {
             val clean = removeBlackBorderLines(edgeClean)
             val result = enhanceCloseUpPhoto(clean)
@@ -609,62 +610,112 @@ object FormSnapOpenCvProcessor {
     // Remove dark printed border rules that can survive the contour crop.
     // We only inspect a narrow edge band, so real face/signature content in the
     // center is never treated as a border.
-    private fun removePrintedEdgeLines(crop: Mat): Mat {
-        val result = crop.clone()
+    // Remove printed frame rules without painting over real content.
+    // Photo mode uses inpainting so a white/black rule crossing the hair is
+    // reconstructed from neighbouring pixels instead of being turned into a
+    // white stripe. Signature mode repairs the top/bottom border rules too.
+    private fun removePrintedEdgeLines(crop: Mat, isPhoto: Boolean): Mat {
         val gray = Mat()
-        Imgproc.cvtColor(result, gray, Imgproc.COLOR_BGR2GRAY)
+        Imgproc.cvtColor(crop, gray, Imgproc.COLOR_BGR2GRAY)
 
+        val mask = Mat.zeros(gray.size(), CvType.CV_8UC1)
         val dark = Mat()
-        Imgproc.threshold(gray, dark, 105.0, 255.0, Imgproc.THRESH_BINARY_INV)
+        Imgproc.threshold(
+            gray, dark, 105.0, 255.0, Imgproc.THRESH_BINARY_INV,
+        )
 
-        // Long horizontal/vertical morphology isolates the printed box rules
-        // without touching the face or handwritten strokes in the center.
         val hKernel = Imgproc.getStructuringElement(
-            Imgproc.MORPH_RECT, Size(max(15, crop.cols() / 3).toDouble(), 1.0),
+            Imgproc.MORPH_RECT,
+            Size(max(15, crop.cols() / 3).toDouble(), 1.0),
         )
         val vKernel = Imgproc.getStructuringElement(
-            Imgproc.MORPH_RECT, Size(1.0, max(15, crop.rows() / 3).toDouble()),
+            Imgproc.MORPH_RECT,
+            Size(1.0, max(15, crop.rows() / 3).toDouble()),
         )
         val horizontal = Mat()
         val vertical = Mat()
         Imgproc.morphologyEx(dark, horizontal, Imgproc.MORPH_OPEN, hKernel)
         Imgproc.morphologyEx(dark, vertical, Imgproc.MORPH_OPEN, vKernel)
 
-        // Only erase lines close to an outer edge. This protects actual
-        // handwriting and facial details from being classified as a frame.
-        val edgeMask = Mat.zeros(dark.size(), CvType.CV_8UC1)
-        val edgeBandY = max(18, crop.rows() / 7)
-        val edgeBandX = max(18, crop.cols() / 7)
+        val edgeY = max(18, crop.rows() / 7)
+        val edgeX = max(18, crop.cols() / 7)
 
-        if (crop.rows() > 1) {
+        if (isPhoto) {
+            // The reported defect is a printed line crossing the top of the
+            // hair. Do not touch the bottom of the portrait where clothing
+            // patterns can look like long horizontal structures.
             horizontal.submat(
-                0, min(edgeBandY, crop.rows()), 0, crop.cols(),
-            ).copyTo(edgeMask.submat(
-                0, min(edgeBandY, crop.rows()), 0, crop.cols(),
+                0, min(edgeY, crop.rows()), 0, crop.cols(),
+            ).copyTo(mask.submat(
+                0, min(edgeY, crop.rows()), 0, crop.cols(),
+            ))
+            vertical.submat(
+                0, crop.rows(), 0, min(edgeX, crop.cols()),
+            ).copyTo(mask.submat(
+                0, crop.rows(), 0, min(edgeX, crop.cols()),
+            ))
+            vertical.submat(
+                0, crop.rows(),
+                max(0, crop.cols() - edgeX), crop.cols(),
+            ).copyTo(mask.submat(
+                0, crop.rows(),
+                max(0, crop.cols() - edgeX), crop.cols(),
+            ))
+
+            // The current sample contains a white frame rule over dark hair.
+            // Detect long bright horizontal runs in the upper fifth as well.
+            val bright = Mat()
+            Imgproc.threshold(
+                gray, bright, 235.0, 255.0, Imgproc.THRESH_BINARY,
+            )
+            val brightKernel = Imgproc.getStructuringElement(
+                Imgproc.MORPH_RECT,
+                Size(max(80, crop.cols() / 3).toDouble(), 1.0),
+            )
+            val brightHorizontal = Mat()
+            Imgproc.morphologyEx(
+                bright, brightHorizontal, Imgproc.MORPH_OPEN, brightKernel,
+            )
+            val topLimit = min(crop.rows(), crop.rows() * 20 / 100)
+            if (topLimit > 8) {
+                brightHorizontal.submat(
+                    8, topLimit, 0, crop.cols(),
+                ).copyTo(mask.submat(
+                    8, topLimit, 0, crop.cols(),
+                ))
+            }
+            bright.release()
+            brightKernel.release()
+            brightHorizontal.release()
+        } else {
+            // Signature output is ink on white. Border rules near the top,
+            // bottom, and sides can safely be repaired from the white paper.
+            horizontal.submat(
+                0, min(edgeY, crop.rows()), 0, crop.cols(),
+            ).copyTo(mask.submat(
+                0, min(edgeY, crop.rows()), 0, crop.cols(),
             ))
             horizontal.submat(
-                max(0, crop.rows() - edgeBandY), crop.rows(), 0, crop.cols(),
-            ).copyTo(edgeMask.submat(
-                max(0, crop.rows() - edgeBandY), crop.rows(), 0, crop.cols(),
+                max(0, crop.rows() - edgeY), crop.rows(), 0, crop.cols(),
+            ).copyTo(mask.submat(
+                max(0, crop.rows() - edgeY), crop.rows(), 0, crop.cols(),
+            ))
+            vertical.submat(
+                0, crop.rows(), 0, min(edgeX, crop.cols()),
+            ).copyTo(mask.submat(
+                0, crop.rows(), 0, min(edgeX, crop.cols()),
+            ))
+            vertical.submat(
+                0, crop.rows(),
+                max(0, crop.cols() - edgeX), crop.cols(),
+            ).copyTo(mask.submat(
+                0, crop.rows(),
+                max(0, crop.cols() - edgeX), crop.cols(),
             ))
         }
-        vertical.submat(
-            0, crop.rows(), 0, min(edgeBandX, crop.cols()),
-        ).copyTo(edgeMask.submat(
-            0, crop.rows(), 0, min(edgeBandX, crop.cols()),
-        ))
-        vertical.submat(
-            0, crop.rows(), max(0, crop.cols() - edgeBandX), crop.cols(),
-        ).copyTo(edgeMask.submat(
-            0, crop.rows(), max(0, crop.cols() - edgeBandX), crop.cols(),
-        ))
 
-        // Paint detected frame rules white, preserving the surrounding photo
-        // rather than leaving a dark rectangular edge in the output.
-        result.setTo(
-            org.opencv.core.Scalar(255.0, 255.0, 255.0),
-            edgeMask,
-        )
+        val repaired = Mat()
+        Photo.inpaint(crop, mask, repaired, 3.0, Photo.INPAINT_TELEA)
 
         gray.release()
         dark.release()
@@ -672,9 +723,10 @@ object FormSnapOpenCvProcessor {
         vKernel.release()
         horizontal.release()
         vertical.release()
-        edgeMask.release()
-        return result
+        mask.release()
+        return repaired
     }
+
     private fun trimPrintedFrame(crop: Mat, inset: Int): Mat {
         val safeX = min(inset, max(0, (crop.cols() - 2) / 4))
         val safeY = min(inset, max(0, (crop.rows() - 2) / 4))
