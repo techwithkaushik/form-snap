@@ -53,53 +53,47 @@ object FormSnapOpenCvProcessor {
         }
     }
 
-    // Exact algorithm from form_cropper.py.
+    // Whole-form extraction uses the same detector for camera and imported
+    // images, but searches the full captured page so a photo placed near the
+    // center of a tightly cropped input is not missed.
     private fun processWholeForm(
         context: Context,
         source: Mat,
     ): Map<String, Any?> {
-        val h = source.rows()
-        val w = source.cols()
-        val roiStartX = (w * 0.55).toInt().coerceIn(0, w - 1)
-        val roi = source.submat(0, h, roiStartX, w)
+        val boxes = findWholeFormBoxes(source)
+        val pad = 6
 
-        try {
-            val boxes = findWholeFormBoxes(roi)
-            val pad = 6
-
-            val photoCrop = if (boxes.first != null) {
-                cropWithPadding(roi, boxes.first!!, pad)
-            } else {
-                cropNormalized(source, 0.20, 0.325, 0.75, 0.925, 6)
-            }
-
-            val signCrop = if (boxes.second != null) {
-                cropWithPadding(roi, boxes.second!!, pad)
-            } else {
-                cropNormalized(source, 0.373, 0.432, 0.745, 0.930, 7)
-            }
-
-            val photo = enhancePhotoQuality(photoCrop)
-            val sign = enhanceSignQuality(signCrop)
-            photoCrop.release()
-            signCrop.release()
-
-            val photoPath = saveJpeg(context, photo, "photo", 40.0, 50.0, 50)
-            val signPath = saveJpeg(context, sign, "signature", 50.0, 20.0, 50)
-            photo.release()
-            sign.release()
-
-            return mapOf(
-                "photoPath" to photoPath,
-                "signaturePath" to signPath,
-                "photoDetected" to (boxes.first != null),
-                "signatureDetected" to (boxes.second != null),
-                "detector" to "python-form-cropper",
-            )
-        } finally {
-            roi.release()
+        val photoCrop = if (boxes.first != null) {
+            cropWithPadding(source, boxes.first!!, pad)
+        } else {
+            cropNormalized(source, 0.20, 0.325, 0.75, 0.925, pad)
         }
+
+        val signCrop = if (boxes.second != null) {
+            cropWithPadding(source, boxes.second!!, pad)
+        } else {
+            cropNormalized(source, 0.373, 0.432, 0.745, 0.930, 7)
+        }
+
+        val photo = enhancePhotoQuality(photoCrop)
+        val sign = enhanceSignQuality(signCrop)
+        photoCrop.release()
+        signCrop.release()
+
+        val photoPath = saveJpeg(context, photo, "photo", 40.0, 50.0, 50)
+        val signPath = saveJpeg(context, sign, "signature", 50.0, 20.0, 50)
+        photo.release()
+        sign.release()
+
+        return mapOf(
+            "photoPath" to photoPath,
+            "signaturePath" to signPath,
+            "photoDetected" to (boxes.first != null),
+            "signatureDetected" to (boxes.second != null),
+            "detector" to "native-full-page-contour",
+        )
     }
+
 
     // Detect the printed photo/signature boxes across the full image.
     // Camera and imported images use this exact same native detector.
