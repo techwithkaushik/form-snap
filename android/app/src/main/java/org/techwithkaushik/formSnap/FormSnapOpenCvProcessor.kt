@@ -1454,23 +1454,7 @@ object FormSnapOpenCvProcessor {
             }
         }
 
-        // Morphological confirmation catches rough/anti-aliased printed rules
-        // that have small gaps. The kernel is deliberately wide so ordinary
-        // handwriting strokes are not classified as a guide line.
-        val horizontalKernel = Imgproc.getStructuringElement(
-            Imgproc.MORPH_RECT,
-            Size(max(80, (mask.cols() * 0.90).toInt()).toDouble(), 1.0),
-        )
-        val horizontalRules = Mat()
-        Imgproc.morphologyEx(
-            darkMask,
-            horizontalRules,
-            Imgproc.MORPH_OPEN,
-            horizontalKernel,
-        )
-        Core.bitwise_or(guideMask, horizontalRules, guideMask)
-
-        // Remove only the detected guide pixels. Coloured/black handwriting
+        // Confirm printed guide rules geometrically on this small signature crop.\n        val edges = Mat()\n        Imgproc.Canny(gray, edges, 45.0, 130.0)\n        val lines = Mat()\n        Imgproc.HoughLinesP(\n            edges, lines, 1.0, Math.PI / 180.0, 45,\n            max(60.0, cropped.cols() * 0.48), 12.0,\n        )\n        for (i in 0 until lines.rows()) {\n            val line = lines.get(i, 0) ?: continue\n            val x1 = line[0]\n            val y1 = line[1]\n            val x2 = line[2]\n            val y2 = line[3]\n            val dx = abs(x2 - x1)\n            val dy = abs(y2 - y1)\n            if (dx >= cropped.cols() * 0.48 && dy <= 5.0) {\n                val y = ((y1 + y2) / 2.0).toInt()\n                val y1Band = max(0, y - 5)\n                val y2Band = min(mask.rows(), y + 6)\n                guideMask.submat(y1Band, y2Band, 0, mask.cols())\n                    .setTo(org.opencv.core.Scalar(255.0))\n            }\n        }\n        edges.release()\n        lines.release()\n\n        // Remove only the detected guide pixels. Coloured/black handwriting
         // away from the printed rules remains untouched.
         Core.subtract(mask, guideMask, mask)
 
