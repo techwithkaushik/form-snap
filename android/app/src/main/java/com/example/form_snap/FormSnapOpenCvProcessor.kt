@@ -85,10 +85,14 @@ object FormSnapOpenCvProcessor {
             val photoCrop = findPastedPhotoInsideBox(photoTemplate)
             val signatureCrop = cropTemplate(rectified, 0.722, 0.374, 0.240, 0.068)
 
-            val photoEdgeClean = removeTemplateEdgeLines(photoCrop, true)
+            val photoBorderFree = trimPhotoFrame(photoCrop)
+            val photoEdgeClean = removeTemplateEdgeLines(photoBorderFree, true)
             val signatureEdgeClean = removeTemplateEdgeLines(signatureCrop, false)
+            val signatureBorderFree = trimSignatureFrame(signatureEdgeClean)
             val photo = enhancePhotoQuality(photoEdgeClean)
-            val sign = enhanceSignQuality(signatureEdgeClean)
+            val sign = enhanceSignQuality(signatureBorderFree)
+            photoBorderFree.release()
+            signatureBorderFree.release()
 
             photoTemplate.release()
             photoCrop.release()
@@ -853,25 +857,41 @@ object FormSnapOpenCvProcessor {
         Imgproc.GaussianBlur(denoised, blur, Size(0.0, 0.0), 0.8)
         val result = Mat()
         Core.addWeighted(denoised, 1.08, blur, -0.08, 0.0, result)
+        val brighter = Mat()
+        Core.convertScaleAbs(result, brighter, 1.02, 5.0)
         denoised.release()
         blur.release()
-        return result
+        result.release()
+        return brighter
     }
     private fun enhanceCloseUpSignature(cropped: Mat): Mat {
-        val gray=Mat()
-        Imgproc.cvtColor(cropped,gray,Imgproc.COLOR_BGR2GRAY)
-        val bg=Mat()
-        Imgproc.GaussianBlur(gray,bg,Size(0.0,0.0),9.0)
-        val diff=Mat()
-        Core.subtract(bg,gray,diff)
-        val mask=Mat()
-        Imgproc.threshold(diff,mask,9.0,255.0,Imgproc.THRESH_BINARY)
-        val result=Mat(gray.size(),CvType.CV_8UC1,org.opencv.core.Scalar(250.0))
-        gray.copyTo(result,mask)
-        Imgproc.GaussianBlur(result,result,Size(3.0,3.0),0.0)
-        val bgr=Mat()
-        Imgproc.cvtColor(result,bgr,Imgproc.COLOR_GRAY2BGR)
-        gray.release();bg.release();diff.release();mask.release();result.release()
+        val gray = Mat()
+        Imgproc.cvtColor(cropped, gray, Imgproc.COLOR_BGR2GRAY)
+        val bg = Mat()
+        Imgproc.GaussianBlur(gray, bg, Size(0.0, 0.0), 9.0)
+        val diff = Mat()
+        Core.subtract(bg, gray, diff)
+        val mask = Mat()
+        Imgproc.threshold(diff, mask, 7.0, 255.0, Imgproc.THRESH_BINARY)
+
+        val result = Mat(
+            gray.size(),
+            CvType.CV_8UC1,
+            org.opencv.core.Scalar(242.0),
+        )
+        val darkerInk = Mat()
+        Core.convertScaleAbs(gray, darkerInk, 0.90, 0.0)
+        darkerInk.copyTo(result, mask)
+        Imgproc.GaussianBlur(result, result, Size(3.0, 3.0), 0.0)
+
+        val bgr = Mat()
+        Imgproc.cvtColor(result, bgr, Imgproc.COLOR_GRAY2BGR)
+        gray.release()
+        bg.release()
+        diff.release()
+        mask.release()
+        result.release()
+        darkerInk.release()
         return bgr
     }
 
