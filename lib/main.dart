@@ -609,7 +609,7 @@ class _EditorPageState extends State<EditorPage> {
           region: template.photo,
           widthMm: 40,
           heightMm: 50,
-          maxKb: 100,
+          maxKb: 50,
           fileName: 'photo.jpg',
         );
       } else {
@@ -618,7 +618,7 @@ class _EditorPageState extends State<EditorPage> {
           region: template.signature,
           widthMm: 50,
           heightMm: 20,
-          maxKb: 60,
+          maxKb: 50,
           fileName: 'signature.jpg',
         );
       }
@@ -648,61 +648,69 @@ class _EditorPageState extends State<EditorPage> {
     }
   }
 
-  Future<bool> _ensureSaveDirectory() async {
+  Future<bool> _ensureSaveDirectory(String type) async {
     try {
       final hasDirectory =
-          await _storageChannel.invokeMethod<bool>('hasDirectory') ?? false;
+          await _storageChannel.invokeMethod<bool>(
+                'hasDirectory',
+                <String, dynamic>{'type': type},
+              ) ??
+              false;
       if (hasDirectory) return true;
-
       if (!mounted) return false;
 
       final selected = await _storageChannel.invokeMethod<String>(
         'chooseDirectory',
+        <String, dynamic>{'type': type},
       );
       return selected != null && selected.isNotEmpty;
     } on PlatformException catch (error, stack) {
-      debugPrint('Output folder error: $error');
+      debugPrint('$type folder error: $error');
       debugPrintStack(stackTrace: stack);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              error.message ?? 'Could not select the output folder.',
+              error.message ?? 'Could not select the $type output folder.',
             ),
           ),
         );
       }
       return false;
     } catch (error, stack) {
-      debugPrint('Output folder error: $error');
+      debugPrint('$type folder error: $error');
       debugPrintStack(stackTrace: stack);
       return false;
     }
   }
 
-  Future<void> _changeSaveDirectory() async {
+  Future<void> _changeSaveDirectory(String type) async {
     if (_saving) return;
-
     try {
       final selected = await _storageChannel.invokeMethod<String>(
         'chooseDirectory',
+        <String, dynamic>{'type': type},
       );
       if (!mounted) return;
-
       if (selected != null && selected.isNotEmpty) {
-        setState(() => _status = 'Output folder changed');
+        setState(() => _status =
+            '${type == 'photo' ? 'Photo' : 'Signature'} folder updated');
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Output folder updated.')),
+          SnackBar(
+            content: Text(
+              '${type == 'photo' ? 'Photo' : 'Signature'} save folder updated.',
+            ),
+          ),
         );
       }
     } on PlatformException catch (error, stack) {
-      debugPrint('Change output folder error: $error');
+      debugPrint('Change $type folder error: $error');
       debugPrintStack(stackTrace: stack);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              error.message ?? 'Could not change the output folder.',
+              error.message ?? 'Could not change the $type output folder.',
             ),
           ),
         );
@@ -710,39 +718,113 @@ class _EditorPageState extends State<EditorPage> {
     }
   }
 
+  Future<void> _previewOutput({
+    required String title,
+    required String path,
+    required String subtitle,
+  }) async {
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        final scheme = Theme.of(context).colorScheme;
+        return Dialog(
+          insetPadding: const EdgeInsets.all(18),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: const TextStyle(
+                          fontSize: 19,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Flexible(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      maxHeight: 540,
+                      minHeight: 180,
+                    ),
+                    child: InteractiveViewer(
+                      minScale: 0.5,
+                      maxScale: 5,
+                      child: Image.file(
+                        File(path),
+                        fit: BoxFit.contain,
+                        filterQuality: FilterQuality.high,
+                        errorBuilder: (_, __, ___) => const Center(
+                          child: Text('Unable to preview output'),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  subtitle,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: scheme.onSurfaceVariant,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _saveAll() async {
     if (_saving) return;
 
-    final paths = <String>[
-      if (_photoPath != null) _photoPath!,
-      if (_signaturePath != null) _signaturePath!,
-    ];
-    if (paths.isEmpty) return;
+    final photoPath = _photoPath;
+    final signaturePath = _signaturePath;
+    if (photoPath == null && signaturePath == null) return;
 
     setState(() => _saving = true);
 
     try {
-      // The folder is selected only once. Android persists the SAF permission
-      // and all later saves use the same folder without another dialog.
-      final ready = await _ensureSaveDirectory();
-      if (!ready || !mounted) return;
-
       final stamp = DateTime.now();
       final date =
           '${stamp.year}${stamp.month.toString().padLeft(2, '0')}${stamp.day.toString().padLeft(2, '0')}_'
           '${stamp.hour.toString().padLeft(2, '0')}${stamp.minute.toString().padLeft(2, '0')}${stamp.second.toString().padLeft(2, '0')}';
 
-      for (final path in paths) {
-        final source = File(path);
-        if (!await source.exists()) continue;
+      Future<void> saveOne({
+        required String type,
+        required String path,
+      }) async {
+        final ready = await _ensureSaveDirectory(type);
+        if (!ready) {
+          throw StateError('No $type output folder selected');
+        }
 
-        final type = path.contains('_photo.') ? 'photo' : 'signature';
+        final source = File(path);
+        if (!await source.exists()) {
+          throw StateError('$type output file no longer exists');
+        }
+
         final fileName = 'FormSnap_${date}_$type.jpg';
         final bytes = await source.readAsBytes();
-
         final saved = await _storageChannel.invokeMethod<bool>(
           'saveFile',
           <String, dynamic>{
+            'type': type,
             'fileName': fileName,
             'bytes': bytes,
           },
@@ -753,8 +835,15 @@ class _EditorPageState extends State<EditorPage> {
         }
       }
 
+      if (photoPath != null) {
+        await saveOne(type: 'photo', path: photoPath);
+      }
+      if (signaturePath != null) {
+        await saveOne(type: 'signature', path: signaturePath);
+      }
+
       if (mounted) {
-        setState(() => _status = 'Saved to preselected folder');
+        setState(() => _status = 'Photo and signature saved to their folders');
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Photo and signature saved successfully.'),
@@ -768,7 +857,7 @@ class _EditorPageState extends State<EditorPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              error.message ?? 'Could not save to the selected folder.',
+              error.message ?? 'Could not save the output files.',
             ),
           ),
         );
@@ -778,9 +867,7 @@ class _EditorPageState extends State<EditorPage> {
       debugPrintStack(stackTrace: stack);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Could not save the output files.'),
-          ),
+          SnackBar(content: Text(error.toString())),
         );
       }
     } finally {
@@ -912,14 +999,24 @@ class _EditorPageState extends State<EditorPage> {
             if (_photoPath != null)
               _ResultCard(
                 title: 'Photo',
-                subtitle: '40 × 50 mm • 300 DPI • ≤100 KB',
+                subtitle: '40 × 50 mm • 300 DPI • ≤50 KB',
                 path: _photoPath!,
+                onTap: () => _previewOutput(
+                  title: 'Photo preview',
+                  path: _photoPath!,
+                  subtitle: '40 × 50 mm • 300 DPI • maximum 50 KB',
+                ),
               ),
             if (_signaturePath != null)
               _ResultCard(
                 title: 'Signature',
-                subtitle: '50 × 20 mm • 300 DPI • ≤60 KB',
+                subtitle: '50 × 20 mm • 300 DPI • ≤50 KB',
                 path: _signaturePath!,
+                onTap: () => _previewOutput(
+                  title: 'Signature preview',
+                  path: _signaturePath!,
+                  subtitle: '50 × 20 mm • 300 DPI • maximum 50 KB',
+                ),
               ),
             const SizedBox(height: 4),
             SizedBox(
@@ -939,13 +1036,28 @@ class _EditorPageState extends State<EditorPage> {
               ),
             ),
             const SizedBox(height: 4),
-            Align(
-              alignment: Alignment.center,
-              child: TextButton.icon(
-                onPressed: _saving ? null : _changeSaveDirectory,
-                icon: const Icon(Icons.drive_file_move_outline),
-                label: const Text('Change save folder'),
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _saving
+                        ? null
+                        : () => _changeSaveDirectory('photo'),
+                    icon: const Icon(Icons.photo_library_outlined),
+                    label: const Text('Photo folder'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _saving
+                        ? null
+                        : () => _changeSaveDirectory('signature'),
+                    icon: const Icon(Icons.draw_outlined),
+                    label: const Text('Sign folder'),
+                  ),
+                ),
+              ],
             ),
           ],
           if (_outputs != null) ...[
@@ -970,11 +1082,13 @@ class _ResultCard extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.path,
+    required this.onTap,
   });
 
   final String title;
   final String subtitle;
   final String path;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -982,9 +1096,12 @@ class _ResultCard extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       elevation: 0,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
           children: [
             ClipRRect(
               borderRadius: BorderRadius.circular(12),
@@ -1033,6 +1150,6 @@ class _ResultCard extends StatelessWidget {
           ],
         ),
       ),
-    );
+    ),
   }
 }
