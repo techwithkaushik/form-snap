@@ -1150,6 +1150,6 @@ class _ResultCard extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
 }
