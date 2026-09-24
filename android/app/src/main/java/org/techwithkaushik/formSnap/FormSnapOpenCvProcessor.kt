@@ -96,9 +96,9 @@ object FormSnapOpenCvProcessor {
             }
 
             val sign = signatureRegion?.let {
-                val result = extractSignatureInk(it)
-                it.release()
-                result
+                // TEST MODE: return the detected signature crop exactly as photographed.
+                // No ink filtering, whitening, line removal, sharpening, or enhancement.
+                it
             }
 
             rectified.release()
@@ -156,15 +156,8 @@ object FormSnapOpenCvProcessor {
         }
 
         val sign = signatureBase?.let {
-            val framed = trimPrintedFrame(it, 15)
-            val cleaned = removePrintedEdgeLines(framed, false)
-            val borderFree = trimSignatureFrame(cleaned)
-            val result = enhanceSignQuality(borderFree)
-            borderFree.release()
-            
-            cleaned.release()
-            it.release()
-            result
+            // TEST MODE: keep the detected/warped signature field untouched.
+            it
         }
 
         val photoPath = photo?.let {
@@ -182,7 +175,7 @@ object FormSnapOpenCvProcessor {
             val photoFallback = centerCrop(source, 0.8)
             val signFallback = centerCrop(source, 2.5)
             val photoClean = enhancePhotoQuality(removeBlackBorderLines(photoFallback))
-            val signClean = enhanceSignQuality(removeBlackBorderLines(signFallback))
+            val signClean = signFallback.clone()
             photoFallback.release()
             signFallback.release()
 
@@ -1136,10 +1129,8 @@ object FormSnapOpenCvProcessor {
                 clean.release()
                 result
             } else {
-                val clean = removeBlackBorderLines(crop)
-                val result = extractSignatureInk(clean)
-                clean.release()
-                result
+                // TEST MODE: signature output is the raw detected crop.
+                crop.clone()
             }
             crop.release()
 
@@ -1160,22 +1151,20 @@ object FormSnapOpenCvProcessor {
         }
 
         val crop = cropWithPadding(source, box, if (isPhoto) 10 else 8)
-        val frameClean = trimPrintedFrame(crop, 15)
-        val edgeClean = removePrintedEdgeLines(frameClean, isPhoto)
         val finalImage = if (isPhoto) {
+            val frameClean = trimPrintedFrame(crop, 15)
+            val edgeClean = removePrintedEdgeLines(frameClean, true)
             val clean = removeBlackBorderLines(edgeClean)
             val result = enhanceCloseUpPhoto(clean)
             clean.release()
+            edgeClean.release()
+            frameClean.release()
             result
         } else {
-            val clean = removeBlackBorderLines(edgeClean)
-            val result = enhanceCloseUpSignature(clean)
-            clean.release()
-            result
+            // TEST MODE: signature output is the raw detected crop.
+            crop.clone()
         }
         crop.release()
-        frameClean.release()
-        edgeClean.release()
 
         val path = if (isPhoto) {
             saveJpeg(context, finalImage, "photo", widthMm, heightMm, dpi, maxKb)
