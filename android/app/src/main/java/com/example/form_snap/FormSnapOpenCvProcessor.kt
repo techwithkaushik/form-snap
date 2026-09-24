@@ -752,20 +752,19 @@ object FormSnapOpenCvProcessor {
         Imgproc.morphologyEx(edges, edges, Imgproc.MORPH_CLOSE, kernel)
 
         val contours = ArrayList<MatOfPoint>()
+        val hierarchy = Mat()
         Imgproc.findContours(
-            edges, contours, Mat(), Imgproc.RETR_LIST, Imgproc.CHAIN_APPROX_SIMPLE,
+            edges, contours, hierarchy, Imgproc.RETR_LIST, Imgproc.CHAIN_APPROX_SIMPLE,
         )
 
         val area = template.cols().toDouble() * template.rows().toDouble()
-        var best: Rect? = null
-        var bestScore = Double.NEGATIVE_INFINITY
-        var bestFace: Rect? = null
+        val geometryCandidates = ArrayList<Pair<Rect, Double>>()
 
         for (contour in contours) {
             val r = Imgproc.boundingRect(contour)
-            val a = abs(Imgproc.contourArea(contour))
+            val contourArea = abs(Imgproc.contourArea(contour))
             val ratio = r.width.toDouble() / max(1, r.height).toDouble()
-            val fill = a / max(1.0, r.width.toDouble() * r.height)
+            val fill = contourArea / max(1.0, r.width.toDouble() * r.height)
             val marginX = min(r.x, template.cols() - (r.x + r.width)).toDouble() / template.cols()
             val marginY = min(r.y, template.rows() - (r.y + r.height)).toDouble() / template.rows()
             val centered = 1.0 - (abs((r.x + r.width / 2.0) / template.cols() - 0.5) * 2.0)
@@ -777,42 +776,52 @@ object FormSnapOpenCvProcessor {
                 fill > 0.38
 
             if (plausible) {
-                val candidate = template.submat(
-                    r.y.coerceIn(0, template.rows() - 1),
-                    (r.y + r.height).coerceIn(r.y + 1, template.rows()),
-                    r.x.coerceIn(0, template.cols() - 1),
-                    (r.x + r.width).coerceIn(r.x + 1, template.cols()),
-                ).clone()
-
-                val face = detectFace(candidate)
-                val faceScore = if (face != null) {
-                    val fx = face.x + face.width / 2.0
-                    val fy = face.y + face.height / 2.0
-                    val centerX = candidate.cols() / 2.0
-                    val centerY = candidate.rows() * 0.44
-                    val centerPenalty =
-                        min(1.0, kotlin.math.hypot(fx - centerX, fy - centerY) /
-                            max(1.0, candidate.cols().toDouble() * 0.45))
-                    val sizeRatio = face.width.toDouble() / candidate.cols().toDouble()
-                    val sizeScore = 1.0 - min(1.0, abs(sizeRatio - 0.42) / 0.35)
-                    1.0 - centerPenalty * 0.35 + sizeScore * 0.35
-                } else {
-                    0.0
-                }
-
                 val ratioScore = 1.0 - min(1.0, abs(ratio - 0.80) / 0.30)
                 val geometryScore =
                     ratioScore * 0.25 + fill * 0.12 + centered * 0.08 + sizeFraction * 0.15
-                val score = geometryScore + if (face != null) 0.95 + faceScore * 0.30 else 0.0
-
-                if (score > bestScore) {
-                    bestScore = score
-                    best = r
-                    bestFace = face
-                }
-                candidate.release()
+                geometryCandidates.add(r to geometryScore)
             }
             contour.release()
+        }
+
+        // FaceDetector is relatively expensive on ARM32. Geometry narrows
+        // the candidates first, so face detection runs only a few times.
+        var best: Rect? = null
+        var bestScore = Double.NEGATIVE_INFINITY
+        for ((r, geometryScore) in geometryCandidates
+            .sortedByDescending { it.second }
+            .take(6)
+        ) {
+            val candidate = template.submat(
+                r.y.coerceIn(0, template.rows() - 1),
+                (r.y + r.height).coerceIn(r.y + 1, template.rows()),
+                r.x.coerceIn(0, template.cols() - 1),
+                (r.x + r.width).coerceIn(r.x + 1, template.cols()),
+            ).clone()
+
+            val face = detectFace(candidate)
+            val faceScore = if (face != null) {
+                val fx = face.x + face.width / 2.0
+                val fy = face.y + face.height / 2.0
+                val centerX = candidate.cols() / 2.0
+                val centerY = candidate.rows() * 0.44
+                val centerPenalty =
+                    min(1.0, kotlin.math.hypot(fx - centerX, fy - centerY) /
+                        max(1.0, candidate.cols().toDouble() * 0.45))
+                val sizeRatio = face.width.toDouble() / candidate.cols().toDouble()
+                val sizeScore = 1.0 - min(1.0, abs(sizeRatio - 0.42) / 0.35)
+                1.0 - centerPenalty * 0.35 + sizeScore * 0.35
+            } else {
+                0.0
+            }
+
+            val score = geometryScore +
+                if (face != null) 0.95 + faceScore * 0.30 else 0.0
+            if (score > bestScore) {
+                bestScore = score
+                best = r
+            }
+            candidate.release()
         }
 
         val result = if (best != null) {
@@ -833,6 +842,7 @@ object FormSnapOpenCvProcessor {
         blur.release()
         edges.release()
         kernel.release()
+        hierarchy.release()
         return result
     }
 
