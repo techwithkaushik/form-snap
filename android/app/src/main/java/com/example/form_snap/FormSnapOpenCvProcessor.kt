@@ -529,16 +529,16 @@ object FormSnapOpenCvProcessor {
             // from Canny/contour detection. Build a geometry-guided fallback
             // from the already detected photo and let handwriting evidence
             // decide whether that region really contains a signature.
-            val predicted = predictedSignatureBox(source, photoRect)
-            val predictedCandidate = predicted?.let { rect ->
-                val ink = signatureInkScore(source, rect)
-                val centerX = rect.x + rect.width / 2.0
+            val predicted = predictedSignatureField(source, bestPhoto.quad, photoRect)
+            val predictedCandidate = predicted?.let { field ->
+                val ink = signatureInkScore(source, field.rect)
+                val centerX = field.rect.x + field.rect.width / 2.0
                 val horizontalAlignment =
                     1.0 - min(1.0, abs(centerX - photoCenterX) /
                         max(1.0, photoRect.width.toDouble()))
                 FieldCandidate(
-                    quad = rectToQuad(rect),
-                    rect = rect,
+                    quad = field.quad,
+                    rect = field.rect,
                     score = 0.62 + ink * 0.30 + horizontalAlignment * 0.08,
                 )
             }
@@ -559,28 +559,64 @@ object FormSnapOpenCvProcessor {
         )
     }
 
-    private fun predictedSignatureBox(source: Mat, photo: Rect): Rect? {
-        // The signature box on this template is wider than the photo and sits
-        // immediately below it. Keep generous margins so handwriting is not cut.
-        val width = (photo.width * 1.25).toInt()
-        val height = (photo.height * 0.42).toInt()
-        if (width < 20 || height < 10) return null
-
-        val centerX = photo.x + photo.width / 2
-        val x = (centerX - width / 2).coerceIn(0, max(0, source.cols() - width))
-        val y = (photo.y + photo.height + photo.height * 0.10).toInt()
-            .coerceIn(0, max(0, source.rows() - height))
-
-        if (x + width > source.cols() || y + height > source.rows()) return null
-        return Rect(x, y, width, height)
-    }
-
-    private fun rectToQuad(rect: Rect): Array<Point> = arrayOf(
-        Point(rect.x.toDouble(), rect.y.toDouble()),
-        Point((rect.x + rect.width).toDouble(), rect.y.toDouble()),
-        Point((rect.x + rect.width).toDouble(), (rect.y + rect.height).toDouble()),
-        Point(rect.x.toDouble(), (rect.y + rect.height).toDouble()),
+    private data class PredictedSignatureField(
+        val rect: Rect,
+        val quad: Array<Point>,
     )
+
+    private fun predictedSignatureField(
+        source: Mat,
+        photoQuad: Array<Point>,
+        photo: Rect,
+    ): PredictedSignatureField? {
+        // Keep the same perspective as the detected photo. This fallback is
+        // used when a shadow hides the printed signature rectangle from the
+        // contour detector, so it must still work on a tilted photograph.
+        if (photoQuad.size != 4) return null
+        val q = orderCorners(photoQuad)
+        val horizontal = Point(
+            q[1].x - q[0].x,
+            q[1].y - q[0].y,
+        )
+        val vertical = Point(
+            q[3].x - q[0].x,
+            q[3].y - q[0].y,
+        )
+
+        // Signature box ~= 1.25 photo widths, starts 1.10 photo-heights
+        // below the photo, and is ~= 0.42 photo-heights tall.
+        val tl = Point(
+            q[0].x - horizontal.x * 0.125 + vertical.x * 1.10,
+            q[0].y - horizontal.y * 0.125 + vertical.y * 1.10,
+        )
+        val tr = Point(
+            q[0].x + horizontal.x * 1.125 + vertical.x * 1.10,
+            q[0].y + horizontal.y * 1.125 + vertical.y * 1.10,
+        )
+        val br = Point(
+            q[0].x + horizontal.x * 1.125 + vertical.x * 1.52,
+            q[0].y + horizontal.y * 1.125 + vertical.y * 1.52,
+        )
+        val bl = Point(
+            q[0].x - horizontal.x * 0.125 + vertical.x * 1.52,
+            q[0].y - horizontal.y * 0.125 + vertical.y * 1.52,
+        )
+
+        val minX = min(min(tl.x, tr.x), min(bl.x, br.x)).toInt()
+        val minY = min(min(tl.y, tr.y), min(bl.y, br.y)).toInt()
+        val maxX = max(max(tl.x, tr.x), max(bl.x, br.x)).toInt()
+        val maxY = max(max(tl.y, tr.y), max(bl.y, br.y)).toInt()
+        val x1 = minX.coerceIn(0, source.cols() - 1)
+        val y1 = minY.coerceIn(0, source.rows() - 1)
+        val x2 = maxX.coerceIn(x1 + 1, source.cols())
+        val y2 = maxY.coerceIn(y1 + 1, source.rows())
+        if (x2 - x1 < 20 || y2 - y1 < 10) return null
+
+        return PredictedSignatureField(
+            Rect(x1, y1, x2 - x1, y2 - y1),
+            arrayOf(tl, tr, br, bl),
+        )
+    }
 
     // Warp a detected field quadrilateral to a stable, front-facing rectangle.
     // This makes the extraction independent of camera tilt/perspective.
