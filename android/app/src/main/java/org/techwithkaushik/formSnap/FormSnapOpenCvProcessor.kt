@@ -1386,18 +1386,18 @@ object FormSnapOpenCvProcessor {
 
         val cleaned = mask.clone()
 
-        val rowSums = Mat()
-        Core.reduce(mask, rowSums, 1, Core.REDUCE_SUM, CvType.CV_64F)
-        val rowThreshold = mask.cols().toDouble() * 255.0 * 0.42
+        val rowThreshold = mask.cols().toDouble() * 0.42
         for (y in 0 until mask.rows()) {
-            if (rowSums.get(y, 0)[0] >= rowThreshold) {
+            val row = mask.row(y)
+            val density = Core.countNonZero(row).toDouble()
+            row.release()
+            if (density >= rowThreshold) {
                 val y1 = (y - 2).coerceAtLeast(0)
                 val y2 = (y + 3).coerceAtMost(mask.rows())
                 cleaned.submat(y1, y2, 0, mask.cols())
                     .setTo(org.opencv.core.Scalar(0.0))
             }
         }
-        rowSums.release()
 
         val hKernel = Imgproc.getStructuringElement(
             Imgproc.MORPH_RECT,
