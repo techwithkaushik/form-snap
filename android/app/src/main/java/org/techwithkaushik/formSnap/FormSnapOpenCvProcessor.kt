@@ -338,10 +338,11 @@ object FormSnapOpenCvProcessor {
                     // Handwritten blue/black ink inside the candidate.
                     val blue = Mat()
                     val dark = Mat()
+                    val roiGray = Mat()
                     Imgproc.threshold(sat, blue, 28.0, 255.0, Imgproc.THRESH_BINARY)
+                    Imgproc.cvtColor(roi, roiGray, Imgproc.COLOR_BGR2GRAY)
                     Imgproc.threshold(
-                        Imgproc.cvtColor(roi, Mat(), Imgproc.COLOR_BGR2GRAY),
-                        dark, 165.0, 255.0, Imgproc.THRESH_BINARY_INV,
+                        roiGray, dark, 165.0, 255.0, Imgproc.THRESH_BINARY_INV,
                     )
 
                     val inner = Rect(
@@ -380,6 +381,7 @@ object FormSnapOpenCvProcessor {
                     innerDark.release()
                     blue.release()
                     dark.release()
+                    roiGray.release()
                     sat.release()
                     hsv.release()
                     roi.release()
