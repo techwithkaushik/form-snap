@@ -397,8 +397,7 @@ object FormSnapOpenCvProcessor {
             val y1 = (r.y - padY).coerceAtLeast(0)
             val x2 = (r.x + r.width + padX).coerceAtMost(image.cols())
             val y2 = (r.y + r.height + padY).coerceAtMost(image.rows())
-            image.submat(y1, y2, x1, x2).clone()
-        }
+            image.submat(y1, y2, x1, x2).clone()        }
 
         hsv.release(); saturation.release(); gray.release(); colouredInk.release(); darkInk.release()
         ink.release(); smallKernel.release(); hKernel.release(); vKernel.release()
@@ -797,8 +796,7 @@ object FormSnapOpenCvProcessor {
             // decide whether that region really contains a signature.
             // Shadows can hide the printed signature border completely.
             // Instead of relying on one guessed rectangle, search several
-            // geometry-guided regions below the detected photo. The real
-            // signature is selected by handwriting/ink evidence.
+            // geometry-guided regions below the detected photo. The real            // signature is selected by handwriting/ink evidence.
             val predictedCandidate = predictedSignatureFields(source, photoRect)
                 .maxByOrNull { field ->
                     val ink = fastSignatureInkScore(source, field.rect)                    val centerX = field.rect.x + field.rect.width / 2.0
@@ -1197,8 +1195,7 @@ object FormSnapOpenCvProcessor {
             }
             finalImage.release()
 
-            return mapOf(
-                "photoPath" to if (isPhoto) path else null,
+            return mapOf(                "photoPath" to if (isPhoto) path else null,
                 "signaturePath" to if (!isPhoto) path else null,
                 "photoDetected" to false,                "signatureDetected" to false,
                 "detector" to "close-up-center-fallback",
@@ -1406,11 +1403,11 @@ object FormSnapOpenCvProcessor {
         // fragmented enough not to cross the row-density threshold.
         val hKernel = Imgproc.getStructuringElement(
             Imgproc.MORPH_RECT,
-            Size(max(30, mask.cols() * 0.28).toDouble(), 1.0),
+            Size(max(30.0, mask.cols() * 0.28), 1.0),
         )
         val vKernel = Imgproc.getStructuringElement(
             Imgproc.MORPH_RECT,
-            Size(1.0, max(30, mask.rows() * 0.28).toDouble()),
+            Size(1.0, max(30.0, mask.rows() * 0.28)),
         )
         val horizontal = Mat()
         val vertical = Mat()
@@ -1597,7 +1594,6 @@ object FormSnapOpenCvProcessor {
 
         val darkMask = Mat()
         Imgproc.threshold(diff, darkMask, 4.0, 255.0, Imgproc.THRESH_BINARY)
-
         val colourMask = Mat()
         Imgproc.threshold(saturation, colourMask, 28.0, 255.0, Imgproc.THRESH_BINARY)
 
