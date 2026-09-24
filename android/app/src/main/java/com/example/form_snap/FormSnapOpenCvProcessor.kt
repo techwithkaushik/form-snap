@@ -87,25 +87,23 @@ object FormSnapOpenCvProcessor {
             val photoTemplate = cropTemplate(rectified, 0.746, 0.190, 0.193, 0.169)
             val photoCrop = findPastedPhotoInsideBox(photoTemplate)
 
-            // Detect the actual printed signature field instead of relying on
-            // a fixed inner crop. This preserves strokes close to the field edge.
-            val detectedFields = findFieldBoxes(rectified)
-            val signatureCrop = detectedFields.signature?.let { field ->
-                warpField(rectified, field.quad, 1000, 400)
-            } ?: cropTemplate(rectified, 0.700, 0.350, 0.280, 0.110)
+            // The A4 template gives the exact signature field. Re-detecting
+            // arbitrary inner rectangles is unreliable when a printed rule is
+            // stronger than the handwriting.
+            val signatureCrop = cropTemplate(rectified, 0.722, 0.374, 0.240, 0.068)
 
             val photoBorderFree = trimPhotoFrame(photoCrop)
             val photoEdgeClean = removeTemplateEdgeLines(photoBorderFree, true)
-            val signatureEdgeClean = removeTemplateEdgeLines(signatureCrop, false)
+            val signatureFieldClean = cleanSignatureFieldBorders(signatureCrop)
             val photo = enhancePhotoQuality(photoEdgeClean)
-            val sign = enhanceSignQuality(signatureEdgeClean)
+            val sign = enhanceSignQuality(signatureFieldClean)
             photoBorderFree.release()
 
             photoTemplate.release()
             photoCrop.release()
             signatureCrop.release()
             photoEdgeClean.release()
-            signatureEdgeClean.release()
+            signatureFieldClean.release()
             rectified.release()
 
             val photoPath = saveJpeg(
@@ -157,12 +155,11 @@ object FormSnapOpenCvProcessor {
         }
 
         val sign = signatureBase?.let {
-            val framed = trimPrintedFrame(it, 15)
-            val cleaned = removePrintedEdgeLines(framed, false)
-            val borderFree = trimSignatureFrame(cleaned)
-            val result = enhanceSignQuality(borderFree)
-            borderFree.release()
-            
+            // Never use a fixed inset here. Detect the actual printed box
+            // rules and remove only those rules so strokes near the border
+            // remain intact.
+            val cleaned = cleanSignatureFieldBorders(it)
+            val result = enhanceSignQuality(cleaned)
             cleaned.release()
             it.release()
             result
@@ -1117,6 +1114,111 @@ object FormSnapOpenCvProcessor {
         val x2 = (crop.cols() - insetX).coerceAtLeast(x1 + 1)
         val y2 = (crop.rows() - insetY).coerceAtLeast(y1 + 1)
         return crop.submat(y1, y2, x1, x2).clone()
+    }
+
+    /**
+     * Remove only the printed border rules from a signature field.
+     *
+     * The previous cleanup used a fixed dark threshold and a tiny fixed inset.
+     * That failed when the photographed box line was lighter/anti-aliased,
+     * leaving the line in the exported signature. A large fixed inset is also
+     * unsafe because a real signature can be close to the box edge.
+     *
+     * This routine therefore:
+     *  1. looks only near the field edges,
+     *  2. requires a long continuous horizontal/vertical rule,
+     *  3. confirms broken/anti-aliased rules with HoughLinesP,
+     *  4. inpaints only the detected rule pixels.
+     */
+    private fun cleanSignatureFieldBorders(crop: Mat): Mat {
+        if (crop.cols() < 120 || crop.rows() < 50) return crop.clone()
+
+        val gray = Mat()
+        Imgproc.cvtColor(crop, gray, Imgproc.COLOR_BGR2GRAY)
+
+        val dark = Mat()
+        Imgproc.threshold(
+            gray, dark, 190.0, 255.0, Imgproc.THRESH_BINARY_INV,
+        )
+
+        val mask = Mat.zeros(crop.size(), CvType.CV_8UC1)
+        val topZone = max(6, crop.rows() / 5)
+        val bottomZone = max(6, crop.rows() / 5)
+        val leftZone = max(8, crop.cols() / 8)
+        val rightZone = max(8, crop.cols() / 8)
+
+        for (y in 0 until topZone) {
+            val density = Core.countNonZero(dark.row(y)).toDouble() / crop.cols()
+            if (density >= 0.55) {
+                mask.submat(max(0, y - 2), min(crop.rows(), y + 3), 0, crop.cols())
+                    .setTo(org.opencv.core.Scalar(255.0))
+            }
+        }
+        for (y in (crop.rows() - bottomZone).coerceAtLeast(0) until crop.rows()) {
+            val density = Core.countNonZero(dark.row(y)).toDouble() / crop.cols()
+            if (density >= 0.55) {
+                mask.submat(max(0, y - 2), min(crop.rows(), y + 3), 0, crop.cols())
+                    .setTo(org.opencv.core.Scalar(255.0))
+            }
+        }
+        for (x in 0 until leftZone) {
+            val density = Core.countNonZero(dark.col(x)).toDouble() / crop.rows()
+            if (density >= 0.55) {
+                mask.submat(0, crop.rows(), max(0, x - 2), min(crop.cols(), x + 3))
+                    .setTo(org.opencv.core.Scalar(255.0))
+            }
+        }
+        for (x in (crop.cols() - rightZone).coerceAtLeast(0) until crop.cols()) {
+            val density = Core.countNonZero(dark.col(x)).toDouble() / crop.rows()
+            if (density >= 0.55) {
+                mask.submat(0, crop.rows(), max(0, x - 2), min(crop.cols(), x + 3))
+                    .setTo(org.opencv.core.Scalar(255.0))
+            }
+        }
+
+        val edges = Mat()
+        Imgproc.Canny(gray, edges, 45.0, 140.0)
+        val lines = Mat()
+        Imgproc.HoughLinesP(
+            edges, lines, 1.0, Math.PI / 180.0, 35,
+            max(60.0, crop.cols() * 0.45), 10.0,
+        )
+
+        for (i in 0 until lines.rows()) {
+            val line = lines.get(i, 0) ?: continue
+            val x1 = line[0]
+            val y1 = line[1]
+            val x2 = line[2]
+            val y2 = line[3]
+            val dx = abs(x2 - x1)
+            val dy = abs(y2 - y1)
+
+            if (dx >= crop.cols() * 0.45 && dy <= 5.0) {
+                val y = ((y1 + y2) / 2.0).toInt()
+                if (y <= topZone || y >= crop.rows() - bottomZone) {
+                    mask.submat(
+                        max(0, y - 3), min(crop.rows(), y + 4), 0, crop.cols(),
+                    ).setTo(org.opencv.core.Scalar(255.0))
+                }
+            } else if (dy >= crop.rows() * 0.45 && dx <= 5.0) {
+                val x = ((x1 + x2) / 2.0).toInt()
+                if (x <= leftZone || x >= crop.cols() - rightZone) {
+                    mask.submat(
+                        0, crop.rows(), max(0, x - 3), min(crop.cols(), x + 4),
+                    ).setTo(org.opencv.core.Scalar(255.0))
+                }
+            }
+        }
+
+        val repaired = Mat()
+        Photo.inpaint(crop, mask, repaired, 2.0, Photo.INPAINT_TELEA)
+
+        gray.release()
+        dark.release()
+        mask.release()
+        edges.release()
+        lines.release()
+        return repaired
     }
 
     private fun enhancePhotoQuality(cropped: Mat): Mat {
