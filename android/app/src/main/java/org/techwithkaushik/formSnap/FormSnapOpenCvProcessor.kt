@@ -103,21 +103,25 @@ object FormSnapOpenCvProcessor {
 
             rectified.release()
 
-            val photoPath = saveJpeg(
-                context, photo, "photo", photoWidthMm, photoHeightMm, dpi, maxKb,
-            )
-            val signPath = saveJpeg(
-                context, sign, "signature", signatureWidthMm, signatureHeightMm, dpi, maxKb,
-            )
-            photo.release()
-            sign.release()
+            val photoPath = photo?.let {
+                saveJpeg(
+                    context, it, "photo", photoWidthMm, photoHeightMm, dpi, maxKb,
+                )
+            }
+            val signPath = sign?.let {
+                saveJpeg(
+                    context, it, "signature", signatureWidthMm, signatureHeightMm, dpi, maxKb,
+                )
+            }
+            photo?.release()
+            sign?.release()
 
             return mapOf(
                 "photoPath" to photoPath,
                 "signaturePath" to signPath,
-                "photoDetected" to true,
-                "signatureDetected" to true,
-                "detector" to "document-perspective-template",
+                "photoDetected" to (photoPath != null),
+                "signatureDetected" to (signPath != null),
+                "detector" to "semantic-face-and-ink",
             )
         }
 
