@@ -173,85 +173,76 @@ object FormSnapOpenCvProcessor {
         isPhoto: Boolean,
     ): Map<String, Any?> {
         val boxes = findCloseUpBoxes(source)
+        val box = if (isPhoto) boxes.photo else boxes.signature
 
-        if (boxes.size < 2) {
+        if (box == null) {
             val ratio = if (isPhoto) 0.8 else 2.5
             val crop = centerCrop(source, ratio)
-
-            if (isPhoto) {
+            val finalImage = if (isPhoto) {
                 val clean = removeBlackBorderLines(crop)
-                val finalImage = enhanceCloseUpPhoto(clean)
+                val result = enhanceCloseUpPhoto(clean)
                 clean.release()
-                crop.release()
-
-                val path = saveJpeg(context, finalImage, "photo", 40.0, 50.0, 100)
-                finalImage.release()
-
-                return mapOf(
-                    "photoPath" to path,
-                    "signaturePath" to null,
-                    "photoDetected" to false,
-                    "signatureDetected" to false,
-                    "detector" to "python-close-up-fallback",
-                )
+                result
+            } else {
+                val clean = removeBlackBorderLines(crop)
+                val result = enhanceCloseUpSignature(clean)
+                clean.release()
+                result
             }
-
-            val clean = removeBlackBorderLines(crop)
-            val finalImage = enhanceCloseUpSignature(clean)
-            clean.release()
             crop.release()
 
-            val path = saveJpeg(context, finalImage, "signature", 50.0, 20.0, 60)
+            val path = if (isPhoto) {
+                saveJpeg(context, finalImage, "photo", 40.0, 50.0, 50)
+            } else {
+                saveJpeg(context, finalImage, "signature", 50.0, 20.0, 50)
+            }
             finalImage.release()
 
             return mapOf(
-                "photoPath" to null,
-                "signaturePath" to path,
+                "photoPath" to if (isPhoto) path else null,
+                "signaturePath" to if (!isPhoto) path else null,
                 "photoDetected" to false,
                 "signatureDetected" to false,
-                "detector" to "python-close-up-fallback",
+                "detector" to "close-up-center-fallback",
             )
         }
 
-        // Python uses valid_boxes[0] as photo and valid_boxes[1] as sign.
-        if (isPhoto) {
-            val crop = cropWithPadding(source, boxes[0], 8)
+        val crop = cropWithPadding(source, box, if (isPhoto) 10 else 8)
+        val finalImage = if (isPhoto) {
             val clean = removeBlackBorderLines(crop)
-            val finalImage = enhanceCloseUpPhoto(clean)
+            val result = enhanceCloseUpPhoto(clean)
             clean.release()
-            crop.release()
-
-            val path = saveJpeg(context, finalImage, "photo", 40.0, 50.0, 100)
-            finalImage.release()
-
-            return mapOf(
-                "photoPath" to path,
-                "signaturePath" to null,
-                "photoDetected" to true,
-                "signatureDetected" to true,
-                "detector" to "python-close-up",
-            )
+            result
+        } else {
+            val clean = removeBlackBorderLines(crop)
+            val result = enhanceCloseUpSignature(clean)
+            clean.release()
+            result
         }
-
-        val crop = cropWithPadding(source, boxes[1], 8)
-        val clean = removeBlackBorderLines(crop)
-        val finalImage = enhanceCloseUpSignature(clean)
-        clean.release()
         crop.release()
 
-        val path = saveJpeg(context, finalImage, "signature", 50.0, 20.0, 60)
+        val path = if (isPhoto) {
+            saveJpeg(context, finalImage, "photo", 40.0, 50.0, 50)
+        } else {
+            saveJpeg(context, finalImage, "signature", 50.0, 20.0, 50)
+        }
         finalImage.release()
 
         return mapOf(
-            "photoPath" to null,
-            "signaturePath" to path,
-            "photoDetected" to true,
-            "signatureDetected" to true,
-            "detector" to "python-close-up",
+            "photoPath" to if (isPhoto) path else null,
+            "signaturePath" to if (!isPhoto) path else null,
+            "photoDetected" to isPhoto,
+            "signatureDetected" to !isPhoto,
+            "detector" to "close-up-aspect-rectangle",
         )
     }
 
-    private fun findCloseUpBoxes(source: Mat): List<Rect> {
+    private data class CloseUpBoxes(
+        val photo: Rect?,
+        val signature: Rect?,
+    )
+
+    private fun findCloseUpBoxes(source: Mat): CloseUpBoxes {
         val gray = Mat()
         val blurred = Mat()
         val threshold = Mat()
@@ -273,13 +264,27 @@ object FormSnapOpenCvProcessor {
         )
 
         val minArea = source.rows().toDouble() * source.cols().toDouble() * 0.05
-        val boxes = ArrayList<Rect>()
+        val photoCandidates = ArrayList<Pair<Rect, Double>>()
+        val signatureCandidates = ArrayList<Pair<Rect, Double>>()
 
         for (contour in contours) {
             val box = Imgproc.boundingRect(contour)
             val area = box.width.toDouble() * box.height.toDouble()
-            if (area > minArea) {
-                boxes.add(Rect(box.x, box.y, box.width, box.height))
+            if (area > minArea && box.height > 0) {
+                val ratio = box.width.toDouble() / box.height.toDouble()
+                val rectangularity = abs(Imgproc.contourArea(contour)) / area
+
+                if (ratio > 0.68 && ratio < 0.95 && rectangularity > 0.80) {
+                    val ratioScore = 1.0 - min(1.0, kotlin.math.abs(ratio - 0.80) / 0.15)
+                    val score = ratioScore * 0.65 + rectangularity * 0.35
+                    photoCandidates.add(Rect(box.x, box.y, box.width, box.height) to score)
+                }
+
+                if (ratio > 2.0 && ratio < 2.9 && rectangularity > 0.85) {
+                    val ratioScore = 1.0 - min(1.0, kotlin.math.abs(ratio - 2.5) / 0.45)
+                    val score = ratioScore * 0.65 + rectangularity * 0.35
+                    signatureCandidates.add(Rect(box.x, box.y, box.width, box.height) to score)
+                }
             }
             contour.release()
         }
@@ -288,13 +293,20 @@ object FormSnapOpenCvProcessor {
         blurred.release()
         threshold.release()
 
-        // Python: sorted(valid_boxes, key=lambda b: b), where tuple starts y,x.
-        return boxes.sortedWith(
-            compareBy<Rect> { it.y }
-                .thenBy { it.x }
-                .thenBy { it.width }
-                .thenBy { it.height }
-        )
+        // Prefer the innermost/largest-content photo rectangle rather than the
+        // outer printed frame. If several nested rectangles have the same ratio,
+        // the smaller one is the actual photo window. For signature there is
+        // normally one printed rectangle, so use the highest geometric score.
+        val photo = photoCandidates
+            .sortedWith(compareByDescending<Pair<Rect, Double>> { it.second }
+                .thenBy { it.first.width.toLong() * it.first.height.toLong() })
+            .firstOrNull()?.first
+
+        val signature = signatureCandidates
+            .sortedByDescending { it.second }
+            .firstOrNull()?.first
+
+        return CloseUpBoxes(photo, signature)
     }
 
     // Exact form_cropper.py photo enhancement.
