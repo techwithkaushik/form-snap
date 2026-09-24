@@ -1262,49 +1262,44 @@ object FormSnapOpenCvProcessor {
         if (crop.cols() < 120 || crop.rows() < 60) return crop.clone()
 
         val gray = Mat()
-        val edges = Mat()
-        val mask = Mat.zeros(crop.size(), CvType.CV_8UC1)
         Imgproc.cvtColor(crop, gray, Imgproc.COLOR_BGR2GRAY)
-        Imgproc.Canny(gray, edges, 50.0, 150.0)
+        val dark = Mat()
+        Imgproc.threshold(gray, dark, 185.0, 255.0, Imgproc.THRESH_BINARY_INV)
 
-        val lines = Mat()
-        Imgproc.HoughLinesP(
-            edges, lines, 1.0, Math.PI / 180.0,
-            70, crop.cols() * 0.30, crop.cols() * 0.04
-        )
-
-        for (i in 0 until lines.rows()) {
-            val line = lines.get(i, 0)
-            if (line.size < 4) continue
-            val x1 = line[0]
-            val y1 = line[1]
-            val x2 = line[2]
-            val y2 = line[3]
-            val length = Math.hypot(x2 - x1, y2 - y1)
-            val angle = abs(Math.atan2(y2 - y1, x2 - x1))
-            val nearTop = (y1 + y2) * 0.5 < crop.rows() * 0.26
-            val nearBottom = (y1 + y2) * 0.5 > crop.rows() * 0.94
-            if (length >= crop.cols() * 0.30 &&
-                angle < Math.toRadians(4.0) &&
-                (nearTop || nearBottom)
-            ) {
-                Imgproc.line(
-                    mask,
-                    Point(x1, y1),
-                    Point(x2, y2),
-                    org.opencv.core.Scalar(255.0),
-                    max(2, crop.rows() / 100)
-                )
+        // The form's printed guide is a long line near the top/bottom edge.
+        // Detect it by row density and blank that small edge band completely.
+        // This is faster and more reliable than running Hough on ARM32.
+        val topLimit = (crop.rows() * 0.28).toInt().coerceAtLeast(1)
+        var hasTopGuide = false
+        for (y in 0 until topLimit) {
+            if (Core.countNonZero(dark.row(y)) > crop.cols() * 0.20) {
+                hasTopGuide = true
+                break
             }
         }
 
-        val repaired = Mat()
-        Photo.inpaint(crop, mask, repaired, 2.0, Photo.INPAINT_TELEA)
+        val bottomStart = (crop.rows() * 0.92).toInt().coerceAtMost(crop.rows() - 1)
+        var hasBottomGuide = false
+        for (y in bottomStart until crop.rows()) {
+            if (Core.countNonZero(dark.row(y)) > crop.cols() * 0.20) {
+                hasBottomGuide = true
+                break
+            }
+        }
+
+        val cleaned = crop.clone()
+        if (hasTopGuide) {
+            cleaned.submat(0, topLimit, 0, crop.cols())
+                .setTo(org.opencv.core.Scalar(255.0, 255.0, 255.0))
+        }
+        if (hasBottomGuide) {
+            cleaned.submat(bottomStart, crop.rows(), 0, crop.cols())
+                .setTo(org.opencv.core.Scalar(255.0, 255.0, 255.0))
+        }
+
         gray.release()
-        edges.release()
-        lines.release()
-        mask.release()
-        return repaired
+        dark.release()
+        return cleaned
     }
 
     // Lightweight close-up photo cleanup: denoise first, then apply a very
