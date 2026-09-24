@@ -409,6 +409,38 @@ object FormSnapOpenCvProcessor {
         return min(1.0, density * 14.0)
     }
 
+    // Semantic validation for photo field candidates. A real pasted photo
+    // should contain a face and normal photographic color variation. This
+    // prevents shadows/printed line-art from winning on geometry alone.
+    private fun photoFieldSemanticScore(source: Mat, box: Rect): Double {
+        if (box.width < 80 || box.height < 80) return 0.0
+
+        val candidate = source.submat(
+            box.y.coerceIn(0, source.rows() - 1),
+            (box.y + box.height).coerceIn(box.y + 1, source.rows()),
+            box.x.coerceIn(0, source.cols() - 1),
+            (box.x + box.width).coerceIn(box.x + 1, source.cols()),
+        ).clone()
+
+        val face = detectFace(candidate)
+        val faceScore = if (face != null) {
+            val areaRatio =
+                face.width.toDouble() * face.height.toDouble() /
+                    max(1.0, candidate.cols().toDouble() * candidate.rows().toDouble())
+            min(1.0, areaRatio * 8.0)
+        } else {
+            0.0
+        }
+
+        val hsv = Mat()
+        Imgproc.cvtColor(candidate, hsv, Imgproc.COLOR_BGR2HSV)
+        val meanSaturation = Core.mean(hsv).`val`[1] / 255.0
+        hsv.release()
+        candidate.release()
+
+        return faceScore * 0.78 + meanSaturation.coerceIn(0.0, 1.0) * 0.22
+    }
+
     // Detect the field rectangles directly when the image is a partial-form
     // capture/import rather than a complete A4 page. The quadrilateral is kept
     // (not just its boundingRect) so a tilted/skewed capture can be perspective
@@ -466,11 +498,13 @@ object FormSnapOpenCvProcessor {
 
                 if (ratio in 0.62..1.02) {
                     val ratioScore = 1.0 - min(1.0, abs(ratio - 0.80) / 0.22)
+                    val semantic = photoFieldSemanticScore(source, box)
                     val score =
-                        ratioScore * 0.50 +
-                        rectangularity * 0.18 +
-                        quadRectangularity.coerceIn(0.0, 1.0) * 0.12 +
-                        sizeScore * 0.10 +
+                        ratioScore * 0.34 +
+                        rectangularity * 0.14 +
+                        quadRectangularity.coerceIn(0.0, 1.0) * 0.10 +
+                        sizeScore * 0.08 +
+                        semantic * 0.24 +
                         0.10
                     photoCandidates.add(FieldCandidate(quad, box, score))
                 }
