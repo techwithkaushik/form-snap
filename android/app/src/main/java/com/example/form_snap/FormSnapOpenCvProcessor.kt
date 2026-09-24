@@ -682,10 +682,18 @@ object FormSnapOpenCvProcessor {
             0.0, 0.0, Imgproc.INTER_AREA,
         )
 
+        val bitmapWidth = if (small.cols() % 2 == 0) small.cols() else small.cols() - 1
+        val bitmapHeight = small.rows()
+        if (bitmapWidth < 2 || bitmapHeight < 2) {
+            small.release()
+            return null
+        }
         val bitmap = Bitmap.createBitmap(
-            small.cols(), small.rows(), Bitmap.Config.RGB_565,
+            bitmapWidth, bitmapHeight, Bitmap.Config.RGB_565,
         )
-        Utils.matToBitmap(small, bitmap)
+        val bitmapMat = if (bitmapWidth == small.cols()) small else small.submat(0, bitmapHeight, 0, bitmapWidth)
+        Utils.matToBitmap(bitmapMat, bitmap)
+        if (bitmapMat !== small) bitmapMat.release()
 
         val detector = android.media.FaceDetector(bitmap.width, bitmap.height, 4)
         val faces = arrayOfNulls<android.media.FaceDetector.Face>(4)
@@ -1055,7 +1063,7 @@ object FormSnapOpenCvProcessor {
             org.opencv.core.Scalar(255.0),
         )
         val ink = Mat()
-        Core.convertScaleAbs(gray, ink, 0.82, -8.0)
+        Core.convertScaleAbs(gray, ink, 0.70, -12.0)
         ink.copyTo(result, cleanMask)
 
         val enlarged = Mat()
@@ -1141,7 +1149,7 @@ object FormSnapOpenCvProcessor {
             org.opencv.core.Scalar(255.0),
         )
         val ink = Mat()
-        Core.convertScaleAbs(gray, ink, 0.82, -8.0)
+        Core.convertScaleAbs(gray, ink, 0.70, -12.0)
         ink.copyTo(result, cleanMask)
 
         val bgr = Mat()
