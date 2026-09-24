@@ -77,8 +77,8 @@ object FormSnapOpenCvProcessor {
 
         // The detector returns the printed frame. Trim the remaining frame
         // line before enhancement so the saved output contains only the image/sign.
-        val photoClean = trimPrintedFrame(photoCrop, 10)
-        val signClean = trimPrintedFrame(signCrop, 10)
+        val photoClean = trimPrintedFrame(photoCrop, 15)
+        val signClean = trimPrintedFrame(signCrop, 15)
         val photo = enhancePhotoQuality(photoClean)
         val sign = enhanceSignQuality(signClean)
         photoCrop.release()
@@ -258,7 +258,7 @@ object FormSnapOpenCvProcessor {
         }
 
         val crop = cropWithPadding(source, box, if (isPhoto) 10 else 8)
-        val frameClean = trimPrintedFrame(crop, 10)
+        val frameClean = trimPrintedFrame(crop, 15)
         val finalImage = if (isPhoto) {
             val clean = removeBlackBorderLines(frameClean)
             val result = enhanceCloseUpPhoto(clean)
