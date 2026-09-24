@@ -409,6 +409,25 @@ object FormSnapOpenCvProcessor {
         return min(1.0, density * 14.0)
     }
 
+    private fun fastSignatureInkScore(image: Mat, box: Rect): Double {
+        val x1 = (box.x + box.width * 0.08).toInt().coerceIn(0, image.cols() - 1)
+        val y1 = (box.y + box.height * 0.14).toInt().coerceIn(0, image.rows() - 1)
+        val x2 = (box.x + box.width * 0.92).toInt().coerceIn(x1 + 1, image.cols())
+        val y2 = (box.y + box.height * 0.88).toInt().coerceIn(y1 + 1, image.rows())
+        val roi = image.submat(y1, y2, x1, x2)
+        val gray = Mat()
+        Imgproc.cvtColor(roi, gray, Imgproc.COLOR_BGR2GRAY)
+        Imgproc.GaussianBlur(gray, gray, Size(3.0, 3.0), 0.0)
+        val dark = Mat()
+        Imgproc.threshold(gray, dark, 175.0, 255.0, Imgproc.THRESH_BINARY_INV)
+        val density = Core.countNonZero(dark).toDouble() /
+            max(1.0, dark.rows().toDouble() * dark.cols().toDouble())
+        roi.release()
+        gray.release()
+        dark.release()
+        return min(1.0, density * 7.0)
+    }
+
     // Semantic validation for photo field candidates. A real pasted photo
     // should contain a face and normal photographic color variation. This
     // prevents shadows/printed line-art from winning on geometry alone.
@@ -498,26 +517,22 @@ object FormSnapOpenCvProcessor {
 
                 if (ratio in 0.62..1.02) {
                     val ratioScore = 1.0 - min(1.0, abs(ratio - 0.80) / 0.22)
-                    val semantic = photoFieldSemanticScore(source, box)
                     val score =
                         ratioScore * 0.34 +
                         rectangularity * 0.14 +
                         quadRectangularity.coerceIn(0.0, 1.0) * 0.10 +
                         sizeScore * 0.08 +
-                        semantic * 0.24 +
                         0.10
                     photoCandidates.add(FieldCandidate(quad, box, score))
                 }
 
                 if (ratio in 1.75..3.25) {
                     val ratioScore = 1.0 - min(1.0, abs(ratio - 2.50) / 0.75)
-                    val handwriting = signatureInkScore(source, box)
                     val score =
                         ratioScore * 0.35 +
                         rectangularity * 0.12 +
                         quadRectangularity.coerceIn(0.0, 1.0) * 0.08 +
                         sizeScore * 0.08 +
-                        handwriting * 0.27 +
                         0.10
                     signatureCandidates.add(FieldCandidate(quad, box, score))
                 }
@@ -534,13 +549,34 @@ object FormSnapOpenCvProcessor {
         closed.release()
         kernel.release()
 
-        val bestPhoto = photoCandidates.maxByOrNull { it.score }
+        // Face detection and connected-components are expensive on ARM32.
+        // Only run the semantic checks on the strongest geometry candidates.
+        val scoredPhotos = photoCandidates
+            .sortedByDescending { it.score }
+            .take(8)
+            .map { candidate ->
+                candidate.copy(
+                    score = candidate.score +
+                        photoFieldSemanticScore(source, candidate.rect) * 0.24
+                )
+            }
+        val bestPhoto = scoredPhotos.maxByOrNull { it.score }
+
+        val scoredSignatures = signatureCandidates
+            .sortedByDescending { it.score }
+            .take(12)
+            .map { candidate ->
+                candidate.copy(
+                    score = candidate.score +
+                        signatureInkScore(source, candidate.rect) * 0.27
+                )
+            }
 
         val signature = if (bestPhoto != null) {
             val photoRect = bestPhoto.rect
             val photoCenterX = photoRect.x + photoRect.width / 2.0
 
-            val detected = signatureCandidates
+            val detected = scoredSignatures
                 .filter {
                     val r = it.rect
                     val centerX = r.x + r.width / 2.0
@@ -569,7 +605,7 @@ object FormSnapOpenCvProcessor {
             // signature is selected by handwriting/ink evidence.
             val predictedCandidate = predictedSignatureFields(source, photoRect)
                 .maxByOrNull { field ->
-                    val ink = signatureInkScore(source, field.rect)
+                    val ink = fastSignatureInkScore(source, field.rect)
                     val centerX = field.rect.x + field.rect.width / 2.0
                     val horizontalAlignment =
                         1.0 - min(1.0, abs(centerX - photoCenterX) /
@@ -577,7 +613,7 @@ object FormSnapOpenCvProcessor {
                     ink * 0.72 + horizontalAlignment * 0.08 +
                         field.geometryScore * 0.20
                 }?.let { field ->
-                    val ink = signatureInkScore(source, field.rect)
+                    val ink = fastSignatureInkScore(source, field.rect)
                     val centerX = field.rect.x + field.rect.width / 2.0
                     val horizontalAlignment =
                         1.0 - min(1.0, abs(centerX - photoCenterX) /
@@ -598,7 +634,7 @@ object FormSnapOpenCvProcessor {
                 else -> detected
             }
         } else {
-            signatureCandidates.maxByOrNull { it.score }
+            scoredSignatures.maxByOrNull { it.score }
         }
 
         return FieldBoxes(
@@ -1138,8 +1174,10 @@ object FormSnapOpenCvProcessor {
     // background, darken only pixels that are genuinely ink-like, and retain
     // the original grayscale instead of forcing a pure-white threshold image.
     private fun enhanceSignQuality(cropped: Mat): Mat {
+        // Remove long printed guide lines before ink/background analysis.
+        val guideClean = removeSignatureGuideLines(cropped)
         val gray = Mat()
-        Imgproc.cvtColor(cropped, gray, Imgproc.COLOR_BGR2GRAY)
+        Imgproc.cvtColor(guideClean, gray, Imgproc.COLOR_BGR2GRAY)
 
         // Suppress paper/scan speckles before estimating the local background.
         val denoised = Mat()
@@ -1204,6 +1242,7 @@ object FormSnapOpenCvProcessor {
             result, enlarged, Size(), 2.0, 2.0, Imgproc.INTER_LANCZOS4,
         )
 
+        guideClean.release()
         gray.release()
         denoised.release()
         background.release()
@@ -1217,6 +1256,55 @@ object FormSnapOpenCvProcessor {
         result.release()
         ink.release()
         return enlarged
+    }
+
+    private fun removeSignatureGuideLines(crop: Mat): Mat {
+        if (crop.cols() < 120 || crop.rows() < 60) return crop.clone()
+
+        val gray = Mat()
+        val edges = Mat()
+        val mask = Mat.zeros(crop.size(), CvType.CV_8UC1)
+        Imgproc.cvtColor(crop, gray, Imgproc.COLOR_BGR2GRAY)
+        Imgproc.Canny(gray, edges, 50.0, 150.0)
+
+        val lines = Mat()
+        Imgproc.HoughLinesP(
+            edges, lines, 1.0, Math.PI / 180.0,
+            70, crop.cols() * 0.30, crop.cols() * 0.04
+        )
+
+        for (i in 0 until lines.rows()) {
+            val line = lines.get(i, 0)
+            if (line.size < 4) continue
+            val x1 = line[0]
+            val y1 = line[1]
+            val x2 = line[2]
+            val y2 = line[3]
+            val length = Math.hypot(x2 - x1, y2 - y1)
+            val angle = abs(Math.atan2(y2 - y1, x2 - x1))
+            val nearTop = (y1 + y2) * 0.5 < crop.rows() * 0.26
+            val nearBottom = (y1 + y2) * 0.5 > crop.rows() * 0.94
+            if (length >= crop.cols() * 0.30 &&
+                angle < Math.toRadians(4.0) &&
+                (nearTop || nearBottom)
+            ) {
+                Imgproc.line(
+                    mask,
+                    Point(x1, y1),
+                    Point(x2, y2),
+                    org.opencv.core.Scalar(255.0),
+                    max(2, crop.rows() / 100)
+                )
+            }
+        }
+
+        val repaired = Mat()
+        Photo.inpaint(crop, mask, repaired, 2.0, Photo.INPAINT_TELEA)
+        gray.release()
+        edges.release()
+        lines.release()
+        mask.release()
+        return repaired
     }
 
     // Lightweight close-up photo cleanup: denoise first, then apply a very
