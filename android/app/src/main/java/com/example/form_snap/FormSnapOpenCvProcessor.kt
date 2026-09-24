@@ -7,6 +7,8 @@ import org.opencv.core.Mat
 import org.opencv.core.MatOfByte
 import org.opencv.core.MatOfInt
 import org.opencv.core.MatOfPoint
+import org.opencv.core.MatOfPoint2f
+import org.opencv.core.Point
 import org.opencv.core.Rect
 import org.opencv.core.Size
 import org.opencv.imgcodecs.Imgcodecs
@@ -61,9 +63,9 @@ object FormSnapOpenCvProcessor {
         }
     }
 
-    // Whole-form extraction uses the same detector for camera and imported
-    // images, but searches the full captured page so a photo placed near the
-    // center of a tightly cropped input is not missed.
+    // Whole-form extraction: detect the document once, perspective-correct it,
+    // then use the fixed Class-8 2026-27 template coordinates. This avoids
+    // guessing which of many internal rectangles is the photo/signature box.
     private fun processWholeForm(
         context: Context,
         source: Mat,
@@ -74,165 +76,230 @@ object FormSnapOpenCvProcessor {
         dpi: Double,
         maxKb: Int,
     ): Map<String, Any?> {
-        val boxes = findWholeFormBoxes(source)
-        val pad = 6
+        val rectified = rectifyDocument(source)
+        val page = rectified ?: source
 
-        val photoCrop = if (boxes.first != null) {
-            cropWithPadding(source, boxes.first!!, pad)
-        } else {
-            cropNormalized(source, 0.20, 0.325, 0.75, 0.925, pad)
-        }
+        // A4 Class 8 2026-27 template, normalized to the corrected page.
+        val photoCrop = cropTemplate(page, 0.746, 0.190, 0.193, 0.169)
+        val signatureCrop = cropTemplate(page, 0.722, 0.374, 0.240, 0.068)
 
-        val signCrop = if (boxes.second != null) {
-            cropWithPadding(source, boxes.second!!, pad)
-        } else {
-            cropNormalized(source, 0.373, 0.432, 0.745, 0.930, 7)
-        }
+        // Only inspect the outer edge of the template crop. The previous wide
+        // edge search could erase real hair/ink near the top of the content.
+        val photoEdgeClean = removeTemplateEdgeLines(photoCrop, true)
+        val signatureEdgeClean = removeTemplateEdgeLines(signatureCrop, false)
+        val photo = enhancePhotoQuality(photoEdgeClean)
+        val sign = enhanceSignQuality(signatureEdgeClean)
 
-        // The detector returns the printed frame. Trim the remaining frame
-        // line before enhancement so the saved output contains only the image/sign.
-        val photoTrimmed = trimPrintedFrame(photoCrop, 15)
-        val signTrimmed = trimPrintedFrame(signCrop, 15)
-        val photoClean = removePrintedEdgeLines(photoTrimmed, true)
-        val signClean = removePrintedEdgeLines(signTrimmed, false)
-        val photo = enhancePhotoQuality(photoClean)
-        val sign = enhanceSignQuality(signClean)
-        photoTrimmed.release()
-        signTrimmed.release()
         photoCrop.release()
-        signCrop.release()
-        photoClean.release()
-        signClean.release()
+        signatureCrop.release()
+        photoEdgeClean.release()
+        signatureEdgeClean.release()
+        rectified?.release()
 
-        val photoPath = saveJpeg(context, photo, "photo", photoWidthMm, photoHeightMm, dpi, maxKb)
-        val signPath = saveJpeg(context, sign, "signature", signatureWidthMm, signatureHeightMm, dpi, maxKb)
+        val photoPath = saveJpeg(
+            context, photo, "photo", photoWidthMm, photoHeightMm, dpi, maxKb,
+        )
+        val signPath = saveJpeg(
+            context, sign, "signature", signatureWidthMm, signatureHeightMm, dpi, maxKb,
+        )
         photo.release()
         sign.release()
 
         return mapOf(
             "photoPath" to photoPath,
             "signaturePath" to signPath,
-            "photoDetected" to (boxes.first != null),
-            "signatureDetected" to (boxes.second != null),
-            "detector" to "native-full-page-contour",
+            "photoDetected" to true,
+            "signatureDetected" to true,
+            "detector" to if (rectified != null) "document-perspective-template" else "template-fallback",
         )
     }
 
+    // Fast document detection on a downscaled copy. A large phone image is
+    // never processed full-resolution for contour detection.
+    private fun rectifyDocument(source: Mat): Mat? {
+        val maxSide = max(source.cols(), source.rows())
+        val scale = min(1.0, 1600.0 / maxSide.toDouble())
+        val small = Mat()
+        if (scale < 0.999) {
+            Imgproc.resize(
+                source,
+                small,
+                Size(source.cols() * scale, source.rows() * scale),
+                0.0,
+                0.0,
+                Imgproc.INTER_AREA,
+            )
+        } else {
+            source.copyTo(small)
+        }
 
-    // Detect the printed photo/signature boxes across the full image.
-    // Camera and imported images use this exact same native detector.
-    private fun findWholeFormBoxes(source: Mat): Pair<Rect?, Rect?> {
         val gray = Mat()
         val blurred = Mat()
-        val threshold = Mat()
-
-        Imgproc.cvtColor(source, gray, Imgproc.COLOR_BGR2GRAY)
+        val edges = Mat()
+        val closed = Mat()
+        Imgproc.cvtColor(small, gray, Imgproc.COLOR_BGR2GRAY)
         Imgproc.GaussianBlur(gray, blurred, Size(5.0, 5.0), 0.0)
-        Imgproc.adaptiveThreshold(
-            blurred,
-            threshold,
-            255.0,
-            Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
-            Imgproc.THRESH_BINARY_INV,
-            15,
-            5.0,
+        Imgproc.Canny(blurred, edges, 60.0, 160.0)
+        val closeKernel = Imgproc.getStructuringElement(
+            Imgproc.MORPH_RECT, Size(5.0, 5.0),
         )
+        Imgproc.morphologyEx(edges, closed, Imgproc.MORPH_CLOSE, closeKernel)
 
         val contours = ArrayList<MatOfPoint>()
         Imgproc.findContours(
-            threshold,
-            contours,
-            Mat(),
-            Imgproc.RETR_LIST,
-            Imgproc.CHAIN_APPROX_SIMPLE,
+            closed, contours, Mat(), Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE,
         )
 
-        val imageArea = source.rows().toDouble() * source.cols().toDouble()
-        val minArea = imageArea * 0.015
-        val photoCandidates = ArrayList<Pair<Rect, Double>>()
-        val signatureCandidates = ArrayList<Pair<Rect, Double>>()
+        val imageArea = small.cols().toDouble() * small.rows().toDouble()
+        var best: Array<Point>? = null
+        var bestScore = 0.0
 
         for (contour in contours) {
-            val box = Imgproc.boundingRect(contour)
-            val area = box.width.toDouble() * box.height.toDouble()
-
-            if (area > minArea && box.height > 0) {
-                val ratio = box.width.toDouble() / box.height.toDouble()
-                val rectangularity =
-                    abs(Imgproc.contourArea(contour)) / max(1.0, area)
-
-                if (
-                    ratio > 0.62 &&
-                    ratio < 1.00 &&
-                    box.height > source.rows() * 0.08 &&
-                    rectangularity > 0.70
-                ) {
-                    val ratioScore =
-                        1.0 - min(1.0, abs(ratio - 0.80) / 0.20)
-                    val score =
-                        ratioScore * 0.65 +
-                            rectangularity * 0.25 +
-                            min(1.0, area / (imageArea * 0.20)) * 0.10
-                    photoCandidates.add(
-                        Rect(box.x, box.y, box.width, box.height) to score,
-                    )
-                }
-
-                if (
-                    ratio > 1.70 &&
-                    ratio < 3.40 &&
-                    box.width > source.cols() * 0.20 &&
-                    rectangularity > 0.70
-                ) {
-                    val ratioScore =
-                        1.0 - min(1.0, abs(ratio - 2.50) / 0.70)
-                    val score =
-                        ratioScore * 0.65 +
-                            rectangularity * 0.25 +
-                            min(1.0, area / (imageArea * 0.12)) * 0.10
-                    signatureCandidates.add(
-                        Rect(box.x, box.y, box.width, box.height) to score,
-                    )
-                }
+            val area = abs(Imgproc.contourArea(contour))
+            if (area < imageArea * 0.35) {
+                contour.release()
+                continue
             }
-
+            val points = MatOfPoint2f(*contour.toArray())
+            val perimeter = Imgproc.arcLength(points, true)
+            val approx = MatOfPoint2f()
+            Imgproc.approxPolyDP(points, approx, perimeter * 0.02, true)
+            if (approx.rows() == 4) {
+                val quad = approx.toArray()
+                val quadMat = MatOfPoint(*quad)
+                val convex = Imgproc.isContourConvex(quadMat)
+                val rect = Imgproc.boundingRect(quadMat)
+                val fill = area / max(1.0, rect.width.toDouble() * rect.height)
+                val score = (area / imageArea) * 0.75 + fill.coerceIn(0.0, 1.0) * 0.25
+                if (convex && score > bestScore) {
+                    best = quad
+                    bestScore = score
+                }
+                quadMat.release()
+            }
+            points.release()
+            approx.release()
             contour.release()
+        }
+
+        val result = if (best != null) {
+            val ordered = orderCorners(best!!)
+            val targetW = 1400
+            val targetH = 1980
+            val srcCorners = MatOfPoint2f(*ordered)
+            val dstCorners = MatOfPoint2f(
+                Point(0.0, 0.0),
+                Point((targetW - 1).toDouble(), 0.0),
+                Point((targetW - 1).toDouble(), (targetH - 1).toDouble()),
+                Point(0.0, (targetH - 1).toDouble()),
+            )
+            val transform = Imgproc.getPerspectiveTransform(srcCorners, dstCorners)
+            val warped = Mat()
+            Imgproc.warpPerspective(
+                small,
+                warped,
+                transform,
+                Size(targetW.toDouble(), targetH.toDouble()),
+                Imgproc.INTER_LINEAR,
+                org.opencv.core.Core.BORDER_REPLICATE,
+            )
+            srcCorners.release()
+            dstCorners.release()
+            transform.release()
+            warped
+        } else {
+            null
         }
 
         gray.release()
         blurred.release()
-        threshold.release()
-
-        // The form has an outer printed frame and an inner actual image frame.
-        // Among near-best candidates, select the smaller rectangle so the
-        // outer frame is not returned as the photo.
-        val photoBest = photoCandidates.maxOfOrNull { it.second }
-        val photo = if (photoBest != null) {
-            photoCandidates
-                .filter { it.second >= photoBest - 0.08 }
-                .minByOrNull {
-                    it.first.width.toLong() * it.first.height.toLong()
-                }
-                ?.first
-        } else {
-            null
-        }
-
-        val signatureBest = signatureCandidates.maxOfOrNull { it.second }
-        val signature = if (signatureBest != null) {
-            signatureCandidates
-                .filter { it.second >= signatureBest - 0.08 }
-                .maxByOrNull {
-                    it.first.width.toLong() * it.first.height.toLong()
-                }
-                ?.first
-        } else {
-            null
-        }
-
-        return Pair(photo, signature)
+        edges.release()
+        closed.release()
+        closeKernel.release()
+        small.release()
+        return result
     }
 
+    private fun orderCorners(points: Array<Point>): Array<Point> {
+        require(points.size == 4)
+        val sums = points.map { it.x + it.y }
+        val diffs = points.map { it.x - it.y }
+        val topLeft = points[sums.indices.minByOrNull { sums[it] }!!]
+        val bottomRight = points[sums.indices.maxByOrNull { sums[it] }!!]
+        val topRight = points[diffs.indices.maxByOrNull { diffs[it] }!!]
+        val bottomLeft = points[diffs.indices.minByOrNull { diffs[it] }!!]
+        return arrayOf(topLeft, topRight, bottomRight, bottomLeft)
+    }
+
+    private fun cropTemplate(
+        source: Mat,
+        left: Double,
+        top: Double,
+        width: Double,
+        height: Double,
+    ): Mat {
+        val padX = max(2, (source.cols() * 0.002).toInt())
+        val padY = max(2, (source.rows() * 0.002).toInt())
+        val x1 = (source.cols() * left).toInt() + padX
+        val y1 = (source.rows() * top).toInt() + padY
+        val x2 = (source.cols() * (left + width)).toInt() - padX
+        val y2 = (source.rows() * (top + height)).toInt() - padY
+        val sx1 = x1.coerceIn(0, source.cols() - 1)
+        val sy1 = y1.coerceIn(0, source.rows() - 1)
+        val sx2 = x2.coerceIn(sx1 + 1, source.cols())
+        val sy2 = y2.coerceIn(sy1 + 1, source.rows())
+        return source.submat(sy1, sy2, sx1, sx2).clone()
+    }
+
+    private fun removeTemplateEdgeLines(crop: Mat, isPhoto: Boolean): Mat {
+        val gray = Mat()
+        val dark = Mat()
+        val mask = Mat.zeros(crop.size(), CvType.CV_8UC1)
+        Imgproc.cvtColor(crop, gray, Imgproc.COLOR_BGR2GRAY)
+        Imgproc.threshold(gray, dark, 105.0, 255.0, Imgproc.THRESH_BINARY_INV)
+
+        val hKernel = Imgproc.getStructuringElement(
+            Imgproc.MORPH_RECT, Size(max(25, crop.cols() / 2).toDouble(), 1.0),
+        )
+        val vKernel = Imgproc.getStructuringElement(
+            Imgproc.MORPH_RECT, Size(1.0, max(25, crop.rows() / 2).toDouble()),
+        )
+        val horizontal = Mat()
+        val vertical = Mat()
+        Imgproc.morphologyEx(dark, horizontal, Imgproc.MORPH_OPEN, hKernel)
+        Imgproc.morphologyEx(dark, vertical, Imgproc.MORPH_OPEN, vKernel)
+
+        val edgeY = max(4, crop.rows() / 25)
+        val edgeX = max(4, crop.cols() / 25)
+        horizontal.submat(0, edgeY, 0, crop.cols()).copyTo(mask.submat(0, edgeY, 0, crop.cols()))
+        horizontal.submat(crop.rows() - edgeY, crop.rows(), 0, crop.cols())
+            .copyTo(mask.submat(crop.rows() - edgeY, crop.rows(), 0, crop.cols()))
+        vertical.submat(0, crop.rows(), 0, edgeX).copyTo(mask.submat(0, crop.rows(), 0, edgeX))
+        vertical.submat(0, crop.rows(), crop.cols() - edgeX, crop.cols())
+            .copyTo(mask.submat(0, crop.rows(), crop.cols() - edgeX, crop.cols()))
+
+        if (isPhoto) {
+            val bright = Mat()
+            val brightHorizontal = Mat()
+            Imgproc.threshold(gray, bright, 235.0, 255.0, Imgproc.THRESH_BINARY)
+            Imgproc.morphologyEx(bright, brightHorizontal, Imgproc.MORPH_OPEN, hKernel)
+            brightHorizontal.submat(0, edgeY, 0, crop.cols())
+                .copyTo(mask.submat(0, edgeY, 0, crop.cols()))
+            bright.release()
+            brightHorizontal.release()
+        }
+
+        val repaired = Mat()
+        Photo.inpaint(crop, mask, repaired, 2.0, Photo.INPAINT_TELEA)
+        gray.release()
+        dark.release()
+        mask.release()
+        hKernel.release()
+        vKernel.release()
+        horizontal.release()
+        vertical.release()
+        return repaired
+    }
 
     // Exact algorithm from close_up_cropping.py / bulk_folder_cropper.py.
     private fun processCloseUp(
@@ -318,77 +385,63 @@ object FormSnapOpenCvProcessor {
         val signature: Rect?,
     )
 
+    // Close-up mode uses a small edge/rectangle detector. It is intentionally
+    // independent of the full-page template because the camera may contain
+    // only the photo/signature box.
     private fun findCloseUpBoxes(source: Mat): CloseUpBoxes {
         val gray = Mat()
-        val blurred = Mat()
-        val threshold = Mat()
-
+        val edges = Mat()
+        val closed = Mat()
         Imgproc.cvtColor(source, gray, Imgproc.COLOR_BGR2GRAY)
-        Imgproc.GaussianBlur(gray, blurred, Size(5.0, 5.0), 0.0)
-        Imgproc.adaptiveThreshold(
-            blurred, threshold, 255.0,
-            Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
-            Imgproc.THRESH_BINARY_INV,
-            15, 5.0,
-        )
+        Imgproc.GaussianBlur(gray, gray, Size(3.0, 3.0), 0.0)
+        Imgproc.Canny(gray, edges, 60.0, 150.0)
+        val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(3.0, 3.0))
+        Imgproc.morphologyEx(edges, closed, Imgproc.MORPH_CLOSE, kernel)
 
         val contours = ArrayList<MatOfPoint>()
         Imgproc.findContours(
-            threshold, contours, Mat(),
-            Imgproc.RETR_LIST,
-            Imgproc.CHAIN_APPROX_SIMPLE,
+            closed, contours, Mat(), Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE,
         )
-
-        val minArea = source.rows().toDouble() * source.cols().toDouble() * 0.05
+        val imageArea = source.rows().toDouble() * source.cols().toDouble()
         val photoCandidates = ArrayList<Pair<Rect, Double>>()
         val signatureCandidates = ArrayList<Pair<Rect, Double>>()
 
         for (contour in contours) {
-            val box = Imgproc.boundingRect(contour)
-            val area = box.width.toDouble() * box.height.toDouble()
-            if (area > minArea && box.height > 0) {
-                val ratio = box.width.toDouble() / box.height.toDouble()
-                val rectangularity = abs(Imgproc.contourArea(contour)) / area
-
-                if (ratio > 0.68 && ratio < 0.95 && rectangularity > 0.80) {
-                    val ratioScore = 1.0 - min(1.0, kotlin.math.abs(ratio - 0.80) / 0.15)
-                    val score = ratioScore * 0.65 + rectangularity * 0.35
-                    photoCandidates.add(Rect(box.x, box.y, box.width, box.height) to score)
-                }
-
-                if (ratio > 2.0 && ratio < 2.9 && rectangularity > 0.85) {
-                    val ratioScore = 1.0 - min(1.0, kotlin.math.abs(ratio - 2.5) / 0.45)
-                    val score = ratioScore * 0.65 + rectangularity * 0.35
-                    signatureCandidates.add(Rect(box.x, box.y, box.width, box.height) to score)
-                }
+            val area = abs(Imgproc.contourArea(contour))
+            if (area < imageArea * 0.08) {
+                contour.release()
+                continue
             }
+            val points = MatOfPoint2f(*contour.toArray())
+            val perimeter = Imgproc.arcLength(points, true)
+            val approx = MatOfPoint2f()
+            Imgproc.approxPolyDP(points, approx, perimeter * 0.025, true)
+            val box = Imgproc.boundingRect(contour)
+            val ratio = box.width.toDouble() / max(1, box.height).toDouble()
+            val rectangularity = area / max(1.0, box.width.toDouble() * box.height)
+            val quadBonus = if (approx.rows() == 4) 1.0 else 0.0
+
+            if (ratio in 0.60..1.05 && rectangularity > 0.72) {
+                val ratioScore = 1.0 - min(1.0, abs(ratio - 0.80) / 0.25)
+                photoCandidates.add(box to (ratioScore * 0.55 + rectangularity * 0.30 + quadBonus * 0.15))
+            }
+            if (ratio in 1.65..3.40 && rectangularity > 0.72) {
+                val ratioScore = 1.0 - min(1.0, abs(ratio - 2.50) / 0.85)
+                signatureCandidates.add(box to (ratioScore * 0.55 + rectangularity * 0.30 + quadBonus * 0.15))
+            }
+            points.release()
+            approx.release()
             contour.release()
         }
 
         gray.release()
-        blurred.release()
-        threshold.release()
-
-        // Prefer the innermost/largest-content photo rectangle rather than the
-        // outer printed frame. If several nested rectangles have the same ratio,
-        // the smaller one is the actual photo window. For signature there is
-        // normally one printed rectangle, so use the highest geometric score.
-        // Nested photo frames produce several nearly identical scores.
-        // Keep candidates close to the best score, then choose the smallest
-        // rectangle: that is the actual inner photo window, not its frame.
-        val photoBestScore = photoCandidates.maxOfOrNull { it.second }
-        val photo = if (photoBestScore != null) {
-            photoCandidates
-                .filter { it.second >= photoBestScore - 0.03 }
-                .minByOrNull { it.first.width.toLong() * it.first.height.toLong() }
-                ?.first
-        } else null
-
-        val signature = signatureCandidates
-            .maxByOrNull { it.second }
-            ?.first
-
-        return CloseUpBoxes(photo, signature)
+        edges.release()
+        closed.release()
+        kernel.release()
+        return CloseUpBoxes(
+            photoCandidates.maxByOrNull { it.second }?.first,
+            signatureCandidates.maxByOrNull { it.second }?.first,
+        )
     }
 
     // Photo cleanup is intentionally conservative.
@@ -528,22 +581,19 @@ object FormSnapOpenCvProcessor {
 
         return enlarged
     }
-    // Exact close_up_cropping.py / bulk_folder_cropper.py photo sharpening.
+    // Lightweight close-up photo cleanup: denoise first, then apply a very
+    // mild detail pass instead of the old aggressive sharpening kernel.
     private fun enhanceCloseUpPhoto(cropped: Mat): Mat {
-        val kernel = Mat(3, 3, CvType.CV_32F)
-        kernel.put(
-            0, 0,
-            0.0, -0.5, 0.0,
-            -0.5, 3.0, -0.5,
-            0.0, -0.5, 0.0,
-        )
-
+        val denoised = Mat()
+        Imgproc.medianBlur(cropped, denoised, 3)
+        val blur = Mat()
+        Imgproc.GaussianBlur(denoised, blur, Size(0.0, 0.0), 0.8)
         val result = Mat()
-        Imgproc.filter2D(cropped, result, -1, kernel)
-        kernel.release()
+        Core.addWeighted(denoised, 1.08, blur, -0.08, 0.0, result)
+        denoised.release()
+        blur.release()
         return result
     }
-
     private fun enhanceCloseUpSignature(cropped: Mat): Mat {
         val gray = Mat()
         Imgproc.cvtColor(cropped, gray, Imgproc.COLOR_BGR2GRAY)
@@ -632,116 +682,7 @@ object FormSnapOpenCvProcessor {
     // reconstructed from neighbouring pixels instead of being turned into a
     // white stripe. Signature mode repairs the top/bottom border rules too.
     private fun removePrintedEdgeLines(crop: Mat, isPhoto: Boolean): Mat {
-        val gray = Mat()
-        Imgproc.cvtColor(crop, gray, Imgproc.COLOR_BGR2GRAY)
-
-        val mask = Mat.zeros(gray.size(), CvType.CV_8UC1)
-        val dark = Mat()
-        Imgproc.threshold(
-            gray, dark, 105.0, 255.0, Imgproc.THRESH_BINARY_INV,
-        )
-
-        val hKernel = Imgproc.getStructuringElement(
-            Imgproc.MORPH_RECT,
-            Size(max(15, crop.cols() / 3).toDouble(), 1.0),
-        )
-        val vKernel = Imgproc.getStructuringElement(
-            Imgproc.MORPH_RECT,
-            Size(1.0, max(15, crop.rows() / 3).toDouble()),
-        )
-        val horizontal = Mat()
-        val vertical = Mat()
-        Imgproc.morphologyEx(dark, horizontal, Imgproc.MORPH_OPEN, hKernel)
-        Imgproc.morphologyEx(dark, vertical, Imgproc.MORPH_OPEN, vKernel)
-
-        val edgeY = max(18, crop.rows() / 7)
-        val edgeX = max(18, crop.cols() / 7)
-
-        if (isPhoto) {
-            // The reported defect is a printed line crossing the top of the
-            // hair. Do not touch the bottom of the portrait where clothing
-            // patterns can look like long horizontal structures.
-            horizontal.submat(
-                0, min(edgeY, crop.rows()), 0, crop.cols(),
-            ).copyTo(mask.submat(
-                0, min(edgeY, crop.rows()), 0, crop.cols(),
-            ))
-            vertical.submat(
-                0, crop.rows(), 0, min(edgeX, crop.cols()),
-            ).copyTo(mask.submat(
-                0, crop.rows(), 0, min(edgeX, crop.cols()),
-            ))
-            vertical.submat(
-                0, crop.rows(),
-                max(0, crop.cols() - edgeX), crop.cols(),
-            ).copyTo(mask.submat(
-                0, crop.rows(),
-                max(0, crop.cols() - edgeX), crop.cols(),
-            ))
-
-            // The current sample contains a white frame rule over dark hair.
-            // Detect long bright horizontal runs in the upper fifth as well.
-            val bright = Mat()
-            Imgproc.threshold(
-                gray, bright, 235.0, 255.0, Imgproc.THRESH_BINARY,
-            )
-            val brightKernel = Imgproc.getStructuringElement(
-                Imgproc.MORPH_RECT,
-                Size(max(80, crop.cols() / 3).toDouble(), 1.0),
-            )
-            val brightHorizontal = Mat()
-            Imgproc.morphologyEx(
-                bright, brightHorizontal, Imgproc.MORPH_OPEN, brightKernel,
-            )
-            val topLimit = min(crop.rows(), crop.rows() * 20 / 100)
-            if (topLimit > 8) {
-                brightHorizontal.submat(
-                    8, topLimit, 0, crop.cols(),
-                ).copyTo(mask.submat(
-                    8, topLimit, 0, crop.cols(),
-                ))
-            }
-            bright.release()
-            brightKernel.release()
-            brightHorizontal.release()
-        } else {
-            // Signature output is ink on white. Border rules near the top,
-            // bottom, and sides can safely be repaired from the white paper.
-            horizontal.submat(
-                0, min(edgeY, crop.rows()), 0, crop.cols(),
-            ).copyTo(mask.submat(
-                0, min(edgeY, crop.rows()), 0, crop.cols(),
-            ))
-            horizontal.submat(
-                max(0, crop.rows() - edgeY), crop.rows(), 0, crop.cols(),
-            ).copyTo(mask.submat(
-                max(0, crop.rows() - edgeY), crop.rows(), 0, crop.cols(),
-            ))
-            vertical.submat(
-                0, crop.rows(), 0, min(edgeX, crop.cols()),
-            ).copyTo(mask.submat(
-                0, crop.rows(), 0, min(edgeX, crop.cols()),
-            ))
-            vertical.submat(
-                0, crop.rows(),
-                max(0, crop.cols() - edgeX), crop.cols(),
-            ).copyTo(mask.submat(
-                0, crop.rows(),
-                max(0, crop.cols() - edgeX), crop.cols(),
-            ))
-        }
-
-        val repaired = Mat()
-        Photo.inpaint(crop, mask, repaired, 3.0, Photo.INPAINT_TELEA)
-
-        gray.release()
-        dark.release()
-        hKernel.release()
-        vKernel.release()
-        horizontal.release()
-        vertical.release()
-        mask.release()
-        return repaired
+        return removeTemplateEdgeLines(crop, isPhoto)
     }
 
     private fun trimPrintedFrame(crop: Mat, inset: Int): Mat {
