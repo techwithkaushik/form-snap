@@ -66,7 +66,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
-        OpenCVLoader.initLocal()
         setContent { FormSnapTheme { FormSnapApp() } }
     }
 
@@ -86,6 +85,7 @@ class MainActivity : ComponentActivity() {
             settingsOpen = false
         }
         BackHandler(enabled = source != null && !settingsOpen) {
+            clearTempFiles()
             source = null
         }
 
@@ -173,7 +173,10 @@ class MainActivity : ComponentActivity() {
                 mode = mode,
                 settings = settings,
                 onSettings = { settingsOpen = true },
-                onBack = { source = null },
+                onBack = {
+                    clearTempFiles()
+                    source = null
+                },
                 onCaptureAgain = {
                     if (ContextCompat.checkSelfPermission(
                             this@MainActivity,
@@ -256,9 +259,25 @@ class MainActivity : ComponentActivity() {
             contentResolver.openInputStream(uri)?.use { input ->
                 FileOutputStream(file).use { output -> input.copyTo(output) }
             } ?: return null
+
+            clearTempFiles(keep = setOf(file.absolutePath))
             file
         } catch (_: Throwable) {
             null
+        }
+    }
+
+    private fun clearTempFiles(keep: Set<String> = emptySet()) {
+        val roots = arrayOf(
+            File(cacheDir, "captures"),
+            File(cacheDir, "inputs"),
+            File(cacheDir, "formsnap_outputs"),
+        )
+        for (root in roots) {
+            if (!root.exists()) continue
+            root.walkBottomUp().forEach { file ->
+                if (file.isFile && file.absolutePath !in keep) file.delete()
+            }
         }
     }
 
@@ -314,6 +333,7 @@ class MainActivity : ComponentActivity() {
         mode: CaptureMode,
         settings: OutputSettings,
     ): Outputs = withContext(Dispatchers.Default) {
+        clearTempFiles(keep = setOf(file.absolutePath))
         if (!OpenCVLoader.initLocal()) error("OpenCV initialization failed")
         val nativeMode = when (mode) {
             CaptureMode.WHOLE_FORM -> "wholeForm"
