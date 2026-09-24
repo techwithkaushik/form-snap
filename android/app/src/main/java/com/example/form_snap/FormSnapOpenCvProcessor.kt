@@ -943,9 +943,10 @@ object FormSnapOpenCvProcessor {
                 clean.release()
                 result
             } else {
-                val clean = removeBlackBorderLines(crop)
-                val result = enhanceCloseUpSignature(clean)
-                clean.release()
+                // If the close-up rectangle is not detected, preserve the
+                // entire central region rather than applying a border-based
+                // crop that may remove the signature.
+                val result = enhanceCloseUpSignature(crop)
                 result
             }
             crop.release()
@@ -967,22 +968,27 @@ object FormSnapOpenCvProcessor {
         }
 
         val crop = cropWithPadding(source, box, if (isPhoto) 10 else 8)
-        val frameClean = trimPrintedFrame(crop, 15)
-        val edgeClean = removePrintedEdgeLines(frameClean, isPhoto)
         val finalImage = if (isPhoto) {
+            // Photo: remove only narrow printed edges.
+            val frameClean = trimPrintedFrame(crop, 15)
+            val edgeClean = removePrintedEdgeLines(frameClean, true)
             val clean = removeBlackBorderLines(edgeClean)
             val result = enhanceCloseUpPhoto(clean)
             clean.release()
+            edgeClean.release()
+            frameClean.release()
             result
         } else {
-            val clean = removeBlackBorderLines(edgeClean)
-            val result = enhanceCloseUpSignature(clean)
-            clean.release()
+            // Partial-form signature capture: the detected rectangle is the
+            // signature field itself. Do NOT trim/inset the ROI and do NOT
+            // use removeBlackBorderLines(), because that routine can convert
+            // the actual signature-field rule into crop boundaries.
+            val cleanedField = cleanSignatureFieldBorders(crop)
+            val result = enhanceSignQuality(cleanedField)
+            cleanedField.release()
             result
         }
         crop.release()
-        frameClean.release()
-        edgeClean.release()
 
         val path = if (isPhoto) {
             saveJpeg(context, finalImage, "photo", widthMm, heightMm, dpi, maxKb)
