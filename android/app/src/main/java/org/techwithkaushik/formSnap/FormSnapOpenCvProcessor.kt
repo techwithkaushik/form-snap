@@ -1459,7 +1459,7 @@ object FormSnapOpenCvProcessor {
         // handwriting strokes are not classified as a guide line.
         val horizontalKernel = Imgproc.getStructuringElement(
             Imgproc.MORPH_RECT,
-            Size(max(40, (mask.cols() * 0.22).toInt()).toDouble(), 3.0),
+            Size(max(80, (mask.cols() * 0.90).toInt()).toDouble(), 1.0),
         )
         val horizontalRules = Mat()
         Imgproc.morphologyEx(
