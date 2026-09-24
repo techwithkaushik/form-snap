@@ -83,8 +83,8 @@ object FormSnapOpenCvProcessor {
             photoCrop.release()
             signCrop.release()
 
-            val photoPath = saveJpeg(context, photo, "photo", 40.0, 50.0, 100)
-            val signPath = saveJpeg(context, sign, "signature", 50.0, 20.0, 60)
+            val photoPath = saveJpeg(context, photo, "photo", 40.0, 50.0, 50)
+            val signPath = saveJpeg(context, sign, "signature", 50.0, 20.0, 50)
             photo.release()
             sign.release()
 
@@ -297,14 +297,20 @@ object FormSnapOpenCvProcessor {
         // outer printed frame. If several nested rectangles have the same ratio,
         // the smaller one is the actual photo window. For signature there is
         // normally one printed rectangle, so use the highest geometric score.
-        val photo = photoCandidates
-            .sortedWith(compareByDescending<Pair<Rect, Double>> { it.second }
-                .thenBy { it.first.width.toLong() * it.first.height.toLong() })
-            .firstOrNull()?.first
+        // Nested photo frames produce several nearly identical scores.
+        // Keep candidates close to the best score, then choose the smallest
+        // rectangle: that is the actual inner photo window, not its frame.
+        val photoBestScore = photoCandidates.maxOfOrNull { it.second }
+        val photo = if (photoBestScore != null) {
+            photoCandidates
+                .filter { it.second >= photoBestScore - 0.03 }
+                .minByOrNull { it.first.width.toLong() * it.first.height.toLong() }
+                ?.first
+        } else null
 
         val signature = signatureCandidates
-            .sortedByDescending { it.second }
-            .firstOrNull()?.first
+            .maxByOrNull { it.second }
+            ?.first
 
         return CloseUpBoxes(photo, signature)
     }
@@ -523,7 +529,7 @@ object FormSnapOpenCvProcessor {
             Imgproc.INTER_LANCZOS4,
         )
 
-        var low = 45
+        var low = 5
         var high = 95
         var best: ByteArray? = null
 
