@@ -419,16 +419,34 @@ object FormSnapOpenCvProcessor {
         )
 
         val filtered = Mat.zeros(ink.size(), CvType.CV_8UC1)
+
+        // The long Devanagari headline is normally the largest handwriting
+        // component. Keep sizeable components in its vertical band; this
+        // removes isolated paper specks above/below the signature.
+        var largestLabel = 1
+        var largestArea = 0
+        for (label in 1 until stats.rows()) {
+            val area = stats.get(label, Imgproc.CC_STAT_AREA)[0].toInt()
+            if (area > largestArea) {
+                largestArea = area
+                largestLabel = label
+            }
+        }
+        val largestCenterY =
+            centroids.get(largestLabel, 1)[0]
+
         val minComponentArea = 20
         for (label in 1 until stats.rows()) {
             val area = stats.get(label, Imgproc.CC_STAT_AREA)[0].toInt()
-            if (area >= minComponentArea) {
+            val centerY = centroids.get(label, 1)[0]
+            if (
+                area >= minComponentArea &&
+                centerY >= largestCenterY - 20.0
+            ) {
                 val mask = Mat()
                 Core.compare(
                     labels,
-                    Mat.ones(labels.size(), labels.type()).apply {
-                        setTo(org.opencv.core.Scalar(label.toDouble()))
-                    },
+                    org.opencv.core.Scalar(label.toDouble()),
                     mask,
                     Core.CMP_EQ,
                 )
@@ -439,7 +457,6 @@ object FormSnapOpenCvProcessor {
 
         // Keep the signature compact and centered. A fixed 2.5:1 canvas matches
         // the required 50 x 20 mm output without stretching the handwriting.
-        val points = MatOfPoint()
         val contours = ArrayList<MatOfPoint>()
         Imgproc.findContours(
             filtered.clone(),
@@ -520,8 +537,6 @@ object FormSnapOpenCvProcessor {
         filtered.release()
         resultGray.release()
         canvas.release()
-        points.release()
-
         return enlarged
     }
 
