@@ -261,100 +261,238 @@ object FormSnapOpenCvProcessor {
     }
 
     private fun detectSignatureRegion(image: Mat): Mat? {
-        val hsv = Mat()
+        // Strategy 1: if the form has a printed signature box, detect that
+        // rectangle directly. The box size/aspect is NOT fixed; only its
+        // geometric character is used. This avoids guessing the signature
+        // location from one connected ink component.
         val gray = Mat()
-        Imgproc.cvtColor(image, hsv, Imgproc.COLOR_BGR2HSV)
+        val blurred = Mat()
+        val edges = Mat()
+        val closed = Mat()
         Imgproc.cvtColor(image, gray, Imgproc.COLOR_BGR2GRAY)
+        Imgproc.GaussianBlur(gray, blurred, Size(3.0, 3.0), 0.0)
+        Imgproc.Canny(blurred, edges, 35.0, 120.0)
 
-        val saturation = Mat()
-        val colouredInk = Mat()
-        val darkInk = Mat()
-        Core.extractChannel(hsv, saturation, 1)
-
-        // Prefer coloured pen so black printed rules cannot win.
-        Imgproc.threshold(saturation, colouredInk, 38.0, 255.0, Imgproc.THRESH_BINARY)
-        Imgproc.threshold(gray, darkInk, 165.0, 255.0, Imgproc.THRESH_BINARY_INV)
+        val closeKernel = Imgproc.getStructuringElement(
+            Imgproc.MORPH_RECT, Size(3.0, 3.0),
+        )
+        Imgproc.morphologyEx(edges, closed, Imgproc.MORPH_CLOSE, closeKernel)
 
         val face = detectFace(image)
         val minimumY = face?.let {
-            (it.y + it.height * 1.55).toInt().coerceIn(0, image.rows())
-        } ?: (image.rows() * 0.38).toInt()
+            (it.y + it.height * 1.15).toInt().coerceIn(0, image.rows())
+        } ?: (image.rows() * 0.32).toInt()
 
-        fun findBestInkRegion(mask: Mat, coloured: Boolean): Rect? {
-            val work = mask.clone()
-            val openKernel = Imgproc.getStructuringElement(
-                Imgproc.MORPH_ELLIPSE, Size(2.0, 2.0),
-            )
-            Imgproc.morphologyEx(work, work, Imgproc.MORPH_OPEN, openKernel)
+        val contours = ArrayList<MatOfPoint>()
+        val hierarchy = Mat()
+        Imgproc.findContours(
+            closed, contours, hierarchy,
+            Imgproc.RETR_LIST, Imgproc.CHAIN_APPROX_SIMPLE,
+        )
 
-            val horizontalKernel = Imgproc.getStructuringElement(
-                Imgproc.MORPH_RECT,
-                Size(max(45, image.cols() / 10).toDouble(), 1.0),
-            )
-            val horizontalRules = Mat()
-            Imgproc.morphologyEx(work, horizontalRules, Imgproc.MORPH_OPEN, horizontalKernel)
-            Core.subtract(work, horizontalRules, work)
+        var bestBox: Rect? = null
+        var bestBoxScore = Double.NEGATIVE_INFINITY
+        val imageArea = image.cols().toDouble() * image.rows().toDouble()
 
-            val labels = Mat()
-            val stats = Mat()
-            val centroids = Mat()
-            val count = Imgproc.connectedComponentsWithStats(
-                work, labels, stats, centroids, 8, CvType.CV_32S,
-            )
-
-            var best: Rect? = null
-            var bestScore = Double.NEGATIVE_INFINITY
-
-            for (i in 1 until count) {
-                val x = stats.get(i, Imgproc.CC_STAT_LEFT)[0].toInt()
-                val y = stats.get(i, Imgproc.CC_STAT_TOP)[0].toInt()
-                val w = stats.get(i, Imgproc.CC_STAT_WIDTH)[0].toInt()
-                val h = stats.get(i, Imgproc.CC_STAT_HEIGHT)[0].toInt()
-                val area = stats.get(i, Imgproc.CC_STAT_AREA)[0]
-                if (y + h / 2 < minimumY || area < if (coloured) 10.0 else 18.0) continue
-                if (w < 3 || h < 2) continue
-                if (w > image.cols() * 0.58 && h < image.rows() * 0.035) continue
-
-                val aspect = w.toDouble() / max(1, h)
-                val widthScore = min(1.0, w.toDouble() / (image.cols() * 0.18))
-                val heightScore = min(1.0, h.toDouble() / (image.rows() * 0.018))
-                val compactScore = 1.0 - min(1.0, abs(aspect - 4.0) / 5.0)
-                val areaScore = min(1.0, area / 2500.0)
-                val colourScore = if (coloured) {
-                    val roi = saturation.submat(y, min(image.rows(), y + h), x, min(image.cols(), x + w))
-                    val mean = Core.mean(roi).`val`[0] / 255.0
-                    roi.release()
-                    min(1.0, mean * 2.0)
-                } else 0.0
-
-                val score = widthScore * 0.25 + heightScore * 0.18 +
-                    compactScore * 0.12 + areaScore * 0.15 + colourScore * 0.30
-                if (score > bestScore) {
-                    bestScore = score
-                    best = Rect(x, y, w, h)
-                }
+        for (contour in contours) {
+            val area = abs(Imgproc.contourArea(contour))
+            val rect = Imgproc.boundingRect(contour)
+            if (rect.width < image.cols() * 0.16 ||
+                rect.height < image.rows() * 0.025 ||
+                rect.width > image.cols() * 0.90 ||
+                rect.height > image.rows() * 0.30 ||
+                rect.y < minimumY ||
+                area < imageArea * 0.002
+            ) {
+                contour.release()
+                continue
             }
 
-            work.release(); openKernel.release(); horizontalKernel.release();
-            horizontalRules.release(); labels.release(); stats.release(); centroids.release()
-            return best
+            val points = MatOfPoint2f(*contour.toArray())
+            val perimeter = Imgproc.arcLength(points, true)
+            val approx = MatOfPoint2f()
+            Imgproc.approxPolyDP(points, approx, perimeter * 0.025, true)
+
+            if (approx.rows() == 4) {
+                val quad = MatOfPoint(*approx.toArray())
+                val quadArea = abs(Imgproc.contourArea(quad))
+                val boxArea = rect.width.toDouble() * rect.height.toDouble()
+                val rectangularity = quadArea / max(1.0, boxArea)
+                val ratio = rect.width.toDouble() / max(1, rect.height).toDouble()
+
+                // A signature field is simply a reasonably wide rectangle.
+                // Do not assume 50:20 or any other template dimension.
+                if (rectangularity > 0.55 && ratio in 1.30..7.0) {
+                    val roi = image.submat(
+                        rect.y.coerceAtLeast(0),
+                        (rect.y + rect.height).coerceAtMost(image.rows()),
+                        rect.x.coerceAtLeast(0),
+                        (rect.x + rect.width).coerceAtMost(image.cols()),
+                    )
+
+                    val hsv = Mat()
+                    val sat = Mat()
+                    Imgproc.cvtColor(roi, hsv, Imgproc.COLOR_BGR2HSV)
+                    Core.extractChannel(hsv, sat, 1)
+
+                    // Handwritten blue/black ink inside the candidate.
+                    val blue = Mat()
+                    val dark = Mat()
+                    Imgproc.threshold(sat, blue, 28.0, 255.0, Imgproc.THRESH_BINARY)
+                    Imgproc.threshold(
+                        Imgproc.cvtColor(roi, Mat(), Imgproc.COLOR_BGR2GRAY),
+                        dark, 165.0, 255.0, Imgproc.THRESH_BINARY_INV,
+                    )
+
+                    val inner = Rect(
+                        (rect.width * 0.06).toInt().coerceAtLeast(1),
+                        (rect.height * 0.08).toInt().coerceAtLeast(1),
+                        (rect.width * 0.88).toInt().coerceAtLeast(1),
+                        (rect.height * 0.82).toInt().coerceAtLeast(1),
+                    )
+                    val innerBlue = blue.submat(
+                        inner.y, (inner.y + inner.height).coerceAtMost(blue.rows()),
+                        inner.x, (inner.x + inner.width).coerceAtMost(blue.cols()),
+                    )
+                    val innerDark = dark.submat(
+                        inner.y, (inner.y + inner.height).coerceAtMost(dark.rows()),
+                        inner.x, (inner.x + inner.width).coerceAtMost(dark.cols()),
+                    )
+                    val inkDensity =
+                        (Core.countNonZero(innerBlue) * 1.4 + Core.countNonZero(innerDark) * 0.35) /
+                            max(1.0, inner.width.toDouble() * inner.height)
+
+                    val lowerScore = min(1.0, (rect.y - minimumY + 1.0) /
+                        max(1.0, image.rows() * 0.35))
+                    val widthScore = min(1.0, rect.width.toDouble() / (image.cols() * 0.30))
+                    val score =
+                        rectangularity * 0.25 +
+                        min(1.0, inkDensity * 10.0) * 0.50 +
+                        widthScore * 0.10 +
+                        lowerScore * 0.15
+
+                    if (score > bestBoxScore) {
+                        bestBoxScore = score
+                        bestBox = rect
+                    }
+
+                    innerBlue.release()
+                    innerDark.release()
+                    blue.release()
+                    dark.release()
+                    sat.release()
+                    hsv.release()
+                    roi.release()
+                }
+                quad.release()
+            }
+
+            points.release()
+            approx.release()
+            contour.release()
         }
 
-        val colouredRect = findBestInkRegion(colouredInk, true)
-        val darkRect = if (colouredRect == null) findBestInkRegion(darkInk, false) else null
-        val bestRect = colouredRect ?: darkRect
-
-        val result = bestRect?.let { r ->
-            val padX = max(14, min(55, r.width / 5))
-            val padY = max(16, min(50, r.height / 2))
-            val x1 = max(0, r.x - padX)
-            val y1 = max(0, r.y - padY)
-            val x2 = min(image.cols(), r.x + r.width + padX)
-            val y2 = min(image.rows(), r.y + r.height + padY)
+        val resultFromBox = bestBox?.let { r ->
+            // Keep a dynamic inset based on the detected box itself. The
+            // complete signature is retained; only the printed border is
+            // excluded by the small proportional inset.
+            val insetX = max(2, min(18, (r.width * 0.045).toInt()))
+            val insetY = max(2, min(18, (r.height * 0.10).toInt()))
+            val x1 = (r.x + insetX).coerceIn(0, image.cols() - 1)
+            val y1 = (r.y + insetY).coerceIn(0, image.rows() - 1)
+            val x2 = (r.x + r.width - insetX).coerceIn(x1 + 1, image.cols())
+            val y2 = (r.y + r.height - insetY).coerceIn(y1 + 1, image.rows())
             image.submat(y1, y2, x1, x2).clone()
         }
 
-        hsv.release(); gray.release(); saturation.release(); colouredInk.release(); darkInk.release()
+        if (resultFromBox != null) {
+            gray.release()
+            blurred.release()
+            edges.release()
+            closed.release()
+            closeKernel.release()
+            hierarchy.release()
+            return resultFromBox
+        }
+
+        // Strategy 2: no printed box. Find a handwriting cluster instead.
+        // Blue/purple ink is preferred because printed form text/rules are
+        // usually low-saturation. A small dilation joins separate letters
+        // into one signature group before measuring its bounding box.
+        val hsv = Mat()
+        val saturation = Mat()
+        val coloured = Mat()
+        Imgproc.cvtColor(image, hsv, Imgproc.COLOR_BGR2HSV)
+        Core.extractChannel(hsv, saturation, 1)
+        Imgproc.threshold(saturation, coloured, 30.0, 255.0, Imgproc.THRESH_BINARY)
+
+        val clusterKernel = Imgproc.getStructuringElement(
+            Imgproc.MORPH_ELLIPSE, Size(7.0, 3.0),
+        )
+        Imgproc.morphologyEx(coloured, coloured, Imgproc.MORPH_CLOSE, clusterKernel)
+        Imgproc.dilate(coloured, coloured, clusterKernel)
+
+        val labels = Mat()
+        val stats = Mat()
+        val centroids = Mat()
+        val count = Imgproc.connectedComponentsWithStats(
+            coloured, labels, stats, centroids, 8, CvType.CV_32S,
+        )
+
+        var bestInk: Rect? = null
+        var bestInkScore = Double.NEGATIVE_INFINITY
+
+        for (i in 1 until count) {
+            val x = stats.get(i, Imgproc.CC_STAT_LEFT)[0].toInt()
+            val y = stats.get(i, Imgproc.CC_STAT_TOP)[0].toInt()
+            val w = stats.get(i, Imgproc.CC_STAT_WIDTH)[0].toInt()
+            val h = stats.get(i, Imgproc.CC_STAT_HEIGHT)[0].toInt()
+            val area = stats.get(i, Imgproc.CC_STAT_AREA)[0]
+            if (y < minimumY || area < 25.0 || w < image.cols() * 0.04 || h < 3) continue
+            if (w > image.cols() * 0.70 && h < image.rows() * 0.04) continue
+
+            val aspect = w.toDouble() / max(1, h)
+            if (aspect < 1.4 || aspect > 12.0) continue
+
+            val density = area / max(1.0, w.toDouble() * h)
+            val widthScore = min(1.0, w.toDouble() / (image.cols() * 0.18))
+            val heightScore = min(1.0, h.toDouble() / (image.rows() * 0.025))
+            val score =
+                widthScore * 0.35 +
+                heightScore * 0.20 +
+                density * 0.20 +
+                min(1.0, aspect / 5.0) * 0.10 +
+                min(1.0, (y - minimumY + 1.0) / (image.rows() * 0.35)) * 0.15
+
+            if (score > bestInkScore) {
+                bestInkScore = score
+                bestInk = Rect(x, y, w, h)
+            }
+        }
+
+        val result = bestInk?.let { r ->
+            val padX = max(12, min(70, (r.width * 0.14).toInt()))
+            val padY = max(14, min(60, (r.height * 0.65).toInt()))
+            val x1 = (r.x - padX).coerceAtLeast(0)
+            val y1 = (r.y - padY).coerceAtLeast(0)
+            val x2 = (r.x + r.width + padX).coerceAtMost(image.cols())
+            val y2 = (r.y + r.height + padY).coerceAtMost(image.rows())
+            image.submat(y1, y2, x1, x2).clone()
+        }
+
+        gray.release()
+        blurred.release()
+        edges.release()
+        closed.release()
+        closeKernel.release()
+        hierarchy.release()
+        hsv.release()
+        saturation.release()
+        coloured.release()
+        clusterKernel.release()
+        labels.release()
+        stats.release()
+        centroids.release()
         return result
     }
 
