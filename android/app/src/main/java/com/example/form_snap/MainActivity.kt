@@ -32,7 +32,6 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.opencv.android.OpenCVLoader
 import java.io.File
@@ -303,7 +302,7 @@ class MainActivity : ComponentActivity() {
 
     private fun sanitizePersonName(value: String): String {
         return value.trim()
-            .replace(Regex("[\\\\/:*?"<>|\\r\\n]+"), "_")
+            .replace(Regex("""[\\/:*?"<>|\r\n]+"""), "_")
             .replace(Regex("\\s+"), " ")
             .take(80)
             .trim(' ', '.', '_')
@@ -454,7 +453,6 @@ class MainActivity : ComponentActivity() {
         onSave: (String, String, String) -> Unit,
         onFolder: (String) -> Unit,
     ) {
-        val scope = rememberCoroutineScope()
         var processing by remember { mutableStateOf(false) }
         var status by remember { mutableStateOf("Extracting…") }
         var outputs by remember { mutableStateOf(Outputs()) }
