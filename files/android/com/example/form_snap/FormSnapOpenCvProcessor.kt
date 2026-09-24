@@ -101,34 +101,38 @@ object FormSnapOpenCvProcessor {
         }
     }
 
-    // Returns photo box and signature box independently, selecting the
-    // largest matching contour exactly as form_cropper.py does.
-    private fun findWholeFormBoxes(roi: Mat): Pair<Rect?, Rect?> {
+    // Detect the printed photo/signature boxes across the full image.
+    // Camera and imported images use this exact same native detector.
+    private fun findWholeFormBoxes(source: Mat): Pair<Rect?, Rect?> {
         val gray = Mat()
         val blurred = Mat()
         val threshold = Mat()
 
-        Imgproc.cvtColor(roi, gray, Imgproc.COLOR_BGR2GRAY)
+        Imgproc.cvtColor(source, gray, Imgproc.COLOR_BGR2GRAY)
         Imgproc.GaussianBlur(gray, blurred, Size(5.0, 5.0), 0.0)
         Imgproc.adaptiveThreshold(
-            blurred, threshold, 255.0,
+            blurred,
+            threshold,
+            255.0,
             Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
             Imgproc.THRESH_BINARY_INV,
-            15, 5.0,
+            15,
+            5.0,
         )
 
         val contours = ArrayList<MatOfPoint>()
         Imgproc.findContours(
-            threshold, contours, Mat(),
-            Imgproc.RETR_EXTERNAL,
+            threshold,
+            contours,
+            Mat(),
+            Imgproc.RETR_LIST,
             Imgproc.CHAIN_APPROX_SIMPLE,
         )
 
-        val minArea = roi.rows().toDouble() * roi.cols().toDouble() * 0.05
-        var photo: Rect? = null
-        var sign: Rect? = null
-        var maxPhotoArea = 0.0
-        var maxSignArea = 0.0
+        val imageArea = source.rows().toDouble() * source.cols().toDouble()
+        val minArea = imageArea * 0.015
+        val photoCandidates = ArrayList<Pair<Rect, Double>>()
+        val signatureCandidates = ArrayList<Pair<Rect, Double>>()
 
         for (contour in contours) {
             val box = Imgproc.boundingRect(contour)
@@ -136,27 +140,44 @@ object FormSnapOpenCvProcessor {
 
             if (area > minArea && box.height > 0) {
                 val ratio = box.width.toDouble() / box.height.toDouble()
+                val rectangularity =
+                    abs(Imgproc.contourArea(contour)) / max(1.0, area)
 
                 if (
-                    box.width > roi.cols() * 0.30 &&
-                    box.height > roi.rows() * 0.10 &&
-                    ratio > 0.6 && ratio < 1.0 &&
-                    area > maxPhotoArea
+                    ratio > 0.62 &&
+                    ratio < 1.00 &&
+                    box.height > source.rows() * 0.08 &&
+                    rectangularity > 0.70
                 ) {
-                    maxPhotoArea = area
-                    photo = Rect(box.x, box.y, box.width, box.height)
+                    val ratioScore =
+                        1.0 - min(1.0, abs(ratio - 0.80) / 0.20)
+                    val score =
+                        ratioScore * 0.65 +
+                            rectangularity * 0.25 +
+                            min(1.0, area / (imageArea * 0.20)) * 0.10
+                    photoCandidates.add(
+                        Rect(box.x, box.y, box.width, box.height) to score,
+                    )
                 }
 
                 if (
-                    box.width > roi.cols() * 0.30 &&
-                    box.height > roi.rows() * 0.04 &&
-                    ratio > 1.8 && ratio < 3.2 &&
-                    area > maxSignArea
+                    ratio > 1.70 &&
+                    ratio < 3.40 &&
+                    box.width > source.cols() * 0.20 &&
+                    rectangularity > 0.70
                 ) {
-                    maxSignArea = area
-                    sign = Rect(box.x, box.y, box.width, box.height)
+                    val ratioScore =
+                        1.0 - min(1.0, abs(ratio - 2.50) / 0.70)
+                    val score =
+                        ratioScore * 0.65 +
+                            rectangularity * 0.25 +
+                            min(1.0, area / (imageArea * 0.12)) * 0.10
+                    signatureCandidates.add(
+                        Rect(box.x, box.y, box.width, box.height) to score,
+                    )
                 }
             }
+
             contour.release()
         }
 
@@ -164,8 +185,36 @@ object FormSnapOpenCvProcessor {
         blurred.release()
         threshold.release()
 
-        return Pair(photo, sign)
+        // The form has an outer printed frame and an inner actual image frame.
+        // Among near-best candidates, select the smaller rectangle so the
+        // outer frame is not returned as the photo.
+        val photoBest = photoCandidates.maxOfOrNull { it.second }
+        val photo = if (photoBest != null) {
+            photoCandidates
+                .filter { it.second >= photoBest - 0.08 }
+                .minByOrNull {
+                    it.first.width.toLong() * it.first.height.toLong()
+                }
+                ?.first
+        } else {
+            null
+        }
+
+        val signatureBest = signatureCandidates.maxOfOrNull { it.second }
+        val signature = if (signatureBest != null) {
+            signatureCandidates
+                .filter { it.second >= signatureBest - 0.08 }
+                .maxByOrNull {
+                    it.first.width.toLong() * it.first.height.toLong()
+                }
+                ?.first
+        } else {
+            null
+        }
+
+        return Pair(photo, signature)
     }
+
 
     // Exact algorithm from close_up_cropping.py / bulk_folder_cropper.py.
     private fun processCloseUp(
