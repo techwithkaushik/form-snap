@@ -1402,7 +1402,7 @@ object FormSnapOpenCvProcessor {
         val saturationMask = Mat()
         val darkMask = Mat()
         Imgproc.threshold(hsv, saturationMask, 28.0, 255.0, Imgproc.THRESH_BINARY)
-        Imgproc.threshold(gray, darkMask, 175.0, 255.0, Imgproc.THRESH_BINARY_INV)
+        Imgproc.threshold(gray, darkMask, 145.0, 255.0, Imgproc.THRESH_BINARY_INV)
 
         val mask = Mat()
         Core.bitwise_or(saturationMask, darkMask, mask)
@@ -1441,14 +1441,14 @@ object FormSnapOpenCvProcessor {
             var maxDensity = 0.0
             for (dy in -2..2) {
                 val d = rowDensity[y + dy]
-                if (d >= 0.22) strongRows++
+                if (d >= 0.28) strongRows++
                 maxDensity = max(maxDensity, d)
             }
 
             // A guide rule is wide and persists through several rows.
-            if (strongRows >= 3 && maxDensity >= 0.38) {
-                val y1 = max(0, y - 2)
-                val y2 = min(mask.rows(), y + 3)
+            if (strongRows >= 4 && maxDensity >= 0.34) {
+                val y1 = max(0, y - 3)
+                val y2 = min(mask.rows(), y + 4)
                 guideMask.submat(y1, y2, 0, mask.cols())
                     .setTo(org.opencv.core.Scalar(255.0))
             }
@@ -1459,7 +1459,7 @@ object FormSnapOpenCvProcessor {
         // handwriting strokes are not classified as a guide line.
         val horizontalKernel = Imgproc.getStructuringElement(
             Imgproc.MORPH_RECT,
-            Size(max(40, (mask.cols() * 0.22).toInt()).toDouble(), 3.0),
+            Size(max(80, (mask.cols() * 0.90).toInt()).toDouble(), 1.0),
         )
         val horizontalRules = Mat()
         Imgproc.morphologyEx(
