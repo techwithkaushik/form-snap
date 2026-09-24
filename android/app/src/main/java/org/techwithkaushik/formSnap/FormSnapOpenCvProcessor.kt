@@ -1137,7 +1137,7 @@ object FormSnapOpenCvProcessor {
                 result
             } else {
                 val clean = removeBlackBorderLines(crop)
-                val result = enhanceCloseUpSignature(clean)
+                val result = extractSignatureInk(clean)
                 clean.release()
                 result
             }
