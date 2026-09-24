@@ -124,19 +124,22 @@ object FormSnapOpenCvProcessor {
         val fields = findFieldBoxes(source)
 
         val photoBase = fields.photo?.let {
-            val box = cropWithPadding(source, it, 2)
-            val inner = findPastedPhotoInsideBox(box)
-            box.release()
+            // Keep the actual quadrilateral so tilted captures are rectified.
+            val warped = warpField(source, it.quad, 800, 1000)
+            val inner = findPastedPhotoInsideBox(warped)
+            warped.release()
             inner
         }
 
         val signatureBase = fields.signature?.let {
-            cropWithPadding(source, it, 10)
+            warpField(source, it.quad, 1000, 400)
         }
 
         val photo = photoBase?.let {
-            val cleaned = removeTemplateEdgeLines(it, true)
+            val borderFree = trimPhotoFrame(it)
+            val cleaned = removeTemplateEdgeLines(borderFree, true)
             val result = enhancePhotoQuality(cleaned)
+            borderFree.release()
             cleaned.release()
             it.release()
             result
@@ -145,8 +148,10 @@ object FormSnapOpenCvProcessor {
         val sign = signatureBase?.let {
             val framed = trimPrintedFrame(it, 15)
             val cleaned = removePrintedEdgeLines(framed, false)
-            val result = enhanceSignQuality(cleaned)
-            framed.release()
+            val borderFree = trimSignatureFrame(cleaned)
+            val result = enhanceSignQuality(borderFree)
+            borderFree.release()
+            
             cleaned.release()
             it.release()
             result
@@ -337,16 +342,21 @@ object FormSnapOpenCvProcessor {
         return source.submat(sy1, sy2, sx1, sx2).clone()
     }
 
+    private data class FieldCandidate(
+        val quad: Array<Point>,
+        val rect: Rect,
+        val score: Double,
+    )
+
     private data class FieldBoxes(
-        val photo: Rect?,
-        val signature: Rect?,
+        val photo: FieldCandidate?,
+        val signature: FieldCandidate?,
     )
 
     // Detect the field rectangles directly when the image is a partial-form
-    // capture/import rather than a complete A4 page. The photo is close to
-    // 40:50 (ratio 0.80) and the signature box is close to 50:20 (ratio 2.50).
-    // Detection is scale-independent, so the same code works when the form is
-    // captured from near or farther away.
+    // capture/import rather than a complete A4 page. The quadrilateral is kept
+    // (not just its boundingRect) so a tilted/skewed capture can be perspective
+    // corrected before extraction.
     private fun findFieldBoxes(source: Mat): FieldBoxes {
         val gray = Mat()
         val blurred = Mat()
@@ -367,13 +377,13 @@ object FormSnapOpenCvProcessor {
             closed,
             contours,
             Mat(),
-            Imgproc.RETR_EXTERNAL,
+            Imgproc.RETR_LIST,
             Imgproc.CHAIN_APPROX_SIMPLE,
         )
 
         val imageArea = source.cols().toDouble() * source.rows().toDouble()
-        val photoCandidates = ArrayList<Pair<Rect, Double>>()
-        val signatureCandidates = ArrayList<Pair<Rect, Double>>()
+        val photoCandidates = ArrayList<FieldCandidate>()
+        val signatureCandidates = ArrayList<FieldCandidate>()
 
         for (contour in contours) {
             val area = abs(Imgproc.contourArea(contour))
@@ -381,34 +391,43 @@ object FormSnapOpenCvProcessor {
             val boxArea = box.width.toDouble() * box.height.toDouble()
             val ratio = box.width.toDouble() / max(1, box.height).toDouble()
             val rectangularity = area / max(1.0, boxArea)
+
+            if (area < imageArea * 0.005 || rectangularity < 0.55) {
+                contour.release()
+                continue
+            }
+
             val points = MatOfPoint2f(*contour.toArray())
             val perimeter = Imgproc.arcLength(points, true)
             val approx = MatOfPoint2f()
-            Imgproc.approxPolyDP(points, approx, perimeter * 0.025, true)
-            val quadBonus = if (approx.rows() == 4) 1.0 else 0.0
+            Imgproc.approxPolyDP(points, approx, perimeter * 0.02, true)
 
-            // Allow small boxes so a distant capture is still detectable.
-            if (area >= imageArea * 0.008 && rectangularity >= 0.72) {
-                if (ratio in 0.62..1.00) {
+            if (approx.rows() == 4 && Imgproc.isContourConvex(MatOfPoint(*approx.toArray()))) {
+                val quad = approx.toArray()
+                val sizeScore = min(1.0, boxArea / (imageArea * 0.55))
+                val quadArea = abs(Imgproc.contourArea(MatOfPoint(*quad)))
+                val quadRectangularity = quadArea / max(1.0, boxArea)
+
+                if (ratio in 0.62..1.02) {
                     val ratioScore = 1.0 - min(1.0, abs(ratio - 0.80) / 0.22)
-                    val sizeScore = min(1.0, boxArea / (imageArea * 0.45))
                     val score =
-                        ratioScore * 0.55 +
-                        rectangularity * 0.25 +
-                        quadBonus * 0.10 +
-                        sizeScore * 0.10
-                    photoCandidates.add(box to score)
+                        ratioScore * 0.50 +
+                        rectangularity * 0.18 +
+                        quadRectangularity.coerceIn(0.0, 1.0) * 0.12 +
+                        sizeScore * 0.10 +
+                        0.10
+                    photoCandidates.add(FieldCandidate(quad, box, score))
                 }
 
-                if (ratio in 1.80..3.20) {
-                    val ratioScore = 1.0 - min(1.0, abs(ratio - 2.50) / 0.70)
-                    val sizeScore = min(1.0, boxArea / (imageArea * 0.30))
+                if (ratio in 1.75..3.25) {
+                    val ratioScore = 1.0 - min(1.0, abs(ratio - 2.50) / 0.75)
                     val score =
-                        ratioScore * 0.55 +
-                        rectangularity * 0.25 +
-                        quadBonus * 0.10 +
-                        sizeScore * 0.10
-                    signatureCandidates.add(box to score)
+                        ratioScore * 0.50 +
+                        rectangularity * 0.18 +
+                        quadRectangularity.coerceIn(0.0, 1.0) * 0.12 +
+                        sizeScore * 0.10 +
+                        0.10
+                    signatureCandidates.add(FieldCandidate(quad, box, score))
                 }
             }
 
@@ -424,9 +443,36 @@ object FormSnapOpenCvProcessor {
         kernel.release()
 
         return FieldBoxes(
-            photo = photoCandidates.maxByOrNull { it.second }?.first,
-            signature = signatureCandidates.maxByOrNull { it.second }?.first,
+            photo = photoCandidates.maxByOrNull { it.score },
+            signature = signatureCandidates.maxByOrNull { it.score },
         )
+    }
+
+    // Warp a detected field quadrilateral to a stable, front-facing rectangle.
+    // This makes the extraction independent of camera tilt/perspective.
+    private fun warpField(source: Mat, quad: Array<Point>, targetW: Int, targetH: Int): Mat {
+        val ordered = orderCorners(quad)
+        val src = MatOfPoint2f(*ordered)
+        val dst = MatOfPoint2f(
+            Point(0.0, 0.0),
+            Point((targetW - 1).toDouble(), 0.0),
+            Point((targetW - 1).toDouble(), (targetH - 1).toDouble()),
+            Point(0.0, (targetH - 1).toDouble()),
+        )
+        val transform = Imgproc.getPerspectiveTransform(src, dst)
+        val warped = Mat()
+        Imgproc.warpPerspective(
+            source,
+            warped,
+            transform,
+            Size(targetW.toDouble(), targetH.toDouble()),
+            Imgproc.INTER_CUBIC,
+            Core.BORDER_REPLICATE,
+        )
+        src.release()
+        dst.release()
+        transform.release()
+        return warped
     }
 
     // The printed form has a PHOTO BOX, and the pasted passport photo can
@@ -681,6 +727,51 @@ object FormSnapOpenCvProcessor {
     // look harsher and amplified small JPEG/sensor artifacts. A small median
     // filter removes isolated pixel noise without inventing facial detail.
     // No sharpening or contrast boost is applied here.
+    // Remove only the narrow printed/pasted-photo border after the field
+    // has been perspective-corrected. We do not crop based on dark hair or
+    // clothing; only continuous dark edge rules are considered.
+    private fun trimPhotoFrame(crop: Mat): Mat {
+        val gray = Mat()
+        Imgproc.cvtColor(crop, gray, Imgproc.COLOR_BGR2GRAY)
+        val h = gray.rows()
+        val w = gray.cols()
+
+        var top = 0
+        var bottom = 0
+        var left = 0
+        var right = 0
+        val band = max(4, min(18, min(h, w) / 80))
+
+        // The photo border is a continuous dark rule. Require a high dark
+        // fraction across the edge rather than reacting to a face/hair.
+        // Fixed small inset is safer than aggressive edge inference on photos.
+        // The detector has already identified the photo quadrilateral.
+        top = band
+        bottom = band
+        left = band
+        right = band
+
+        gray.release()
+
+        val x1 = left.coerceAtMost((w - 2) / 4)
+        val y1 = top.coerceAtMost((h - 2) / 4)
+        val x2 = (w - right).coerceAtLeast(x1 + 1)
+        val y2 = (h - bottom).coerceAtLeast(y1 + 1)
+        return crop.submat(y1, y2, x1, x2).clone()
+    }
+
+    // The signature frame is printed, not handwritten. After perspective
+    // correction it is safe to remove a narrow edge strip on all sides.
+    private fun trimSignatureFrame(crop: Mat): Mat {
+        val insetX = max(4, min(18, crop.cols() / 60))
+        val insetY = max(4, min(14, crop.rows() / 28))
+        val x1 = insetX.coerceAtMost((crop.cols() - 2) / 4)
+        val y1 = insetY.coerceAtMost((crop.rows() - 2) / 4)
+        val x2 = (crop.cols() - insetX).coerceAtLeast(x1 + 1)
+        val y2 = (crop.rows() - insetY).coerceAtLeast(y1 + 1)
+        return crop.submat(y1, y2, x1, x2).clone()
+    }
+
     private fun enhancePhotoQuality(cropped: Mat): Mat {
         val denoised = Mat()
         Imgproc.medianBlur(cropped, denoised, 3)
@@ -691,8 +782,12 @@ object FormSnapOpenCvProcessor {
             2.0, 2.0, Imgproc.INTER_LANCZOS4,
         )
 
+        // A small lift only: preserve skin tone and avoid clipping highlights.
+        val brighter = Mat()
+        Core.convertScaleAbs(enlarged, brighter, 1.02, 5.0)
+        enlarged.release()
         denoised.release()
-        return enlarged
+        return brighter
     }
     // Signature is deliberately cleaned as ink-on-white instead of keeping
     // the photographed paper texture. Small isolated dust/noise components
@@ -702,30 +797,53 @@ object FormSnapOpenCvProcessor {
     // background, darken only pixels that are genuinely ink-like, and retain
     // the original grayscale instead of forcing a pure-white threshold image.
     private fun enhanceSignQuality(cropped: Mat): Mat {
-        val gray=Mat()
-        Imgproc.cvtColor(cropped,gray,Imgproc.COLOR_BGR2GRAY)
-        val background=Mat()
-        Imgproc.GaussianBlur(gray,background,Size(0.0,0.0),11.0)
-        val diff=Mat()
-        Core.subtract(background,gray,diff)
+        val gray = Mat()
+        Imgproc.cvtColor(cropped, gray, Imgproc.COLOR_BGR2GRAY)
 
-        val inkMask=Mat()
-        Imgproc.threshold(diff,inkMask,10.0,255.0,Imgproc.THRESH_BINARY)
-        val k=Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE,Size(2.0,2.0))
-        Imgproc.morphologyEx(inkMask,inkMask,Imgproc.MORPH_OPEN,k)
-        Imgproc.morphologyEx(inkMask,inkMask,Imgproc.MORPH_CLOSE,k)
+        val background = Mat()
+        Imgproc.GaussianBlur(gray, background, Size(0.0, 0.0), 11.0)
 
-        val result=Mat(gray.size(),CvType.CV_8UC1,org.opencv.core.Scalar(250.0))
-        // Keep actual photographed ink grayscale; only the paper/background is
-        // gently normalized. This prevents the previous over-bright result.
-        gray.copyTo(result,inkMask)
-        Imgproc.GaussianBlur(result,result,Size(3.0,3.0),0.0)
+        val diff = Mat()
+        Core.subtract(background, gray, diff)
 
-        val enlarged=Mat()
-        Imgproc.resize(result,enlarged,Size(),2.0,2.0,Imgproc.INTER_LANCZOS4)
-        gray.release();background.release();diff.release();inkMask.release();k.release();result.release()
+        val inkMask = Mat()
+        Imgproc.threshold(diff, inkMask, 7.0, 255.0, Imgproc.THRESH_BINARY)
+
+        val k = Imgproc.getStructuringElement(
+            Imgproc.MORPH_ELLIPSE, Size(2.0, 2.0),
+        )
+        Imgproc.morphologyEx(inkMask, inkMask, Imgproc.MORPH_OPEN, k)
+        Imgproc.morphologyEx(inkMask, inkMask, Imgproc.MORPH_CLOSE, k)
+
+        // Slightly darker paper than before and darker original ink.
+        // This avoids the over-bright signature produced by the old 250-white
+        // canvas while retaining natural handwritten stroke variation.
+        val result = Mat(
+            gray.size(),
+            CvType.CV_8UC1,
+            org.opencv.core.Scalar(242.0),
+        )
+        val darkerInk = Mat()
+        Core.convertScaleAbs(gray, darkerInk, 0.90, 0.0)
+        darkerInk.copyTo(result, inkMask)
+
+        Imgproc.GaussianBlur(result, result, Size(3.0, 3.0), 0.0)
+
+        val enlarged = Mat()
+        Imgproc.resize(
+            result, enlarged, Size(), 2.0, 2.0, Imgproc.INTER_LANCZOS4,
+        )
+
+        gray.release()
+        background.release()
+        diff.release()
+        inkMask.release()
+        k.release()
+        result.release()
+        darkerInk.release()
         return enlarged
     }
+
     // Lightweight close-up photo cleanup: denoise first, then apply a very
     // mild detail pass instead of the old aggressive sharpening kernel.
     private fun enhanceCloseUpPhoto(cropped: Mat): Mat {
