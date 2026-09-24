@@ -298,9 +298,9 @@ object FormSnapOpenCvProcessor {
         edgeClean.release()
 
         val path = if (isPhoto) {
-            saveJpeg(context, finalImage, "photo", 40.0, 50.0, 50)
+            saveJpeg(context, finalImage, "photo", widthMm, heightMm, dpi, maxKb)
         } else {
-            saveJpeg(context, finalImage, "signature", 50.0, 20.0, 50)
+            saveJpeg(context, finalImage, "signature", widthMm, heightMm, dpi, maxKb)
         }
         finalImage.release()
 
