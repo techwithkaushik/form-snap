@@ -87,19 +87,24 @@ object FormSnapOpenCvProcessor {
             val photoRegion = detectPhotoRegion(rectified)
             val signatureRegion = detectSignatureRegion(rectified)
 
-            val photo = photoRegion?.let {
-                val clean = removeBlackBorderLines(it)
-                val result = enhancePhotoQuality(clean)
-                clean.release()
-                it.release()
-                result
-            }
+            val photoTemplate = cropTemplate(rectified, 0.746, 0.190, 0.193, 0.169)
+            val photoCrop = findPastedPhotoInsideBox(photoTemplate)
+            val signatureCrop = cropTemplate(rectified, 0.722, 0.374, 0.240, 0.068)
 
-            val sign = signatureRegion?.let {
-                val result = extractSignatureInk(it)
-                it.release()
-                result
-            }
+            val photoBorderFree = trimPhotoFrame(photoCrop)
+            val photoEdgeClean = removeTemplateEdgeLines(photoBorderFree, true)
+            val signatureEdgeClean = removeTemplateEdgeLines(signatureCrop, false)
+            val signatureBorderFree = trimSignatureFrame(signatureEdgeClean)
+            val photo = enhancePhotoQuality(photoEdgeClean)
+            val sign = enhanceSignQuality(signatureBorderFree)
+
+            photoBorderFree.release()
+            signatureBorderFree.release()
+            photoTemplate.release()
+            photoCrop.release()
+            signatureCrop.release()
+            photoEdgeClean.release()
+            signatureEdgeClean.release()
 
             rectified.release()
 
