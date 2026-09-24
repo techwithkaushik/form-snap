@@ -39,10 +39,17 @@ object FormSnapOpenCvProcessor {
         if (source.empty()) error("OpenCV could not decode the selected image")
 
         return try {
-            when (mode) {
-                "wholeForm" -> processWholeForm(context, source)
-                "closePhoto" -> processCloseUp(context, source, true)
-                "closeSignature" -> processCloseUp(context, source, false)
+            val photoWidthMm = (args["photoWidthMm"] as? Number)?.toDouble() ?: 40.0
+        val photoHeightMm = (args["photoHeightMm"] as? Number)?.toDouble() ?: 50.0
+        val signatureWidthMm = (args["signatureWidthMm"] as? Number)?.toDouble() ?: 50.0
+        val signatureHeightMm = (args["signatureHeightMm"] as? Number)?.toDouble() ?: 20.0
+        val dpi = (args["dpi"] as? Number)?.toDouble() ?: 300.0
+        val maxKb = (args["maxKb"] as? Number)?.toInt() ?: 50
+
+        when (mode) {
+                "wholeForm" -> processWholeForm(context, source, photoWidthMm, photoHeightMm, signatureWidthMm, signatureHeightMm, dpi, maxKb)
+                "closePhoto" -> processCloseUp(context, source, true, photoWidthMm, photoHeightMm, dpi, maxKb)
+                "closeSignature" -> processCloseUp(context, source, false, signatureWidthMm, signatureHeightMm, dpi, maxKb)
                 "inspect" -> mapOf(
                     "width" to source.cols(),
                     "height" to source.rows(),
@@ -60,6 +67,12 @@ object FormSnapOpenCvProcessor {
     private fun processWholeForm(
         context: Context,
         source: Mat,
+        photoWidthMm: Double,
+        photoHeightMm: Double,
+        signatureWidthMm: Double,
+        signatureHeightMm: Double,
+        dpi: Double,
+        maxKb: Int,
     ): Map<String, Any?> {
         val boxes = findWholeFormBoxes(source)
         val pad = 6
@@ -91,8 +104,8 @@ object FormSnapOpenCvProcessor {
         photoClean.release()
         signClean.release()
 
-        val photoPath = saveJpeg(context, photo, "photo", 40.0, 50.0, 50)
-        val signPath = saveJpeg(context, sign, "signature", 50.0, 20.0, 50)
+        val photoPath = saveJpeg(context, photo, "photo", photoWidthMm, photoHeightMm, dpi, maxKb)
+        val signPath = saveJpeg(context, sign, "signature", signatureWidthMm, signatureHeightMm, dpi, maxKb)
         photo.release()
         sign.release()
 
@@ -226,6 +239,10 @@ object FormSnapOpenCvProcessor {
         context: Context,
         source: Mat,
         isPhoto: Boolean,
+        widthMm: Double,
+        heightMm: Double,
+        dpi: Double,
+        maxKb: Int,
     ): Map<String, Any?> {
         val boxes = findCloseUpBoxes(source)
         val box = if (isPhoto) boxes.photo else boxes.signature
@@ -247,9 +264,9 @@ object FormSnapOpenCvProcessor {
             crop.release()
 
             val path = if (isPhoto) {
-                saveJpeg(context, finalImage, "photo", 40.0, 50.0, 50)
+                saveJpeg(context, finalImage, "photo", widthMm, heightMm, dpi, maxKb)
             } else {
-                saveJpeg(context, finalImage, "signature", 50.0, 20.0, 50)
+                saveJpeg(context, finalImage, "signature", widthMm, heightMm, dpi, maxKb)
             }
             finalImage.release()
 
@@ -793,10 +810,11 @@ object FormSnapOpenCvProcessor {
         prefix: String,
         widthMm: Double,
         heightMm: Double,
+        dpi: Double,
         maxKb: Int,
     ): String {
-        val targetW = max(1, (widthMm / 25.4 * 300.0).toInt())
-        val targetH = max(1, (heightMm / 25.4 * 300.0).toInt())
+        val targetW = max(1, (widthMm / 25.4 * dpi).toInt())
+        val targetH = max(1, (heightMm / 25.4 * dpi).toInt())
 
         val resized = Mat()
         Imgproc.resize(
