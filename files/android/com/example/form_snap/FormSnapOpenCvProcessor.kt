@@ -373,15 +373,14 @@ object FormSnapOpenCvProcessor {
         return CloseUpBoxes(photo, signature)
     }
 
-    // Exact form_cropper.py photo enhancement.
+    // Photo cleanup is intentionally conservative.
+    // The previous bilateral + unsharp-mask pass made the printed skin texture
+    // look harsher and amplified small JPEG/sensor artifacts. A small median
+    // filter removes isolated pixel noise without inventing facial detail.
+    // No sharpening or contrast boost is applied here.
     private fun enhancePhotoQuality(cropped: Mat): Mat {
-        // The source is a printed photo photographed through a phone camera.
-        // Strong unsharp masking was amplifying JPEG/sensor noise, so denoise
-        // first and use only a restrained local sharpening pass afterwards.
         val denoised = Mat()
-        Imgproc.bilateralFilter(
-            cropped, denoised, 5, 35.0, 35.0,
-        )
+        Imgproc.medianBlur(cropped, denoised, 3)
 
         val enlarged = Mat()
         Imgproc.resize(
@@ -389,21 +388,8 @@ object FormSnapOpenCvProcessor {
             2.0, 2.0, Imgproc.INTER_LANCZOS4,
         )
 
-        val soft = Mat()
-        Imgproc.GaussianBlur(enlarged, soft, Size(0.0, 0.0), 1.1)
-
-        val sharpened = Mat()
-        Core.addWeighted(enlarged, 1.22, soft, -0.22, 0.0, sharpened)
-
-        // Keep skin tones natural; only a very small contrast lift is applied.
-        val finalPhoto = Mat()
-        sharpened.convertTo(finalPhoto, -1, 1.015, 0.5)
-
         denoised.release()
-        enlarged.release()
-        soft.release()
-        sharpened.release()
-        return finalPhoto
+        return enlarged
     }
     // Signature is deliberately cleaned as ink-on-white instead of keeping
     // the photographed paper texture. Small isolated dust/noise components
