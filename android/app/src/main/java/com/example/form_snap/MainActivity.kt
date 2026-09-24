@@ -1,5 +1,5 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-package com.example.form_snap
+package org.techwithkaushik.formSnap
 
 import android.Manifest
 import android.content.Context
@@ -375,9 +375,9 @@ class MainActivity : ComponentActivity() {
                                 fontWeight = FontWeight.ExtraBold,
                             )
                             Spacer(Modifier.height(8.dp))
-                            Text("Capture forms • extract photo & signature • resize • save")
+                            Text("Capture or import a form, then extract photo and signature.")
                             Spacer(Modifier.height(8.dp))
-                            Text("Class 8 • 2026–27 • offline processing")
+                            
                         }
                     }
                 }
@@ -386,10 +386,10 @@ class MainActivity : ComponentActivity() {
                 }
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        ActionCard("Whole Form", "Capture & extract", "▣", Modifier.weight(1f)) {
+                        ActionCard("Capture", "Form", "▣", Modifier.weight(1f)) {
                             onCamera(CaptureMode.WHOLE_FORM)
                         }
-                        ActionCard("Import Form", "Existing image", "▤", Modifier.weight(1f)) {
+                        ActionCard("Import", "Form image", "▤", Modifier.weight(1f)) {
                             onImport()
                         }
                     }
@@ -480,7 +480,7 @@ class MainActivity : ComponentActivity() {
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("Preview & Extract", fontWeight = FontWeight.Bold) },
+                    title = { Text("Preview", fontWeight = FontWeight.Bold) },
                     navigationIcon = { TextButton(onClick = onBack) { Text("Back") } },
                     actions = { TextButton(onClick = onSettings) { Text("Output") } },
                 )
@@ -494,49 +494,20 @@ class MainActivity : ComponentActivity() {
                 item {
                     Card(shape = RoundedCornerShape(20.dp)) {
                         Column {
-                            Text("Source image", Modifier.padding(16.dp), fontWeight = FontWeight.Bold)
+                            Text("Input", Modifier.padding(16.dp), fontWeight = FontWeight.Bold)
                             BitmapImage(file, Modifier.fillMaxWidth().height(300.dp))
                         }
                     }
                 }
-                item {
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        ),
-                    ) {
-                        Column(Modifier.padding(16.dp)) {
-                            Text(
-                                when (mode) {
-                                    CaptureMode.WHOLE_FORM -> "Whole form extraction"
-                                    CaptureMode.PHOTO -> "Photo extraction"
-                                    CaptureMode.SIGNATURE -> "Signature extraction"
-                                },
-                                fontWeight = FontWeight.Bold,
-                            )
-                            Spacer(Modifier.height(5.dp))
-                            Text(
-                                "Photo ${fmt(settings.photoWidthMm)}×${fmt(settings.photoHeightMm)} mm • " +
-                                    "Signature ${fmt(settings.signatureWidthMm)}×${fmt(settings.signatureHeightMm)} mm • " +
-                                    "${settings.dpi.toInt()} DPI • ≤${settings.maxKb} KB",
-                            )
-                        }
-                    }
-                }
+                
                 item {
                     OutlinedTextField(
                         value = personName,
                         onValueChange = { personName = it },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
-                        label = { Text("Student / Person Name") },
-                        placeholder = { Text("e.g. Ishant") },
-                        supportingText = {
-                            Text(
-                                "Save as: " + personName.ifBlank { "PersonName" } +
-                                    "-photo.jpg / -sign.jpg"
-                            )
-                        },
+                        label = { Text("Name") },
+                        placeholder = { Text("Enter name") },
                     )
                 }
                 item {
@@ -548,12 +519,12 @@ class MainActivity : ComponentActivity() {
                             onClick = onCaptureAgain,
                             modifier = Modifier.weight(1f),
                             enabled = !processing,
-                        ) { Text("Capture Again") }
+                        ) { Text("Capture") }
                         OutlinedButton(
                             onClick = onImportAgain,
                             modifier = Modifier.weight(1f),
                             enabled = !processing,
-                        ) { Text("Import Again") }
+                        ) { Text("Import") }
                     }
                 }
                 item {
