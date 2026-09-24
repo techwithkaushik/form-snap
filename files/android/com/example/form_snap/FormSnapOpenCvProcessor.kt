@@ -259,7 +259,7 @@ object FormSnapOpenCvProcessor {
         val contours = ArrayList<MatOfPoint>()
         Imgproc.findContours(
             threshold, contours, Mat(),
-            Imgproc.RETR_EXTERNAL,
+            Imgproc.RETR_LIST,
             Imgproc.CHAIN_APPROX_SIMPLE,
         )
 
