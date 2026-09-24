@@ -375,27 +375,36 @@ object FormSnapOpenCvProcessor {
 
     // Exact form_cropper.py photo enhancement.
     private fun enhancePhotoQuality(cropped: Mat): Mat {
+        // The source is a printed photo photographed through a phone camera.
+        // Strong unsharp masking was amplifying JPEG/sensor noise, so denoise
+        // first and use only a restrained local sharpening pass afterwards.
+        val denoised = Mat()
+        Imgproc.bilateralFilter(
+            cropped, denoised, 5, 35.0, 35.0,
+        )
+
         val enlarged = Mat()
         Imgproc.resize(
-            cropped, enlarged, Size(),
+            denoised, enlarged, Size(),
             2.0, 2.0, Imgproc.INTER_LANCZOS4,
         )
 
-        val blur = Mat()
-        Imgproc.GaussianBlur(enlarged, blur, Size(), 2.0)
+        val soft = Mat()
+        Imgproc.GaussianBlur(enlarged, soft, Size(0.0, 0.0), 1.1)
 
         val sharpened = Mat()
-        Core.addWeighted(enlarged, 1.8, blur, -0.8, 0.0, sharpened)
+        Core.addWeighted(enlarged, 1.22, soft, -0.22, 0.0, sharpened)
 
+        // Keep skin tones natural; only a very small contrast lift is applied.
         val finalPhoto = Mat()
-        sharpened.convertTo(finalPhoto, -1, 1.05, 2.0)
+        sharpened.convertTo(finalPhoto, -1, 1.015, 0.5)
 
+        denoised.release()
         enlarged.release()
-        blur.release()
+        soft.release()
         sharpened.release()
         return finalPhoto
     }
-
     // Signature is deliberately cleaned as ink-on-white instead of keeping
     // the photographed paper texture. Small isolated dust/noise components
     // are removed, while the connected handwritten strokes are preserved.
@@ -615,55 +624,71 @@ object FormSnapOpenCvProcessor {
     // We only inspect a narrow edge band, so real face/signature content in the
     // center is never treated as a border.
     private fun removePrintedEdgeLines(crop: Mat): Mat {
+        val result = crop.clone()
         val gray = Mat()
-        Imgproc.cvtColor(crop, gray, Imgproc.COLOR_BGR2GRAY)
+        Imgproc.cvtColor(result, gray, Imgproc.COLOR_BGR2GRAY)
 
-        val h = gray.rows()
-        val w = gray.cols()
-        var top = 0
-        var bottom = h
-        var left = 0
-        var right = w
+        val dark = Mat()
+        Imgproc.threshold(gray, dark, 105.0, 255.0, Imgproc.THRESH_BINARY_INV)
 
-        fun rowDarkRatio(row: Int): Double {
-            var dark = 0
-            for (x in 0 until w) {
-                if (gray.get(row, x)[0] < 85.0) dark++
-            }
-            return dark.toDouble() / w.toDouble()
-        }
+        // Long horizontal/vertical morphology isolates the printed box rules
+        // without touching the face or handwritten strokes in the center.
+        val hKernel = Imgproc.getStructuringElement(
+            Imgproc.MORPH_RECT, Size(max(15, crop.cols() / 3).toDouble(), 1.0),
+        )
+        val vKernel = Imgproc.getStructuringElement(
+            Imgproc.MORPH_RECT, Size(1.0, max(15, crop.rows() / 3).toDouble()),
+        )
+        val horizontal = Mat()
+        val vertical = Mat()
+        Imgproc.morphologyEx(dark, horizontal, Imgproc.MORPH_OPEN, hKernel)
+        Imgproc.morphologyEx(dark, vertical, Imgproc.MORPH_OPEN, vKernel)
 
-        fun colDarkRatio(col: Int): Double {
-            var dark = 0
-            for (y in 0 until h) {
-                if (gray.get(y, col)[0] < 85.0) dark++
-            }
-            return dark.toDouble() / h.toDouble()
-        }
+        // Only erase lines close to an outer edge. This protects actual
+        // handwriting and facial details from being classified as a frame.
+        val edgeMask = Mat.zeros(dark.size(), CvType.CV_8UC1)
+        val edgeBandY = max(18, crop.rows() / 7)
+        val edgeBandX = max(18, crop.cols() / 7)
 
-        val band = min(24, min(w, h) / 10).coerceAtLeast(4)
-        for (r in 0 until band) {
-            if (rowDarkRatio(r) > 0.22) top = r + 1 else break
+        if (crop.rows() > 1) {
+            horizontal.submat(
+                0, min(edgeBandY, crop.rows()), 0, crop.cols(),
+            ).copyTo(edgeMask.submat(
+                0, min(edgeBandY, crop.rows()), 0, crop.cols(),
+            ))
+            horizontal.submat(
+                max(0, crop.rows() - edgeBandY), crop.rows(), 0, crop.cols(),
+            ).copyTo(edgeMask.submat(
+                max(0, crop.rows() - edgeBandY), crop.rows(), 0, crop.cols(),
+            ))
         }
-        for (r in h - 1 downTo max(h - band, 0)) {
-            if (rowDarkRatio(r) > 0.22) bottom = r else break
-        }
-        for (x in 0 until band) {
-            if (colDarkRatio(x) > 0.22) left = x + 1 else break
-        }
-        for (x in w - 1 downTo max(w - band, 0)) {
-            if (colDarkRatio(x) > 0.22) right = x else break
-        }
+        vertical.submat(
+            0, crop.rows(), 0, min(edgeBandX, crop.cols()),
+        ).copyTo(edgeMask.submat(
+            0, crop.rows(), 0, min(edgeBandX, crop.cols()),
+        ))
+        vertical.submat(
+            0, crop.rows(), max(0, crop.cols() - edgeBandX), crop.cols(),
+        ).copyTo(edgeMask.submat(
+            0, crop.rows(), max(0, crop.cols() - edgeBandX), crop.cols(),
+        ))
+
+        // Paint detected frame rules white, preserving the surrounding photo
+        // rather than leaving a dark rectangular edge in the output.
+        result.setTo(
+            org.opencv.core.Scalar(255.0, 255.0, 255.0),
+            edgeMask,
+        )
 
         gray.release()
-
-        val x1 = left.coerceIn(0, w - 1)
-        val y1 = top.coerceIn(0, h - 1)
-        val x2 = right.coerceIn(x1 + 1, w)
-        val y2 = bottom.coerceIn(y1 + 1, h)
-        return crop.submat(y1, y2, x1, x2).clone()
+        dark.release()
+        hKernel.release()
+        vKernel.release()
+        horizontal.release()
+        vertical.release()
+        edgeMask.release()
+        return result
     }
-
     private fun trimPrintedFrame(crop: Mat, inset: Int): Mat {
         val safeX = min(inset, max(0, (crop.cols() - 2) / 4))
         val safeY = min(inset, max(0, (crop.rows() - 2) / 4))
