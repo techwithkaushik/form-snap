@@ -77,10 +77,14 @@ object FormSnapOpenCvProcessor {
 
         // The detector returns the printed frame. Trim the remaining frame
         // line before enhancement so the saved output contains only the image/sign.
-        val photoClean = trimPrintedFrame(photoCrop, 15)
-        val signClean = trimPrintedFrame(signCrop, 15)
+        val photoTrimmed = trimPrintedFrame(photoCrop, 15)
+        val signTrimmed = trimPrintedFrame(signCrop, 15)
+        val photoClean = removePrintedEdgeLines(photoTrimmed)
+        val signClean = removePrintedEdgeLines(signTrimmed)
         val photo = enhancePhotoQuality(photoClean)
         val sign = enhanceSignQuality(signClean)
+        photoTrimmed.release()
+        signTrimmed.release()
         photoCrop.release()
         signCrop.release()
         photoClean.release()
@@ -259,19 +263,21 @@ object FormSnapOpenCvProcessor {
 
         val crop = cropWithPadding(source, box, if (isPhoto) 10 else 8)
         val frameClean = trimPrintedFrame(crop, 15)
+        val edgeClean = removePrintedEdgeLines(frameClean)
         val finalImage = if (isPhoto) {
-            val clean = removeBlackBorderLines(frameClean)
+            val clean = removeBlackBorderLines(edgeClean)
             val result = enhanceCloseUpPhoto(clean)
             clean.release()
             result
         } else {
-            val clean = removeBlackBorderLines(frameClean)
+            val clean = removeBlackBorderLines(edgeClean)
             val result = enhanceCloseUpSignature(clean)
             clean.release()
             result
         }
         crop.release()
         frameClean.release()
+        edgeClean.release()
 
         val path = if (isPhoto) {
             saveJpeg(context, finalImage, "photo", 40.0, 50.0, 50)
@@ -396,150 +402,119 @@ object FormSnapOpenCvProcessor {
     private fun enhanceSignQuality(cropped: Mat): Mat {
         val gray = Mat()
         Imgproc.cvtColor(cropped, gray, Imgproc.COLOR_BGR2GRAY)
-        Imgproc.GaussianBlur(gray, gray, Size(3.0, 3.0), 0.0)
+
+        // Suppress fine paper texture while preserving handwriting strokes.
+        val background = Mat()
+        Imgproc.GaussianBlur(gray, background, Size(0.0, 0.0), 15.0)
+
+        val normalized = Mat()
+        Core.subtract(background, gray, normalized)
 
         val binary = Mat()
-        Imgproc.adaptiveThreshold(
-            gray, binary, 255.0,
-            Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
-            Imgproc.THRESH_BINARY,
-            51, 10.0,
+        Imgproc.threshold(
+            normalized, binary, 18.0, 255.0, Imgproc.THRESH_BINARY,
         )
 
-        val ink = Mat()
-        Core.bitwise_not(binary, ink)
+        // Remove isolated dots but keep connected handwriting.
+        val kernel = Imgproc.getStructuringElement(
+            Imgproc.MORPH_ELLIPSE, Size(2.0, 2.0),
+        )
+        val opened = Mat()
+        Imgproc.morphologyEx(binary, opened, Imgproc.MORPH_OPEN, kernel)
 
-        // Remove tiny isolated marks before enlarging. The actual handwriting
-        // strokes are much larger connected components.
         val labels = Mat()
         val stats = Mat()
         val centroids = Mat()
         Imgproc.connectedComponentsWithStats(
-            ink, labels, stats, centroids, 8, CvType.CV_32S,
+            opened, labels, stats, centroids, 8, CvType.CV_32S,
         )
 
-        val filtered = Mat.zeros(ink.size(), CvType.CV_8UC1)
-
-        // The long Devanagari headline is normally the largest handwriting
-        // component. Keep sizeable components in its vertical band; this
-        // removes isolated paper specks above/below the signature.
-        var largestLabel = 1
-        var largestArea = 0
+        val filtered = Mat.zeros(opened.size(), CvType.CV_8UC1)
+        val minArea = max(18, (opened.rows() * opened.cols() * 0.00008).toInt())
         for (label in 1 until stats.rows()) {
             val area = stats.get(label, Imgproc.CC_STAT_AREA)[0].toInt()
-            if (area > largestArea) {
-                largestArea = area
-                largestLabel = label
-            }
-        }
-        val largestCenterY =
-            centroids.get(largestLabel, 1)[0]
-
-        val minComponentArea = 20
-        for (label in 1 until stats.rows()) {
-            val area = stats.get(label, Imgproc.CC_STAT_AREA)[0].toInt()
-            val centerY = centroids.get(label, 1)[0]
-            if (
-                area >= minComponentArea &&
-                centerY >= largestCenterY - 20.0
-            ) {
+            if (area >= minArea) {
                 val mask = Mat()
-                Core.compare(
-                    labels,
-                    org.opencv.core.Scalar(label.toDouble()),
-                    mask,
-                    Core.CMP_EQ,
-                )
+                Core.compare(labels, org.opencv.core.Scalar(label.toDouble()), mask, Core.CMP_EQ)
                 filtered.setTo(org.opencv.core.Scalar(255.0), mask)
                 mask.release()
             }
         }
 
-        // Keep the signature compact and centered. A fixed 2.5:1 canvas matches
-        // the required 50 x 20 mm output without stretching the handwriting.
+        // Tight crop around actual ink, with a small white margin.
         val contours = ArrayList<MatOfPoint>()
         Imgproc.findContours(
-            filtered.clone(),
-            contours,
-            Mat(),
-            Imgproc.RETR_EXTERNAL,
-            Imgproc.CHAIN_APPROX_SIMPLE,
+            filtered.clone(), contours, Mat(),
+            Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE,
         )
 
         var union: Rect? = null
         for (contour in contours) {
-            val rect = Imgproc.boundingRect(contour)
-            union = if (union == null) {
-                rect
-            } else {
-                val current = union!!
-                val x1 = min(current.x, rect.x)
-                val y1 = min(current.y, rect.y)
-                val x2 = max(current.x + current.width, rect.x + rect.width)
-                val y2 = max(current.y + current.height, rect.y + rect.height)
+            val r = Imgproc.boundingRect(contour)
+            union = if (union == null) r else {
+                val u = union!!
+                val x1 = min(u.x, r.x)
+                val y1 = min(u.y, r.y)
+                val x2 = max(u.x + u.width, r.x + r.width)
+                val y2 = max(u.y + u.height, r.y + r.height)
                 Rect(x1, y1, x2 - x1, y2 - y1)
             }
             contour.release()
         }
 
-        val resultGray = if (union != null) {
+        val inkCrop = if (union != null) {
             val r = union!!
-            val margin = max(6, min(r.width, r.height) / 12)
+            val margin = max(5, min(r.width, r.height) / 10)
             val x1 = (r.x - margin).coerceIn(0, filtered.cols() - 1)
             val y1 = (r.y - margin).coerceIn(0, filtered.rows() - 1)
             val x2 = (r.x + r.width + margin).coerceIn(x1 + 1, filtered.cols())
             val y2 = (r.y + r.height + margin).coerceIn(y1 + 1, filtered.rows())
             filtered.submat(y1, y2, x1, x2).clone()
         } else {
-            Mat.ones(80, 200, CvType.CV_8UC1).apply {
-                Core.multiply(this, org.opencv.core.Scalar(255.0), this)
-            }
+            Mat.zeros(80, 200, CvType.CV_8UC1)
         }
 
-        val contentW = resultGray.cols()
-        val contentH = resultGray.rows()
-        val canvasW = max(contentW, (contentH * 2.5).toInt())
-        val canvasH = max(contentH, (canvasW / 2.5).toInt())
-
+        val contentW = inkCrop.cols()
+        val contentH = inkCrop.rows()
+        val canvasW = max(contentW + 24, (contentH * 2.5).toInt())
+        val canvasH = max(contentH + 24, (canvasW / 2.5).toInt())
         val canvas = Mat(
-            canvasH,
-            canvasW,
-            CvType.CV_8UC1,
-            org.opencv.core.Scalar(255.0),
+            canvasH, canvasW, CvType.CV_8UC1,
+            org.opencv.core.Scalar(0.0),
         )
+
         val offsetX = (canvasW - contentW) / 2
         val offsetY = (canvasH - contentH) / 2
         val target = canvas.submat(
-            offsetY,
-            offsetY + contentH,
-            offsetX,
-            offsetX + contentW,
+            offsetY, offsetY + contentH,
+            offsetX, offsetX + contentW,
         )
-        resultGray.copyTo(target)
+        inkCrop.copyTo(target)
         target.release()
 
-        // filtered is white ink on black; convert to the required black ink
-        // on white background before final resize.
+        // White background + black handwriting.
         Core.bitwise_not(canvas, canvas)
 
         val enlarged = Mat()
         Imgproc.resize(
-            canvas, enlarged, Size(),
-            2.0, 2.0, Imgproc.INTER_LANCZOS4,
+            canvas, enlarged, Size(), 2.0, 2.0, Imgproc.INTER_LANCZOS4,
         )
 
         gray.release()
+        background.release()
+        normalized.release()
         binary.release()
-        ink.release()
+        kernel.release()
+        opened.release()
         labels.release()
         stats.release()
         centroids.release()
         filtered.release()
-        resultGray.release()
+        inkCrop.release()
         canvas.release()
+
         return enlarged
     }
-
     // Exact close_up_cropping.py / bulk_folder_cropper.py photo sharpening.
     private fun enhanceCloseUpPhoto(cropped: Mat): Mat {
         val kernel = Mat(3, 3, CvType.CV_32F)
@@ -636,6 +611,59 @@ object FormSnapOpenCvProcessor {
     // bounding rectangle. Remove a small safety inset from every side before
     // enhancement; this is intentionally shared by whole-form and close-up
     // capture so both camera and imported images behave identically.
+    // Remove dark printed border rules that can survive the contour crop.
+    // We only inspect a narrow edge band, so real face/signature content in the
+    // center is never treated as a border.
+    private fun removePrintedEdgeLines(crop: Mat): Mat {
+        val gray = Mat()
+        Imgproc.cvtColor(crop, gray, Imgproc.COLOR_BGR2GRAY)
+
+        val h = gray.rows()
+        val w = gray.cols()
+        var top = 0
+        var bottom = h
+        var left = 0
+        var right = w
+
+        fun rowDarkRatio(row: Int): Double {
+            var dark = 0
+            for (x in 0 until w) {
+                if (gray.get(row, x)[0] < 85.0) dark++
+            }
+            return dark.toDouble() / w.toDouble()
+        }
+
+        fun colDarkRatio(col: Int): Double {
+            var dark = 0
+            for (y in 0 until h) {
+                if (gray.get(y, col)[0] < 85.0) dark++
+            }
+            return dark.toDouble() / h.toDouble()
+        }
+
+        val band = min(24, min(w, h) / 10).coerceAtLeast(4)
+        for (r in 0 until band) {
+            if (rowDarkRatio(r) > 0.22) top = r + 1 else break
+        }
+        for (r in h - 1 downTo max(h - band, 0)) {
+            if (rowDarkRatio(r) > 0.22) bottom = r else break
+        }
+        for (x in 0 until band) {
+            if (colDarkRatio(x) > 0.22) left = x + 1 else break
+        }
+        for (x in w - 1 downTo max(w - band, 0)) {
+            if (colDarkRatio(x) > 0.22) right = x else break
+        }
+
+        gray.release()
+
+        val x1 = left.coerceIn(0, w - 1)
+        val y1 = top.coerceIn(0, h - 1)
+        val x2 = right.coerceIn(x1 + 1, w)
+        val y2 = bottom.coerceIn(y1 + 1, h)
+        return crop.submat(y1, y2, x1, x2).clone()
+    }
+
     private fun trimPrintedFrame(crop: Mat, inset: Int): Mat {
         val safeX = min(inset, max(0, (crop.cols() - 2) / 4))
         val safeY = min(inset, max(0, (crop.rows() - 2) / 4))
