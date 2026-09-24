@@ -423,6 +423,7 @@ class MainActivity : ComponentActivity() {
                             onCamera(CaptureMode.SIGNATURE)
                         }
                     }
+                }
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         ActionCard("Import Photo", "Photo only", "◉", Modifier.weight(1f)) {
@@ -432,7 +433,6 @@ class MainActivity : ComponentActivity() {
                             onImport(CaptureMode.SIGNATURE)
                         }
                     }
-                }
                 }
                 item {
                     Card(shape = RoundedCornerShape(18.dp)) {
