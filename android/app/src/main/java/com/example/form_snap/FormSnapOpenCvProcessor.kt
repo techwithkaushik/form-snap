@@ -921,7 +921,9 @@ object FormSnapOpenCvProcessor {
         return repaired
     }
 
-    // Exact algorithm from close_up_cropping.py / bulk_folder_cropper.py.
+    // Close-up mode is for partial-form captures: there may be no A4 page at all.
+    // Signature detection therefore uses the visible signature field, not the
+    // A4 template coordinates.
     private fun processCloseUp(
         context: Context,
         source: Mat,
@@ -931,33 +933,31 @@ object FormSnapOpenCvProcessor {
         dpi: Double,
         maxKb: Int,
     ): Map<String, Any?> {
-        // Close-up capture is intentionally independent of A4/document detection.
-        // For a partial form image, use dedicated local detection for the requested
-        // object. This is especially important for signature: the full A4 template
-        // coordinates must never be applied to a partial-frame capture.
-        val boxes = findCloseUpBoxes(source)
-        val box = if (isPhoto) boxes.photo else boxes.signature
+        val box = if (isPhoto) {
+            detectCloseUpPhotoBox(source)
+        } else {
+            detectPartialSignatureBox(source)
+        }
 
         if (box == null) {
             val ratio = if (isPhoto) 0.8 else 2.5
             val crop = if (isPhoto) {
                 centerCrop(source, ratio)
             } else {
-                // No field rectangle: find the handwriting itself and crop
-                // outward around every retained ink pixel. Never derive the
-                // crop from a fixed 50:20 field coordinate.
-                findSignatureInkCrop(source)
-                    ?: centerCrop(source, ratio)
+                findSignatureInkCrop(source) ?: centerCrop(source, ratio)
             }
+
             val finalImage = if (isPhoto) {
                 val clean = removeBlackBorderLines(crop)
                 val result = enhanceCloseUpPhoto(clean)
                 clean.release()
                 result
             } else {
-                val result = enhanceCloseUpSignature(crop)
-                result
+                // Do not run border-based cropping on a failed signature-box
+                // detection. That is exactly what used to cut the signature.
+                enhanceCloseUpSignature(crop)
             }
+
             crop.release()
 
             val path = if (isPhoto) {
@@ -972,20 +972,20 @@ object FormSnapOpenCvProcessor {
                 "signaturePath" to if (!isPhoto) path else null,
                 "photoDetected" to false,
                 "signatureDetected" to false,
-                "detector" to "close-up-center-fallback",
+                "detector" to "partial-capture-fallback",
             )
         }
 
         val crop = if (isPhoto) {
-            cropWithPadding(source, box, 10)
-        } else {
-            // Signature: include the complete detected field. The previous
-            // implementation subtracted 8 px from every side before cleanup,
-            // which could remove the beginning/end of a signature near the edge.
+            // Photo can safely use a small inward frame cleanup.
             cropWithOuterPadding(source, box, 8)
+        } else {
+            // Signature: OUTWARD padding only. Never subtract pixels from the
+            // detected field because the handwriting may start near the edge.
+            cropWithOuterPadding(source, box, 10)
         }
+
         val finalImage = if (isPhoto) {
-            // Photo: remove only narrow printed edges.
             val frameClean = trimPrintedFrame(crop, 15)
             val edgeClean = removePrintedEdgeLines(frameClean, true)
             val clean = removeBlackBorderLines(edgeClean)
@@ -995,15 +995,13 @@ object FormSnapOpenCvProcessor {
             frameClean.release()
             result
         } else {
-            // Partial-form signature capture: the detected rectangle is the
-            // signature field itself. Do NOT trim/inset the ROI and do NOT
-            // use removeBlackBorderLines(), because that routine can convert
-            // the actual signature-field rule into crop boundaries.
+            // Signature field cleanup is line-aware and non-destructive.
             val cleanedField = cleanSignatureFieldBorders(crop)
             val result = enhanceSignQuality(cleanedField)
             cleanedField.release()
             result
         }
+
         crop.release()
 
         val path = if (isPhoto) {
@@ -1018,7 +1016,7 @@ object FormSnapOpenCvProcessor {
             "signaturePath" to if (!isPhoto) path else null,
             "photoDetected" to isPhoto,
             "signatureDetected" to !isPhoto,
-            "detector" to "close-up-aspect-rectangle",
+            "detector" to "partial-capture-field",
         )
     }
 
@@ -1027,13 +1025,195 @@ object FormSnapOpenCvProcessor {
         val signature: Rect?,
     )
 
-    // Close-up mode uses a small edge/rectangle detector. It is intentionally
-    // independent of the full-page template because the camera may contain
-    // only the photo/signature box.
+    private fun detectCloseUpPhotoBox(source: Mat): Rect? {
+        val boxes = findCloseUpBoxes(source)
+        return boxes.photo
+    }
+
     /**
-     * Fallback for a partial capture when the printed signature rectangle is
-     * not detectable. It finds actual pen ink, removes obvious long printed
-     * rules, and then returns an OUTER padded crop around all remaining ink.
+     * Dedicated detector for a signature box in a PARTIAL FORM image.
+     *
+     * It does not assume that the page is A4. It finds rectangular candidates
+     * around the expected 2.5:1 field shape, then scores them using:
+     * - aspect ratio / rectangularity,
+     * - position below a photo-like rectangle when available,
+     * - actual pen-ink density inside the box,
+     * - long horizontal border evidence.
+     */
+    private fun detectPartialSignatureBox(source: Mat): Rect? {
+        if (source.cols() < 120 || source.rows() < 80) return null
+
+        val gray = Mat()
+        val blurred = Mat()
+        val edges = Mat()
+        val closed = Mat()
+        Imgproc.cvtColor(source, gray, Imgproc.COLOR_BGR2GRAY)
+        Imgproc.GaussianBlur(gray, blurred, Size(5.0, 5.0), 0.0)
+        Imgproc.Canny(blurred, edges, 35.0, 120.0)
+
+        val kernel = Imgproc.getStructuringElement(
+            Imgproc.MORPH_RECT, Size(5.0, 5.0),
+        )
+        Imgproc.morphologyEx(edges, closed, Imgproc.MORPH_CLOSE, kernel)
+
+        val contours = ArrayList<MatOfPoint>()
+        Imgproc.findContours(
+            closed, contours, Mat(), Imgproc.RETR_LIST, Imgproc.CHAIN_APPROX_SIMPLE,
+        )
+
+        val imageArea = source.cols().toDouble() * source.rows().toDouble()
+        val candidates = ArrayList<Pair<Rect, Double>>()
+
+        for (contour in contours) {
+            val rect = Imgproc.boundingRect(contour)
+            val rectArea = rect.width.toDouble() * rect.height.toDouble()
+            val contourArea = abs(Imgproc.contourArea(contour))
+            val rectangularity = contourArea / max(1.0, rectArea)
+            val ratio = rect.width.toDouble() / max(1, rect.height).toDouble()
+
+            if (rect.width < source.cols() * 0.20 ||
+                rect.height < source.rows() * 0.025 ||
+                rectArea < imageArea * 0.008 ||
+                rectangularity < 0.55 ||
+                ratio !in 1.70..3.30
+            ) {
+                contour.release()
+                continue
+            }
+
+            val points = MatOfPoint2f(*contour.toArray())
+            val perimeter = Imgproc.arcLength(points, true)
+            val approx = MatOfPoint2f()
+            Imgproc.approxPolyDP(points, approx, perimeter * 0.02, true)
+            val quad = if (approx.rows() == 4) MatOfPoint(*approx.toArray()) else null
+
+            val quadBonus = if (quad != null && Imgproc.isContourConvex(quad)) 1.0 else 0.0
+            quad?.release()
+
+            val inkScore = partialSignatureInkScore(source, rect)
+            val horizontalRuleScore = signatureBorderLineScore(source, rect)
+            val aspectScore = 1.0 - min(1.0, abs(ratio - 2.50) / 0.80)
+
+            // Prefer lower boxes and boxes with more handwriting evidence.
+            val centerY = rect.y + rect.height / 2.0
+            val lowerScore = (centerY / source.rows().toDouble()).coerceIn(0.0, 1.0)
+
+            val score =
+                aspectScore * 0.28 +
+                rectangularity * 0.10 +
+                quadBonus * 0.10 +
+                inkScore * 0.34 +
+                horizontalRuleScore * 0.14 +
+                lowerScore * 0.04
+
+            candidates.add(rect to score)
+
+            points.release()
+            approx.release()
+            contour.release()
+        }
+
+        gray.release()
+        blurred.release()
+        edges.release()
+        closed.release()
+        kernel.release()
+
+        return candidates.maxByOrNull { it.second }?.first
+    }
+
+    private fun partialSignatureInkScore(source: Mat, box: Rect): Double {
+        val x1 = (box.x + box.width * 0.05).toInt().coerceIn(0, source.cols() - 1)
+        val y1 = (box.y + box.height * 0.08).toInt().coerceIn(0, source.rows() - 1)
+        val x2 = (box.x + box.width * 0.95).toInt().coerceIn(x1 + 1, source.cols())
+        val y2 = (box.y + box.height * 0.92).toInt().coerceIn(y1 + 1, source.rows())
+        val roi = source.submat(y1, y2, x1, x2)
+
+        val hsv = Mat()
+        val gray = Mat()
+        val mask = Mat()
+        Imgproc.cvtColor(roi, hsv, Imgproc.COLOR_BGR2HSV)
+        Imgproc.cvtColor(roi, gray, Imgproc.COLOR_BGR2GRAY)
+
+        val saturation = Mat()
+        val dark = Mat()
+        Core.extractChannel(hsv, saturation, 1)
+        Imgproc.threshold(saturation, saturation, 25.0, 255.0, Imgproc.THRESH_BINARY)
+        Imgproc.threshold(gray, dark, 180.0, 255.0, Imgproc.THRESH_BINARY_INV)
+        Core.bitwise_or(saturation, dark, mask)
+
+        // Remove long rules from the *scoring mask*, but never from the source.
+        val hKernel = Imgproc.getStructuringElement(
+            Imgproc.MORPH_RECT, Size(max(40, roi.cols() / 5).toDouble(), 1.0),
+        )
+        val horizontal = Mat()
+        Imgproc.morphologyEx(mask, horizontal, Imgproc.MORPH_OPEN, hKernel)
+        Core.subtract(mask, horizontal, mask)
+
+        val density = Core.countNonZero(mask).toDouble() /
+            max(1.0, mask.cols().toDouble() * mask.rows().toDouble())
+
+        roi.release()
+        hsv.release()
+        gray.release()
+        mask.release()
+        saturation.release()
+        dark.release()
+        hKernel.release()
+        horizontal.release()
+
+        return min(1.0, density * 8.0)
+    }
+
+    private fun signatureBorderLineScore(source: Mat, box: Rect): Double {
+        val roi = source.submat(
+            box.y.coerceIn(0, source.rows() - 1),
+            (box.y + box.height).coerceIn(box.y + 1, source.rows()),
+            box.x.coerceIn(0, source.cols() - 1),
+            (box.x + box.width).coerceIn(box.x + 1, source.cols()),
+        )
+        val gray = Mat()
+        val edges = Mat()
+        Imgproc.cvtColor(roi, gray, Imgproc.COLOR_BGR2GRAY)
+        Imgproc.Canny(gray, edges, 35.0, 110.0)
+
+        val lines = Mat()
+        Imgproc.HoughLinesP(
+            edges, lines, 1.0, Math.PI / 180.0, 24,
+            max(50.0, roi.cols() * 0.45), 8.0,
+        )
+
+        var found = 0.0
+        for (i in 0 until lines.rows()) {
+            val l = lines.get(i, 0) ?: continue
+            val dx = abs(l[2] - l[0])
+            val dy = abs(l[3] - l[1])
+            if (dx >= roi.cols() * 0.45 && dy <= 6.0) {
+                found = 1.0
+                break
+            }
+        }
+
+        roi.release()
+        gray.release()
+        edges.release()
+        lines.release()
+        return found
+    }
+
+    // Expand a detected box outward; never remove pixels from inside it.
+    private fun cropWithOuterPadding(source: Mat, box: Rect, pad: Int): Mat {
+        val x1 = (box.x - pad).coerceIn(0, source.cols() - 1)
+        val y1 = (box.y - pad).coerceIn(0, source.rows() - 1)
+        val x2 = (box.x + box.width + pad).coerceIn(x1 + 1, source.cols())
+        val y2 = (box.y + box.height + pad).coerceIn(y1 + 1, source.rows())
+        return source.submat(y1, y2, x1, x2).clone()
+    }
+
+    /**
+     * Fallback for a partial capture where the printed signature box is not
+     * detected. Locate actual pen ink, remove long printed rules only from
+     * the detection mask, and crop OUTWARD around all remaining ink.
      */
     private fun findSignatureInkCrop(source: Mat): Mat? {
         if (source.cols() < 80 || source.rows() < 40) return null
@@ -1052,8 +1232,6 @@ object FormSnapOpenCvProcessor {
         val ink = Mat()
         Core.bitwise_or(saturation, dark, ink)
 
-        // Printed long horizontal/vertical rules are removed geometrically,
-        // but no inner signature area is cropped away.
         val hKernel = Imgproc.getStructuringElement(
             Imgproc.MORPH_RECT, Size(max(45, source.cols() / 8).toDouble(), 1.0),
         )
@@ -1086,16 +1264,13 @@ object FormSnapOpenCvProcessor {
             hsv.release(); gray.release(); saturation.release(); dark.release()
             ink.release(); hKernel.release(); vKernel.release()
             horizontal.release(); vertical.release(); notH.release()
-            withoutH.release(); notV.release(); cleaned.release()
-            openKernel.release()
+            withoutH.release(); notV.release(); cleaned.release(); openKernel.release()
             return null
         }
 
         val bbox = Imgproc.boundingRect(points)
         points.release()
 
-        // Add external margin, never subtract. Then normalize to 2.5:1 by
-        // expanding the shorter direction where possible.
         val padX = max(12, min(40, bbox.width / 6))
         val padY = max(12, min(35, bbox.height / 2))
         var x1 = max(0, bbox.x - padX)
@@ -1123,65 +1298,8 @@ object FormSnapOpenCvProcessor {
         hsv.release(); gray.release(); saturation.release(); dark.release()
         ink.release(); hKernel.release(); vKernel.release()
         horizontal.release(); vertical.release(); notH.release()
-        withoutH.release(); notV.release(); cleaned.release()
-        openKernel.release()
+        withoutH.release(); notV.release(); cleaned.release(); openKernel.release()
         return result
-    }
-
-    private fun findCloseUpBoxes(source: Mat): CloseUpBoxes {
-        val gray = Mat()
-        val edges = Mat()
-        val closed = Mat()
-        Imgproc.cvtColor(source, gray, Imgproc.COLOR_BGR2GRAY)
-        Imgproc.GaussianBlur(gray, gray, Size(3.0, 3.0), 0.0)
-        Imgproc.Canny(gray, edges, 60.0, 150.0)
-        val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(3.0, 3.0))
-        Imgproc.morphologyEx(edges, closed, Imgproc.MORPH_CLOSE, kernel)
-
-        val contours = ArrayList<MatOfPoint>()
-        Imgproc.findContours(
-            closed, contours, Mat(), Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE,
-        )
-        val imageArea = source.rows().toDouble() * source.cols().toDouble()
-        val photoCandidates = ArrayList<Pair<Rect, Double>>()
-        val signatureCandidates = ArrayList<Pair<Rect, Double>>()
-
-        for (contour in contours) {
-            val area = abs(Imgproc.contourArea(contour))
-            if (area < imageArea * 0.08) {
-                contour.release()
-                continue
-            }
-            val points = MatOfPoint2f(*contour.toArray())
-            val perimeter = Imgproc.arcLength(points, true)
-            val approx = MatOfPoint2f()
-            Imgproc.approxPolyDP(points, approx, perimeter * 0.025, true)
-            val box = Imgproc.boundingRect(contour)
-            val ratio = box.width.toDouble() / max(1, box.height).toDouble()
-            val rectangularity = area / max(1.0, box.width.toDouble() * box.height)
-            val quadBonus = if (approx.rows() == 4) 1.0 else 0.0
-
-            if (ratio in 0.60..1.05 && rectangularity > 0.72) {
-                val ratioScore = 1.0 - min(1.0, abs(ratio - 0.80) / 0.25)
-                photoCandidates.add(box to (ratioScore * 0.55 + rectangularity * 0.30 + quadBonus * 0.15))
-            }
-            if (ratio in 1.65..3.40 && rectangularity > 0.72) {
-                val ratioScore = 1.0 - min(1.0, abs(ratio - 2.50) / 0.85)
-                signatureCandidates.add(box to (ratioScore * 0.55 + rectangularity * 0.30 + quadBonus * 0.15))
-            }
-            points.release()
-            approx.release()
-            contour.release()
-        }
-
-        gray.release()
-        edges.release()
-        closed.release()
-        kernel.release()
-        return CloseUpBoxes(
-            photoCandidates.maxByOrNull { it.second }?.first,
-            signatureCandidates.maxByOrNull { it.second }?.first,
-        )
     }
 
     // Photo cleanup is intentionally conservative.
