@@ -195,7 +195,11 @@ class MainActivity : ComponentActivity() {
                         Intent(this@MainActivity, PipelinePreviewActivity::class.java)
                             .putExtra(PipelinePreviewActivity.EXTRA_INPUT_PATH, input.absolutePath)
                             .putExtra(PipelinePreviewActivity.EXTRA_MAX_KB, settings.maxKb)
-                            .putExtra(PipelinePreviewActivity.EXTRA_DPI, settings.dpi),
+                            .putExtra(PipelinePreviewActivity.EXTRA_DPI, settings.dpi)
+                            .putExtra(PipelinePreviewActivity.EXTRA_PHOTO_WIDTH_MM, settings.photoWidthMm)
+                            .putExtra(PipelinePreviewActivity.EXTRA_PHOTO_HEIGHT_MM, settings.photoHeightMm)
+                            .putExtra(PipelinePreviewActivity.EXTRA_SIGNATURE_WIDTH_MM, settings.signatureWidthMm)
+                            .putExtra(PipelinePreviewActivity.EXTRA_SIGNATURE_HEIGHT_MM, settings.signatureHeightMm),
                     )
                     Outputs()
                 },
