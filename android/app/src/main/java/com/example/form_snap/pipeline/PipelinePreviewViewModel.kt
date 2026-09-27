@@ -16,6 +16,8 @@ data class PreviewProcessingState(
     val signatureState: PreviewCorrectionState? = null,
     val photoPreviewPath: String? = null,
     val signaturePreviewPath: String? = null,
+    val photoPreviewVersion: Long = 0L,
+    val signaturePreviewVersion: Long = 0L,
     val processing: Boolean = false,
     val error: String? = null,
 )
@@ -110,8 +112,8 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
             .fold(
                 { path ->
                     val latest = _state.value
-                    if (kind == DetectionKind.PHOTO) latest.copy(photoPreviewPath = path, processing = false)
-                    else latest.copy(signaturePreviewPath = path, processing = false)
+                    if (kind == DetectionKind.PHOTO) latest.copy(photoPreviewPath = path, photoPreviewVersion = latest.photoPreviewVersion + 1L, processing = false)
+                    else latest.copy(signaturePreviewPath = path, signaturePreviewVersion = latest.signaturePreviewVersion + 1L, processing = false)
                 },
                 { error -> _state.value.copy(processing = false, error = error.message ?: "Preview failed") }
             )
@@ -150,6 +152,8 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
     }
 
     override fun close() {
+        previewJob?.cancel()
+        previewScope.cancel()
         sessionDir.deleteRecursively()
     }
 }
