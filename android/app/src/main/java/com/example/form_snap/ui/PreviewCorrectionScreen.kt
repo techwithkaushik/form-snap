@@ -130,14 +130,14 @@ private fun CropEditor(
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.FillBounds,
         )
-
         Canvas(
             Modifier
                 .fillMaxSize()
                 .pointerInput(sourceWidth, sourceHeight, bitmap.width, bitmap.height) {
                     var dragMode: DragMode? = null
-                    var lastX = 0f
-                    var lastY = 0f
+                    var startBounds = RectF(bounds)
+                    var startSourceX = 0f
+                    var startSourceY = 0f
 
                     detectDragGestures(
                         onDragStart = { offset ->
@@ -145,27 +145,28 @@ private fun CropEditor(
                             val sy = sourceHeight.toFloat() / size.height.coerceAtLeast(1f)
                             val x = offset.x * sx
                             val y = offset.y * sy
-                            val edge = (minOf(bounds.width(), bounds.height()) * 0.20f).coerceIn(30f, 140f)
+                            val edge = (minOf(bounds.width(), bounds.height()) * 0.22f).coerceIn(35f, 160f)
 
-                            val left = abs(x - bounds.left) <= edge
-                            val right = abs(x - bounds.right) <= edge
-                            val top = abs(y - bounds.top) <= edge
-                            val bottom = abs(y - bounds.bottom) <= edge
+                            val nearLeft = abs(x - bounds.left) <= edge
+                            val nearRight = abs(x - bounds.right) <= edge
+                            val nearTop = abs(y - bounds.top) <= edge
+                            val nearBottom = abs(y - bounds.bottom) <= edge
 
                             dragMode = when {
-                                left && top -> DragMode.RESIZE_TOP_LEFT
-                                right && top -> DragMode.RESIZE_TOP_RIGHT
-                                left && bottom -> DragMode.RESIZE_BOTTOM_LEFT
-                                right && bottom -> DragMode.RESIZE_BOTTOM_RIGHT
-                                left -> DragMode.RESIZE_LEFT
-                                right -> DragMode.RESIZE_RIGHT
-                                top -> DragMode.RESIZE_TOP
-                                bottom -> DragMode.RESIZE_BOTTOM
+                                nearLeft && nearTop -> DragMode.RESIZE_TOP_LEFT
+                                nearRight && nearTop -> DragMode.RESIZE_TOP_RIGHT
+                                nearLeft && nearBottom -> DragMode.RESIZE_BOTTOM_LEFT
+                                nearRight && nearBottom -> DragMode.RESIZE_BOTTOM_RIGHT
+                                nearLeft -> DragMode.RESIZE_LEFT
+                                nearRight -> DragMode.RESIZE_RIGHT
+                                nearTop -> DragMode.RESIZE_TOP
+                                nearBottom -> DragMode.RESIZE_BOTTOM
                                 bounds.contains(x, y) -> DragMode.MOVE
                                 else -> null
                             }
-                            lastX = x
-                            lastY = y
+                            startBounds = RectF(bounds)
+                            startSourceX = x
+                            startSourceY = y
                         },
                         onDrag = { change, _ ->
                             change.consume()
@@ -174,12 +175,9 @@ private fun CropEditor(
                             val sy = sourceHeight.toFloat() / size.height.coerceAtLeast(1f)
                             val x = change.position.x * sx
                             val y = change.position.y * sy
-                            val dx = x - lastX
-                            val dy = y - lastY
-                            lastX = x
-                            lastY = y
-
-                            val next = RectF(bounds)
+                            val dx = x - startSourceX
+                            val dy = y - startSourceY
+                            val next = RectF(startBounds)
                             val minW = (sourceWidth * 0.05f).coerceAtLeast(24f)
                             val minH = (sourceHeight * 0.05f).coerceAtLeast(24f)
 
@@ -188,33 +186,33 @@ private fun CropEditor(
                                     val maxLeft = (sourceWidth - next.width()).coerceAtLeast(0f)
                                     val maxTop = (sourceHeight - next.height()).coerceAtLeast(0f)
                                     next.offsetTo(
-                                        (next.left + dx).coerceIn(0f, maxLeft),
-                                        (next.top + dy).coerceIn(0f, maxTop),
+                                        (startBounds.left + dx).coerceIn(0f, maxLeft),
+                                        (startBounds.top + dy).coerceIn(0f, maxTop),
                                     )
                                 }
                                 DragMode.RESIZE_LEFT ->
-                                    next.left = (next.left + dx).coerceIn(0f, next.right - minW)
+                                    next.left = (startBounds.left + dx).coerceIn(0f, startBounds.right - minW)
                                 DragMode.RESIZE_RIGHT ->
-                                    next.right = (next.right + dx).coerceIn(next.left + minW, sourceWidth.toFloat())
+                                    next.right = (startBounds.right + dx).coerceIn(startBounds.left + minW, sourceWidth.toFloat())
                                 DragMode.RESIZE_TOP ->
-                                    next.top = (next.top + dy).coerceIn(0f, next.bottom - minH)
+                                    next.top = (startBounds.top + dy).coerceIn(0f, startBounds.bottom - minH)
                                 DragMode.RESIZE_BOTTOM ->
-                                    next.bottom = (next.bottom + dy).coerceIn(next.top + minH, sourceHeight.toFloat())
+                                    next.bottom = (startBounds.bottom + dy).coerceIn(startBounds.top + minH, sourceHeight.toFloat())
                                 DragMode.RESIZE_TOP_LEFT -> {
-                                    next.left = (next.left + dx).coerceIn(0f, next.right - minW)
-                                    next.top = (next.top + dy).coerceIn(0f, next.bottom - minH)
+                                    next.left = (startBounds.left + dx).coerceIn(0f, startBounds.right - minW)
+                                    next.top = (startBounds.top + dy).coerceIn(0f, startBounds.bottom - minH)
                                 }
                                 DragMode.RESIZE_TOP_RIGHT -> {
-                                    next.right = (next.right + dx).coerceIn(next.left + minW, sourceWidth.toFloat())
-                                    next.top = (next.top + dy).coerceIn(0f, next.bottom - minH)
+                                    next.right = (startBounds.right + dx).coerceIn(startBounds.left + minW, sourceWidth.toFloat())
+                                    next.top = (startBounds.top + dy).coerceIn(0f, startBounds.bottom - minH)
                                 }
                                 DragMode.RESIZE_BOTTOM_LEFT -> {
-                                    next.left = (next.left + dx).coerceIn(0f, next.right - minW)
-                                    next.bottom = (next.bottom + dy).coerceIn(next.top + minH, sourceHeight.toFloat())
+                                    next.left = (startBounds.left + dx).coerceIn(0f, startBounds.right - minW)
+                                    next.bottom = (startBounds.bottom + dy).coerceIn(startBounds.top + minH, sourceHeight.toFloat())
                                 }
                                 DragMode.RESIZE_BOTTOM_RIGHT -> {
-                                    next.right = (next.right + dx).coerceIn(next.left + minW, sourceWidth.toFloat())
-                                    next.bottom = (next.bottom + dy).coerceIn(next.top + minH, sourceHeight.toFloat())
+                                    next.right = (startBounds.right + dx).coerceIn(startBounds.left + minW, sourceWidth.toFloat())
+                                    next.bottom = (startBounds.bottom + dy).coerceIn(startBounds.top + minH, sourceHeight.toFloat())
                                 }
                             }
                             onBoundsChange(next)
@@ -226,24 +224,25 @@ private fun CropEditor(
         ) {
             val sx = size.width / sourceWidth.toFloat()
             val sy = size.height / sourceHeight.toFloat()
+            val left = bounds.left * sx
+            val top = bounds.top * sy
+            val width = bounds.width() * sx
+            val height = bounds.height() * sy
+
             drawRect(
                 color = Color.White,
-                topLeft = Offset(bounds.left * sx, bounds.top * sy),
-                size = Size(bounds.width() * sx, bounds.height() * sy),
+                topLeft = Offset(left, top),
+                size = Size(width, height),
                 style = androidx.compose.ui.graphics.drawscope.Stroke(width = 4f),
             )
-
-            val handle = 16f
+            val handle = 18f
             listOf(
-                Offset(bounds.left * sx, bounds.top * sy),
-                Offset(bounds.right * sx, bounds.top * sy),
-                Offset(bounds.left * sx, bounds.bottom * sy),
-                Offset(bounds.right * sx, bounds.bottom * sy),
-            ).forEach { point ->
-                drawCircle(Color.White, handle, point)
-            }
+                Offset(left, top),
+                Offset(left + width, top),
+                Offset(left, top + height),
+                Offset(left + width, top + height),
+            ).forEach { drawCircle(color = Color.White, radius = handle, center = it) }
         }
     }
 }
-
 private fun Float.asDisplay(): String = "%.2f".format(this)
