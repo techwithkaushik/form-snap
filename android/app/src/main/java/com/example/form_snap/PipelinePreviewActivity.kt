@@ -32,14 +32,13 @@ class PipelinePreviewActivity : ComponentActivity() {
             val resultUri = result.data?.let { UCrop.getOutput(it) }
             if (resultUri != null) {
                 pendingExternalCorrection = resultUri.path?.let { it to kind }
-                externalResultVersion += 1L
+                editResultVersion.value += 1L
             }
         }
     }
 
     private var correctionKindForResult: DetectionKind? = null
     private var pendingExternalCorrection: Pair<String, DetectionKind>? = null
-    private var externalResultVersion = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -59,7 +58,7 @@ class PipelinePreviewActivity : ComponentActivity() {
             val viewModel = remember { PipelinePreviewViewModel(applicationContext) }
             val state by viewModel.state.collectAsState()
             val scope = rememberCoroutineScope()
-            val editingKind = remember { mutableStateOf<DetectionKind?>(null) }
+            val editKind = remember { mutableStateOf<DetectionKind?>(null) }
 
             LaunchedEffect(path) {
                 viewModel.load(
@@ -72,14 +71,16 @@ class PipelinePreviewActivity : ComponentActivity() {
                 )
             }
 
-            LaunchedEffect(externalResultVersion) {
+            val editResultVersion = remember { mutableStateOf(0L) }
+
+            LaunchedEffect(editResultVersion.value) {
                 val pending = pendingExternalCorrection ?: return@LaunchedEffect
                 pendingExternalCorrection = null
                 viewModel.replacePreviewFromExternal(
                     pending.second,
                     File(pending.first),
                 )
-                editingKind.value = pending.second
+                editKind.value = pending.second
             }
 
             val inputBitmap = remember(state.source?.absolutePath) {
@@ -95,7 +96,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                 viewModel.loadBitmap(state.signaturePreviewPath)
             }
 
-            if (editingKind.value == null) {
+            if (editKind.value == null) {
                 PipelinePreviewScreen(
                     inputPreview = inputBitmap,
                     photoPreview = photoBitmap,
@@ -142,7 +143,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                     },
                 )
             } else {
-                val kind = editingKind.value!!
+                val kind = editKind.value!!
                 val preview = when (kind) {
                     DetectionKind.PHOTO -> photoBitmap
                     DetectionKind.SIGNATURE -> signatureBitmap
@@ -165,12 +166,12 @@ class PipelinePreviewActivity : ComponentActivity() {
                     onAccept = {
                         scope.launch {
                             viewModel.accept(kind)
-                            editingKind.value = null
+                            editKind.value = null
                         }
                     },
                     onReject = {
                         viewModel.reject(kind)
-                        editingKind.value = null
+                        editKind.value = null
                     },
                 )
             }
