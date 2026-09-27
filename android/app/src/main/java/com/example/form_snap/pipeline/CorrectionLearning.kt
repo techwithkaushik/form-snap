@@ -17,9 +17,14 @@ data class LearnedCorrection(
     val boundsDeltaRight: Float = 0f,
     val boundsDeltaBottom: Float = 0f,
     val appearance: AppearanceAdjustments = AppearanceAdjustments(),
+    val conditionBrightness: Float = 0f,
+    val conditionContrast: Float = 1f,
+    val conditionSaturation: Float = 1f,
+    val conditionEdgeDensity: Float = 0f,
+    val conditionAspectRatio: Float = 1f,
     val sampleCount: Int = 1,
     val confidence: Float = 0.5f,
-    val version: Int = 1,
+    val version: Int = 2,
 )
 
 object CorrectionLearning {
@@ -27,8 +32,13 @@ object CorrectionLearning {
         automatic: DetectionCandidate,
         correctedBounds: android.graphics.RectF?,
         appearance: AppearanceAdjustments,
+        sourceBrightness: Float = 0f,
+        sourceContrast: Float = 1f,
+        sourceSaturation: Float = 1f,
+        sourceEdgeDensity: Float = 0f,
     ): LearnedCorrection {
         val corrected = correctedBounds ?: automatic.bounds
+        val width = automatic.bounds.width().coerceAtLeast(1f)
         return LearnedCorrection(
             kind = automatic.kind,
             boundsDeltaLeft = corrected.left - automatic.bounds.left,
@@ -36,17 +46,21 @@ object CorrectionLearning {
             boundsDeltaRight = corrected.right - automatic.bounds.right,
             boundsDeltaBottom = corrected.bottom - automatic.bounds.bottom,
             appearance = appearance,
+            conditionBrightness = sourceBrightness,
+            conditionContrast = sourceContrast,
+            conditionSaturation = sourceSaturation,
+            conditionEdgeDensity = sourceEdgeDensity,
+            conditionAspectRatio = automatic.bounds.height() / width,
             sampleCount = 1,
             confidence = automatic.confidence,
         )
     }
 
     fun blend(previous: LearnedCorrection, incoming: LearnedCorrection): LearnedCorrection {
-        val oldWeight = previous.sampleCount.toFloat()
-        val newWeight = 1f
-        val total = oldWeight + newWeight
+        val oldWeight = previous.sampleCount.toFloat().coerceAtLeast(1f)
+        val total = oldWeight + 1f
 
-        fun avg(a: Float, b: Float): Float = (a * oldWeight + b * newWeight) / total
+        fun avg(a: Float, b: Float): Float = (a * oldWeight + b) / total
         fun avgInt(a: Int, b: Int): Int = avg(a.toFloat(), b.toFloat()).toInt()
 
         return previous.copy(
@@ -63,8 +77,14 @@ object CorrectionLearning {
                 inkThreshold = avgInt(previous.appearance.inkThreshold, incoming.appearance.inkThreshold),
                 backgroundCleanup = avg(previous.appearance.backgroundCleanup, incoming.appearance.backgroundCleanup),
             ),
+            conditionBrightness = avg(previous.conditionBrightness, incoming.conditionBrightness),
+            conditionContrast = avg(previous.conditionContrast, incoming.conditionContrast),
+            conditionSaturation = avg(previous.conditionSaturation, incoming.conditionSaturation),
+            conditionEdgeDensity = avg(previous.conditionEdgeDensity, incoming.conditionEdgeDensity),
+            conditionAspectRatio = avg(previous.conditionAspectRatio, incoming.conditionAspectRatio),
             sampleCount = (previous.sampleCount + 1).coerceAtMost(100),
             confidence = avg(previous.confidence, incoming.confidence).coerceIn(0f, 1f),
+            version = 2,
         )
     }
 }
