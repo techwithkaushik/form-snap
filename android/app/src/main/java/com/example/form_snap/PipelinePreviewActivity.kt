@@ -67,13 +67,35 @@ class PipelinePreviewActivity : ComponentActivity() {
                     },
                     onCorrectPhoto = {
                         state.photoState?.let {
-                            correctionController.value = PreviewCorrectionController(initialState = it)
+                            state.photoState?.let { correction ->
+                                val candidate = org.techwithkaushik.formSnap.pipeline.DetectionCandidate(
+                                    kind = DetectionKind.PHOTO,
+                                    bounds = correction.automaticBounds,
+                                    confidence = 1f,
+                                    source = "automatic-preview",
+                                )
+                                correctionController.value = PreviewCorrectionController(
+                                    detectionCandidate = candidate,
+                                    initialState = correction,
+                                )
+                            }
                             correctionKind.value = DetectionKind.PHOTO
                         }
                     },
                     onCorrectSignature = {
                         state.signatureState?.let {
-                            correctionController.value = PreviewCorrectionController(initialState = it)
+                            state.signatureState?.let { correction ->
+                                val candidate = org.techwithkaushik.formSnap.pipeline.DetectionCandidate(
+                                    kind = DetectionKind.SIGNATURE,
+                                    bounds = correction.automaticBounds,
+                                    confidence = 1f,
+                                    source = "automatic-preview",
+                                )
+                                correctionController.value = PreviewCorrectionController(
+                                    detectionCandidate = candidate,
+                                    initialState = correction,
+                                )
+                            }
                             correctionKind.value = DetectionKind.SIGNATURE
                         }
                     },
