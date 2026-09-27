@@ -118,61 +118,103 @@ private fun CropEditor(
     sourceHeight: Int,
     onBoundsChange: (RectF) -> Unit,
 ) {
-    var viewWidth = 0f
-    var viewHeight = 0f
+    val currentBounds by androidx.compose.runtime.rememberUpdatedState(bounds)
+
     Box(
-        Modifier.fillMaxWidth().aspectRatio(bitmap.width.toFloat() / bitmap.height.toFloat()).background(Color.Black).onSizeChanged {
-            viewWidth = it.width.toFloat()
-            viewHeight = it.height.toFloat()
-        },
+        Modifier
+            .fillMaxWidth()
+            .aspectRatio(bitmap.width.toFloat() / bitmap.height.toFloat())
+            .background(Color.Black),
     ) {
-        Image(bitmap = bitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
+        Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.FillBounds,
+        )
         Canvas(
-            Modifier.fillMaxSize().pointerInput(bounds, viewWidth, viewHeight, sourceWidth, sourceHeight) {
-                detectDragGestures { change, dragAmount ->
-                    change.consume()
-                    if (viewWidth <= 1f || viewHeight <= 1f) return@detectDragGestures
-                    val sx = sourceWidth.toFloat() / viewWidth
-                    val sy = sourceHeight.toFloat() / viewHeight
-                    val touchX = change.position.x * sx
-                    val touchY = change.position.y * sy
-                    val dx = dragAmount.x * sx
-                    val dy = dragAmount.y * sy
-                    val edge = (minOf(sourceWidth, sourceHeight) * 0.07f).coerceIn(24f, 90f)
-                    val mode = when {
-                        abs(touchX - bounds.left) <= edge && abs(touchY - bounds.top) <= edge -> DragMode.RESIZE_TOP_LEFT
-                        abs(touchX - bounds.right) <= edge && abs(touchY - bounds.top) <= edge -> DragMode.RESIZE_TOP_RIGHT
-                        abs(touchX - bounds.left) <= edge && abs(touchY - bounds.bottom) <= edge -> DragMode.RESIZE_BOTTOM_LEFT
-                        abs(touchX - bounds.right) <= edge && abs(touchY - bounds.bottom) <= edge -> DragMode.RESIZE_BOTTOM_RIGHT
-                        abs(touchX - bounds.left) <= edge -> DragMode.RESIZE_LEFT
-                        abs(touchX - bounds.right) <= edge -> DragMode.RESIZE_RIGHT
-                        abs(touchY - bounds.top) <= edge -> DragMode.RESIZE_TOP
-                        abs(touchY - bounds.bottom) <= edge -> DragMode.RESIZE_BOTTOM
-                        bounds.contains(touchX, touchY) -> DragMode.MOVE
-                        else -> null
-                    } ?: return@detectDragGestures
-                    val next = RectF(bounds)
-                    val minW = (sourceWidth * 0.05f).coerceAtLeast(20f)
-                    val minH = (sourceHeight * 0.05f).coerceAtLeast(20f)
-                    when (mode) {
-                        DragMode.MOVE -> next.offsetTo((next.left + dx).coerceIn(0f, (sourceWidth - next.width()).coerceAtLeast(0f)), (next.top + dy).coerceIn(0f, (sourceHeight - next.height()).coerceAtLeast(0f)))
-                        DragMode.RESIZE_LEFT -> next.left = (next.left + dx).coerceIn(0f, next.right - minW)
-                        DragMode.RESIZE_RIGHT -> next.right = (next.right + dx).coerceIn(next.left + minW, sourceWidth.toFloat())
-                        DragMode.RESIZE_TOP -> next.top = (next.top + dy).coerceIn(0f, next.bottom - minH)
-                        DragMode.RESIZE_BOTTOM -> next.bottom = (next.bottom + dy).coerceIn(next.top + minH, sourceHeight.toFloat())
-                        DragMode.RESIZE_TOP_LEFT -> { next.left = (next.left + dx).coerceIn(0f, next.right - minW); next.top = (next.top + dy).coerceIn(0f, next.bottom - minH) }
-                        DragMode.RESIZE_TOP_RIGHT -> { next.right = (next.right + dx).coerceIn(next.left + minW, sourceWidth.toFloat()); next.top = (next.top + dy).coerceIn(0f, next.bottom - minH) }
-                        DragMode.RESIZE_BOTTOM_LEFT -> { next.left = (next.left + dx).coerceIn(0f, next.right - minW); next.bottom = (next.bottom + dy).coerceIn(next.top + minH, sourceHeight.toFloat()) }
-                        DragMode.RESIZE_BOTTOM_RIGHT -> { next.right = (next.right + dx).coerceIn(next.left + minW, sourceWidth.toFloat()); next.bottom = (next.bottom + dy).coerceIn(next.top + minH, sourceHeight.toFloat()) }
-                    }
-                    onBoundsChange(next)
-                }
-            },
+            Modifier
+                .fillMaxSize()
+                .pointerInput(sourceWidth, sourceHeight) {
+                    detectDragGestures(
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            val b = currentBounds
+                            val w = size.width
+                            val h = size.height
+                            if (w <= 1f || h <= 1f) return@detectDragGestures
+
+                            val sx = sourceWidth.toFloat() / w
+                            val sy = sourceHeight.toFloat() / h
+                            val x = change.position.x * sx
+                            val y = change.position.y * sy
+                            val dx = dragAmount.x * sx
+                            val dy = dragAmount.y * sy
+
+                            val edge = (minOf(b.width(), b.height()) * 0.18f).coerceIn(24f, 120f)
+                            val nearLeft = abs(x - b.left) <= edge
+                            val nearRight = abs(x - b.right) <= edge
+                            val nearTop = abs(y - b.top) <= edge
+                            val nearBottom = abs(y - b.bottom) <= edge
+                            val inside = b.contains(x, y)
+
+                            val next = RectF(b)
+                            val minW = (sourceWidth * 0.06f).coerceAtLeast(24f)
+                            val minH = (sourceHeight * 0.06f).coerceAtLeast(24f)
+
+                            when {
+                                nearLeft && nearTop -> {
+                                    next.left = (next.left + dx).coerceIn(0f, next.right - minW)
+                                    next.top = (next.top + dy).coerceIn(0f, next.bottom - minH)
+                                }
+                                nearRight && nearTop -> {
+                                    next.right = (next.right + dx).coerceIn(next.left + minW, sourceWidth.toFloat())
+                                    next.top = (next.top + dy).coerceIn(0f, next.bottom - minH)
+                                }
+                                nearLeft && nearBottom -> {
+                                    next.left = (next.left + dx).coerceIn(0f, next.right - minW)
+                                    next.bottom = (next.bottom + dy).coerceIn(next.top + minH, sourceHeight.toFloat())
+                                }
+                                nearRight && nearBottom -> {
+                                    next.right = (next.right + dx).coerceIn(next.left + minW, sourceWidth.toFloat())
+                                    next.bottom = (next.bottom + dy).coerceIn(next.top + minH, sourceHeight.toFloat())
+                                }
+                                nearLeft -> next.left = (next.left + dx).coerceIn(0f, next.right - minW)
+                                nearRight -> next.right = (next.right + dx).coerceIn(next.left + minW, sourceWidth.toFloat())
+                                nearTop -> next.top = (next.top + dy).coerceIn(0f, next.bottom - minH)
+                                nearBottom -> next.bottom = (next.bottom + dy).coerceIn(next.top + minH, sourceHeight.toFloat())
+                                inside -> {
+                                    val maxLeft = (sourceWidth - next.width()).coerceAtLeast(0f)
+                                    val maxTop = (sourceHeight - next.height()).coerceAtLeast(0f)
+                                    next.offsetTo(
+                                        (next.left + dx).coerceIn(0f, maxLeft),
+                                        (next.top + dy).coerceIn(0f, maxTop),
+                                    )
+                                }
+                            }
+                            onBoundsChange(next)
+                        },
+                    )
+                },
         ) {
-            if (viewWidth > 1f && viewHeight > 1f) {
-                val sx = viewWidth / sourceWidth.toFloat()
-                val sy = viewHeight / sourceHeight.toFloat()
-                drawRect(color = Color.White, topLeft = Offset(bounds.left * sx, bounds.top * sy), size = Size(bounds.width() * sx, bounds.height() * sy), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f))
+            val sx = size.width / sourceWidth.toFloat()
+            val sy = size.height / sourceHeight.toFloat()
+            drawRect(
+                color = Color.White,
+                topLeft = Offset(bounds.left * sx, bounds.top * sy),
+                size = Size(bounds.width() * sx, bounds.height() * sy),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f),
+            )
+            // Larger touch handles make edge/corner correction practical on phones.
+            val handle = (minOf(bounds.width() * sx, bounds.height() * sy) * 0.08f).coerceIn(10f, 22f)
+            val points = listOf(
+                Offset(bounds.left * sx, bounds.top * sy),
+                Offset(bounds.right * sx, bounds.top * sy),
+                Offset(bounds.left * sx, bounds.bottom * sy),
+                Offset(bounds.right * sx, bounds.bottom * sy),
+            )
+            points.forEach { p ->
+                drawCircle(Color.White, handle, p)
             }
         }
     }
