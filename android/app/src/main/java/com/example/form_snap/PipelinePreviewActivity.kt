@@ -24,6 +24,8 @@ class PipelinePreviewActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         val path = intent.getStringExtra(EXTRA_INPUT_PATH)
+        val maxKb = intent.getIntExtra(EXTRA_MAX_KB, 50)
+        val dpi = intent.getDoubleExtra(EXTRA_DPI, 300.0)
         if (path.isNullOrBlank()) {
             finish()
             return
@@ -149,5 +151,7 @@ class PipelinePreviewActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_INPUT_PATH = "formsnap.input_path"
+        const val EXTRA_MAX_KB = "formsnap.max_kb"
+        const val EXTRA_DPI = "formsnap.dpi"
     }
 }
