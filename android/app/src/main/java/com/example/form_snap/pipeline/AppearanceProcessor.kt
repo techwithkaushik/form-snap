@@ -2,7 +2,6 @@ package org.techwithkaushik.formSnap.pipeline
 
 import org.opencv.core.Core
 import org.opencv.core.Mat
-import org.opencv.core.Scalar
 import org.opencv.imgproc.Imgproc
 import kotlin.math.max
 
@@ -56,7 +55,7 @@ object AppearanceProcessor {
                 Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
                 Imgproc.THRESH_BINARY,
                 31,
-                max(2, 31 - adjustments.inkThreshold / 10),
+                max(2.0, 31.0 - adjustments.inkThreshold.toDouble() / 10.0),
             )
             Imgproc.cvtColor(cleaned, current, Imgproc.COLOR_GRAY2BGR)
             gray.release()
