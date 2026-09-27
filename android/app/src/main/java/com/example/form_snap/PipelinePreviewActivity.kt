@@ -33,14 +33,12 @@ class PipelinePreviewActivity : ComponentActivity() {
             val resultPath = resultUri?.path
             if (!resultPath.isNullOrBlank()) {
                 pendingExternalCorrection = resultPath to kind
-                editResultCallback?.invoke()
             }
         }
     }
 
     private var correctionKindForResult: DetectionKind? = null
     private var pendingExternalCorrection: Pair<String, DetectionKind>? = null
-    private var editResultCallback: (() -> Unit)? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -61,7 +59,8 @@ class PipelinePreviewActivity : ComponentActivity() {
             val state by viewModel.state.collectAsState()
             val scope = rememberCoroutineScope()
             val editKind = remember { mutableStateOf<DetectionKind?>(null) }
-            editResultCallback = { editKind.value = pendingExternalCorrection?.second }
+            val editedPhotoPath = remember { mutableStateOf<String?>(null) }
+            val editedSignaturePath = remember { mutableStateOf<String?>(null) }
 
             LaunchedEffect(path) {
                 viewModel.load(
@@ -74,15 +73,16 @@ class PipelinePreviewActivity : ComponentActivity() {
                 )
             }
 
-            val pendingEdit = pendingExternalCorrection
-            LaunchedEffect(pendingEdit) {
-                val pending = pendingEdit ?: return@LaunchedEffect
+            LaunchedEffect(pendingExternalCorrection) {
+                val pending = pendingExternalCorrection ?: return@LaunchedEffect
                 val file = File(pending.first)
                 if (file.exists()) {
-                    viewModel.replacePreviewFromExternal(
-                        pending.second,
-                        file,
-                    )
+                    viewModel.replacePreviewFromExternal(pending.second, file)
+                    when (pending.second) {
+                        DetectionKind.PHOTO -> editedPhotoPath.value = file.absolutePath
+                        DetectionKind.SIGNATURE -> editedSignaturePath.value = file.absolutePath
+                    }
+                    editKind.value = pending.second
                 }
                 pendingExternalCorrection = null
             }
@@ -100,85 +100,51 @@ class PipelinePreviewActivity : ComponentActivity() {
                 viewModel.loadBitmap(state.signaturePreviewPath)
             }
 
-            if (editKind.value == null) {
-                PipelinePreviewScreen(
-                    inputPreview = inputBitmap,
-                    photoPreview = photoBitmap,
-                    signaturePreview = signatureBitmap,
-                    photoDetected = state.photoState != null,
-                    signatureDetected = state.signatureState != null,
-                    processing = state.processing,
-                    message = state.error,
-                    onProcess = {
-                        scope.launch {
-                            viewModel.renderPhoto()
-                            viewModel.renderSignature()
-                        }
-                    },
-                    onEditPhoto = {
-                        val file = state.photoPreviewPath?.let(::File)
-                        if (state.photoState != null && file?.exists() == true) {
-                            correctionKindForResult = DetectionKind.PHOTO
-                            openDetectedEditor(file, DetectionKind.PHOTO)
-                        }
-                    },
-                    onAcceptPhoto = {
-                        scope.launch { viewModel.accept(DetectionKind.PHOTO) }
-                    },
-                    onRejectPhoto = {
-                        viewModel.reject(DetectionKind.PHOTO)
-                    },
-                    onEditSignature = {
-                        val file = state.signaturePreviewPath?.let(::File)
-                        if (state.signatureState != null && file?.exists() == true) {
-                            correctionKindForResult = DetectionKind.SIGNATURE
-                            openDetectedEditor(file, DetectionKind.SIGNATURE)
-                        }
-                    },
-                    onAcceptSignature = {
-                        scope.launch { viewModel.accept(DetectionKind.SIGNATURE) }
-                    },
-                    onRejectSignature = {
-                        viewModel.reject(DetectionKind.SIGNATURE)
-                    },
-                    onBack = {
-                        viewModel.close()
-                        finish()
-                    },
-                )
-            } else {
-                val kind = editKind.value!!
-                val preview = when (kind) {
-                    DetectionKind.PHOTO -> photoBitmap
-                    DetectionKind.SIGNATURE -> signatureBitmap
-                }
-
-                PreviewCorrectionScreen(
-                    source = preview,
-                    resultPreview = preview,
-                    onOpenCrop = {
-                        val file = when (kind) {
-                            DetectionKind.PHOTO -> state.photoPreviewPath
-                            DetectionKind.SIGNATURE -> state.signaturePreviewPath
-                        }?.let(::File) ?: return@PreviewCorrectionScreen
-
-                        if (file.exists()) {
-                            correctionKindForResult = kind
-                            openDetectedEditor(file, kind)
-                        }
-                    },
-                    onAccept = {
-                        scope.launch {
-                            viewModel.accept(kind)
-                            editKind.value = null
-                        }
-                    },
-                    onReject = {
-                        viewModel.reject(kind)
-                        editKind.value = null
-                    },
-                )
-            }
+            PipelinePreviewScreen(
+                inputPreview = inputBitmap,
+                photoPreview = photoBitmap,
+                signaturePreview = signatureBitmap,
+                photoDetected = state.photoState != null && state.photoPreviewPath != null,
+                signatureDetected = state.signatureState != null && state.signaturePreviewPath != null,
+                processing = state.processing,
+                message = state.error,
+                onProcess = {
+                    scope.launch {
+                        viewModel.renderPhoto()
+                        viewModel.renderSignature()
+                    }
+                },
+                onEditPhoto = {
+                    val file = state.photoPreviewPath?.let(::File)
+                    if (state.photoState != null && file?.exists() == true) {
+                        correctionKindForResult = DetectionKind.PHOTO
+                        openDetectedEditor(file, DetectionKind.PHOTO)
+                    }
+                },
+                onAcceptPhoto = {
+                    scope.launch { viewModel.accept(DetectionKind.PHOTO) }
+                },
+                onRejectPhoto = {
+                    viewModel.reject(DetectionKind.PHOTO)
+                },
+                onEditSignature = {
+                    val file = state.signaturePreviewPath?.let(::File)
+                    if (state.signatureState != null && file?.exists() == true) {
+                        correctionKindForResult = DetectionKind.SIGNATURE
+                        openDetectedEditor(file, DetectionKind.SIGNATURE)
+                    }
+                },
+                onAcceptSignature = {
+                    scope.launch { viewModel.accept(DetectionKind.SIGNATURE) }
+                },
+                onRejectSignature = {
+                    viewModel.reject(DetectionKind.SIGNATURE)
+                },
+                onBack = {
+                    viewModel.close()
+                    finish()
+                },
+            )
         }
     }
 
