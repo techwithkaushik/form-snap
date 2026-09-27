@@ -26,12 +26,15 @@ class PipelinePreviewActivity : ComponentActivity() {
     private val correctionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
-        if (result.resultCode != RESULT_OK) return@registerForActivityResult
-
-        val resultUri = result.data?.let { UCrop.getOutput(it) } ?: return@registerForActivityResult
         val kind = correctionKindForResult ?: return@registerForActivityResult
         correctionKindForResult = null
-        pendingExternalCorrection = resultUri.path?.let { it to kind }
+
+        if (result.resultCode == RESULT_OK) {
+            val resultUri = result.data?.let { UCrop.getOutput(it) }
+            if (resultUri != null) {
+                pendingExternalCorrection = resultUri.path?.let { it to kind }
+            }
+        }
     }
 
     private var correctionKindForResult: DetectionKind? = null
@@ -55,7 +58,7 @@ class PipelinePreviewActivity : ComponentActivity() {
             val viewModel = remember { PipelinePreviewViewModel(applicationContext) }
             val state by viewModel.state.collectAsState()
             val scope = rememberCoroutineScope()
-            val editKind = remember { mutableStateOf<DetectionKind?>(null) }
+            val editingKind = remember { mutableStateOf<DetectionKind?>(null) }
 
             LaunchedEffect(path) {
                 viewModel.load(
@@ -75,6 +78,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                     pending.second,
                     File(pending.first),
                 )
+                editingKind.value = pending.second
             }
 
             val inputBitmap = remember(state.source?.absolutePath) {
@@ -83,11 +87,14 @@ class PipelinePreviewActivity : ComponentActivity() {
             val photoBitmap = remember(state.photoPreviewPath, state.photoPreviewVersion) {
                 viewModel.loadBitmap(state.photoPreviewPath)
             }
-            val signatureBitmap = remember(state.signaturePreviewPath, state.signaturePreviewVersion) {
+            val signatureBitmap = remember(
+                state.signaturePreviewPath,
+                state.signaturePreviewVersion,
+            ) {
                 viewModel.loadBitmap(state.signaturePreviewPath)
             }
 
-            if (editKind.value == null) {
+            if (editingKind.value == null) {
                 PipelinePreviewScreen(
                     inputPreview = inputBitmap,
                     photoPreview = photoBitmap,
@@ -103,12 +110,10 @@ class PipelinePreviewActivity : ComponentActivity() {
                         }
                     },
                     onEditPhoto = {
-                        if (state.photoState != null) {
+                        val file = state.photoPreviewPath?.let(::File)
+                        if (state.photoState != null && file?.exists() == true) {
                             correctionKindForResult = DetectionKind.PHOTO
-                            openDetectedEditor(
-                                File(state.photoPreviewPath ?: return@PipelinePreviewScreen),
-                                DetectionKind.PHOTO,
-                            )
+                            openDetectedEditor(file, DetectionKind.PHOTO)
                         }
                     },
                     onAcceptPhoto = {
@@ -118,12 +123,10 @@ class PipelinePreviewActivity : ComponentActivity() {
                         viewModel.reject(DetectionKind.PHOTO)
                     },
                     onEditSignature = {
-                        if (state.signatureState != null) {
+                        val file = state.signaturePreviewPath?.let(::File)
+                        if (state.signatureState != null && file?.exists() == true) {
                             correctionKindForResult = DetectionKind.SIGNATURE
-                            openDetectedEditor(
-                                File(state.signaturePreviewPath ?: return@PipelinePreviewScreen),
-                                DetectionKind.SIGNATURE,
-                            )
+                            openDetectedEditor(file, DetectionKind.SIGNATURE)
                         }
                     },
                     onAcceptSignature = {
@@ -138,7 +141,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                     },
                 )
             } else {
-                val kind = editKind.value!!
+                val kind = editingKind.value!!
                 val preview = when (kind) {
                     DetectionKind.PHOTO -> photoBitmap
                     DetectionKind.SIGNATURE -> signatureBitmap
@@ -148,23 +151,25 @@ class PipelinePreviewActivity : ComponentActivity() {
                     source = preview,
                     resultPreview = preview,
                     onOpenCrop = {
-                        correctionKindForResult = kind
-                        val currentFile = when (kind) {
+                        val file = when (kind) {
                             DetectionKind.PHOTO -> state.photoPreviewPath
                             DetectionKind.SIGNATURE -> state.signaturePreviewPath
                         }?.let(::File) ?: return@PreviewCorrectionScreen
 
-                        openDetectedEditor(currentFile, kind)
+                        if (file.exists()) {
+                            correctionKindForResult = kind
+                            openDetectedEditor(file, kind)
+                        }
                     },
                     onAccept = {
                         scope.launch {
                             viewModel.accept(kind)
-                            editKind.value = null
+                            editingKind.value = null
                         }
                     },
                     onReject = {
                         viewModel.reject(kind)
-                        editKind.value = null
+                        editingKind.value = null
                     },
                 )
             }
