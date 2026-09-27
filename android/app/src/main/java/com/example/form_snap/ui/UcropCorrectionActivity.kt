@@ -8,6 +8,13 @@ import androidx.activity.ComponentActivity
 import com.yalantis.ucrop.UCrop
 import java.io.File
 
+/**
+ * Legacy compatibility wrapper.
+ *
+ * Current correction flow launches uCrop-n-Edit directly from
+ * PipelinePreviewActivity. This class is retained only for source
+ * compatibility with older callers.
+ */
 class UcropCorrectionActivity : ComponentActivity() {
 
     private lateinit var outputFile: File
@@ -21,13 +28,17 @@ class UcropCorrectionActivity : ComponentActivity() {
             return
         }
 
-        outputFile = File(cacheDir, "ucrop_" + System.nanoTime() + ".jpg")
+        outputFile = File(cacheDir, "ucrop_legacy_" + System.nanoTime() + ".jpg")
 
         val options = UCrop.Options().apply {
             setFreeStyleCropEnabled(true)
             setCompressionQuality(95)
             setShowCropGrid(true)
             setShowCropFrame(true)
+            setBrightnessEnabled(true)
+            setContrastEnabled(true)
+            setSaturationEnabled(true)
+            setSharpnessEnabled(true)
         }
 
         UCrop.of(
@@ -39,7 +50,7 @@ class UcropCorrectionActivity : ComponentActivity() {
                 intent.getIntExtra(EXTRA_MAX_WIDTH, 4000),
                 intent.getIntExtra(EXTRA_MAX_HEIGHT, 4000),
             )
-            .start(this)
+            .start(this, UCrop.REQUEST_CROP)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
