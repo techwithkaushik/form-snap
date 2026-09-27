@@ -191,8 +191,8 @@ private fun CropEditor(
                         onDrag = { change, _ ->
                             change.consume()
                             val mode = dragMode ?: return@detectDragGestures
-                            val sx = sourceWidth.toFloat() / size.width.coerceAtLeast(1f)
-                            val sy = sourceHeight.toFloat() / size.height.coerceAtLeast(1f)
+                            val sx = sourceWidth.toFloat() / size.width.coerceAtLeast(1).toFloat()
+                            val sy = sourceHeight.toFloat() / size.height.coerceAtLeast(1).toFloat()
                             val x = change.position.x * sx
                             val y = change.position.y * sy
                             val dx = x - startSourceX
