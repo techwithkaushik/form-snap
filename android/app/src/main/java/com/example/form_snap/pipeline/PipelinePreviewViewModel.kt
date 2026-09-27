@@ -8,9 +8,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.techwithkaushik.formSnap.foundation.ProcessingPaths
 import java.io.File
@@ -54,8 +54,10 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
         this.photoHeightMm = photoHeightMm.coerceAtLeast(1.0)
         this.signatureWidthMm = signatureWidthMm.coerceAtLeast(1.0)
         this.signatureHeightMm = signatureHeightMm.coerceAtLeast(1.0)
+
         previewJob?.cancel()
         _state.value = PreviewProcessingState(source = input, processing = true)
+
         try {
             val detection = withContext(Dispatchers.Default) {
                 val source = org.opencv.imgcodecs.Imgcodecs.imread(input.absolutePath)
@@ -66,6 +68,7 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
                     source.release()
                 }
             }
+
             _state.value = PreviewProcessingState(
                 source = input,
                 photoState = detection.photo?.let {
@@ -83,6 +86,7 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
                     )
                 },
             )
+
             renderDetectedPreviews()
         } catch (t: Throwable) {
             _state.value = PreviewProcessingState(
@@ -97,11 +101,11 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
 
     suspend fun accept(kind: DetectionKind) {
         val correction = stateFor(kind) ?: return
+        val automatic = candidateFor(kind) ?: return
+
         FeedbackRecorder.record(
             context,
-            correction.correction(
-                automatic = candidateFor(kind) ?: return,
-            ).copy(accepted = true),
+            correction.correction(automatic).copy(accepted = true),
         )
         updateCorrectionState(kind, correction.accept())
     }
@@ -132,13 +136,15 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
     fun schedulePreview(
         kind: DetectionKind,
         correction: PreviewCorrectionState,
-        delayMs: Long = 100L,
+        delayMs: Long = 220L,
     ) {
         updateCorrectionState(kind, correction)
         previewJob?.cancel()
         previewJob = previewScope.launch {
             delay(delayMs)
-            renderKind(kind)
+            if (correction == stateFor(kind)) {
+                renderKind(kind)
+            }
         }
     }
 
@@ -155,6 +161,7 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
         correctedFile: File,
     ) {
         require(correctedFile.exists()) { "Corrected crop does not exist" }
+
         withContext(Dispatchers.Default) {
             val suffix = if (kind == DetectionKind.PHOTO) {
                 "photo_ucrop.jpg"
@@ -163,39 +170,30 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
             }
             val target = File(sessionDir, suffix)
             correctedFile.inputStream().use { input ->
-                target.outputStream().use { output ->
-                    input.copyTo(output)
-                }
+                target.outputStream().use { output -> input.copyTo(output) }
             }
-        }
 
-        val path = File(
-            sessionDir,
-            if (kind == DetectionKind.PHOTO) "photo_preview.jpg" else "signature_preview.jpg",
-        ).absolutePath
+            val path = File(
+                sessionDir,
+                if (kind == DetectionKind.PHOTO) "photo_preview.jpg"
+                else "signature_preview.jpg",
+            )
 
-        withContext(Dispatchers.Default) {
-            File(path).outputStream().use { output ->
-                File(
-                    sessionDir,
-                    if (kind == DetectionKind.PHOTO) "photo_ucrop.jpg"
-                    else "signature_ucrop.jpg",
-                ).inputStream().use { input ->
-                    input.copyTo(output)
-                }
+            File(path.absolutePath).outputStream().use { output ->
+                target.inputStream().use { input -> input.copyTo(output) }
             }
         }
 
         val current = _state.value
         _state.value = when (kind) {
             DetectionKind.PHOTO -> current.copy(
-                photoPreviewPath = path,
+                photoPreviewPath = File(sessionDir, "photo_preview.jpg").absolutePath,
                 photoPreviewVersion = current.photoPreviewVersion + 1L,
                 processing = false,
                 error = null,
             )
             DetectionKind.SIGNATURE -> current.copy(
-                signaturePreviewPath = path,
+                signaturePreviewPath = File(sessionDir, "signature_preview.jpg").absolutePath,
                 signaturePreviewVersion = current.signaturePreviewVersion + 1L,
                 processing = false,
                 error = null,
