@@ -66,12 +66,24 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
     suspend fun renderPhoto() = renderKind(DetectionKind.PHOTO)
     suspend fun renderSignature() = renderKind(DetectionKind.SIGNATURE)
 
-    suspend fun applyCorrection(kind: DetectionKind, correction: PreviewCorrectionState) {
-        if (stateFor(kind) == null) return
+    fun updateCorrectionState(kind: DetectionKind, correction: PreviewCorrectionState) {
         _state.value = when (kind) {
             DetectionKind.PHOTO -> _state.value.copy(photoState = correction)
             DetectionKind.SIGNATURE -> _state.value.copy(signatureState = correction)
         }
+    }
+
+    fun schedulePreview(kind: DetectionKind, correction: PreviewCorrectionState, delayMs: Long = 100L) {
+        updateCorrectionState(kind, correction)
+        previewJob?.cancel()
+        previewJob = previewScope.launch {
+            delay(delayMs)
+            renderKind(kind)
+        }
+    }
+
+    suspend fun applyCorrection(kind: DetectionKind, correction: PreviewCorrectionState) {
+        updateCorrectionState(kind, correction)
         renderKind(kind)
     }
 
