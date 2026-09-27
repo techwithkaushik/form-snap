@@ -97,7 +97,42 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
         renderKind(kind)
     }
 
-    private fun stateFor(kind: DetectionKind): PreviewCorrectionState? =
+    suspend fun replacePreviewFromExternal(kind: DetectionKind, correctedFile: File) {
+        require(correctedFile.exists()) { "Corrected crop does not exist" }
+        withContext(Dispatchers.Default) {
+            val suffix = if (kind == DetectionKind.PHOTO) "photo_ucrop.jpg" else "signature_ucrop.jpg"
+            val target = File(sessionDir, suffix)
+            correctedFile.inputStream().use { input ->
+                target.outputStream().use { output -> input.copyTo(output) }
+            }
+        }
+        val path = File(sessionDir, if (kind == DetectionKind.PHOTO) "photo_preview.jpg" else "signature_preview.jpg").absolutePath
+        withContext(Dispatchers.Default) {
+            File(path).outputStream().use { output ->
+                File(sessionDir, if (kind == DetectionKind.PHOTO) "photo_ucrop.jpg" else "signature_ucrop.jpg").inputStream().use { input ->
+                    input.copyTo(output)
+                }
+            }
+        }
+        val current = _state.value
+        _state.value = if (kind == DetectionKind.PHOTO) {
+            current.copy(
+                photoPreviewPath = path,
+                photoPreviewVersion = current.photoPreviewVersion + 1L,
+                processing = false,
+                error = null,
+            )
+        } else {
+            current.copy(
+                signaturePreviewPath = path,
+                signaturePreviewVersion = current.signaturePreviewVersion + 1L,
+                processing = false,
+                error = null,
+            )
+        }
+    }
+
+    private suspend fun stateFor(kind: DetectionKind): PreviewCorrectionState? =
         when (kind) {
             DetectionKind.PHOTO -> _state.value.photoState
             DetectionKind.SIGNATURE -> _state.value.signatureState
@@ -134,12 +169,12 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
             require(!source.empty()) { "Unable to decode source image" }
             try {
                 val image = PreviewProcessor.render(
-                            source = source,
-                            state = correction,
-                            dpi = dpi,
-                            widthMm = if (correction.kind == DetectionKind.PHOTO) photoWidthMm else signatureWidthMm,
-                            heightMm = if (correction.kind == DetectionKind.PHOTO) photoHeightMm else signatureHeightMm,
-                        )
+                    source = source,
+                    state = correction,
+                    dpi = dpi,
+                    widthMm = if (correction.kind == DetectionKind.PHOTO) photoWidthMm else signatureWidthMm,
+                    heightMm = if (correction.kind == DetectionKind.PHOTO) photoHeightMm else signatureHeightMm,
+                )
                 try {
                     val target = File(sessionDir, name)
                     check(org.opencv.imgcodecs.Imgcodecs.imwrite(target.absolutePath, image)) {
