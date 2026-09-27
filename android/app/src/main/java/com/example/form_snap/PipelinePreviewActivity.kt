@@ -31,7 +31,6 @@ class PipelinePreviewActivity : ComponentActivity() {
         val resultUri = result.data?.let { UCrop.getOutput(it) } ?: return@registerForActivityResult
         val kind = correctionKindForResult ?: return@registerForActivityResult
         correctionKindForResult = null
-
         pendingExternalCorrection = resultUri.path?.let { it to kind }
     }
 
@@ -57,13 +56,6 @@ class PipelinePreviewActivity : ComponentActivity() {
             val state by viewModel.state.collectAsState()
             val scope = rememberCoroutineScope()
             val editKind = remember { mutableStateOf<DetectionKind?>(null) }
-            val sourceForEdit = remember(state.photoPreviewPath, state.signaturePreviewPath, editKind.value) {
-                when (editKind.value) {
-                    DetectionKind.PHOTO -> state.photoPreviewPath
-                    DetectionKind.SIGNATURE -> state.signaturePreviewPath
-                    null -> null
-                }
-            }
 
             LaunchedEffect(path) {
                 viewModel.load(
@@ -83,7 +75,6 @@ class PipelinePreviewActivity : ComponentActivity() {
                     pending.second,
                     File(pending.first),
                 )
-                editKind.value = pending.second
             }
 
             val inputBitmap = remember(state.source?.absolutePath) {
@@ -112,7 +103,13 @@ class PipelinePreviewActivity : ComponentActivity() {
                         }
                     },
                     onEditPhoto = {
-                        if (state.photoState != null) editKind.value = DetectionKind.PHOTO
+                        if (state.photoState != null) {
+                            correctionKindForResult = DetectionKind.PHOTO
+                            openDetectedEditor(
+                                File(state.photoPreviewPath ?: return@PipelinePreviewScreen),
+                                DetectionKind.PHOTO,
+                            )
+                        }
                     },
                     onAcceptPhoto = {
                         scope.launch { viewModel.accept(DetectionKind.PHOTO) }
@@ -121,7 +118,13 @@ class PipelinePreviewActivity : ComponentActivity() {
                         viewModel.reject(DetectionKind.PHOTO)
                     },
                     onEditSignature = {
-                        if (state.signatureState != null) editKind.value = DetectionKind.SIGNATURE
+                        if (state.signatureState != null) {
+                            correctionKindForResult = DetectionKind.SIGNATURE
+                            openDetectedEditor(
+                                File(state.signaturePreviewPath ?: return@PipelinePreviewScreen),
+                                DetectionKind.SIGNATURE,
+                            )
+                        }
                     },
                     onAcceptSignature = {
                         scope.launch { viewModel.accept(DetectionKind.SIGNATURE) }
@@ -136,42 +139,22 @@ class PipelinePreviewActivity : ComponentActivity() {
                 )
             } else {
                 val kind = editKind.value!!
-                val editedBitmap = when (kind) {
+                val preview = when (kind) {
                     DetectionKind.PHOTO -> photoBitmap
                     DetectionKind.SIGNATURE -> signatureBitmap
                 }
-                val editSource = sourceForEdit?.let { File(it) }?.let {
-                    BitmapFactory.decodeFile(it.absolutePath)
-                } ?: editedBitmap
 
                 PreviewCorrectionScreen(
-                    source = editSource,
-                    resultPreview = editedBitmap,
+                    source = preview,
+                    resultPreview = preview,
                     onOpenCrop = {
                         correctionKindForResult = kind
-                        val currentFile = sourceForEdit?.let(::File) ?: return@PreviewCorrectionScreen
-                        val destination = File(
-                            cacheDir,
-                            "ucrop_" + System.nanoTime() + "_" + kind.name.lowercase() + ".jpg",
-                        )
-                        val options = UCrop.Options().apply {
-                            setFreeStyleCropEnabled(true)
-                            setCompressionQuality(95)
-                            setShowCropGrid(true)
-                            setShowCropFrame(true)
-                            setBrightnessEnabled(true)
-                            setContrastEnabled(true)
-                            setSaturationEnabled(true)
-                            setSharpnessEnabled(true)
-                            setHideBottomControls(false)
-                        }
-                        UCrop.of(
-                            Uri.fromFile(currentFile),
-                            Uri.fromFile(destination),
-                        )
-                            .withOptions(options)
-                            .withMaxResultSize(4000, 4000)
-                            .start(this@PipelinePreviewActivity, correctionLauncher)
+                        val currentFile = when (kind) {
+                            DetectionKind.PHOTO -> state.photoPreviewPath
+                            DetectionKind.SIGNATURE -> state.signaturePreviewPath
+                        }?.let(::File) ?: return@PreviewCorrectionScreen
+
+                        openDetectedEditor(currentFile, kind)
                     },
                     onAccept = {
                         scope.launch {
@@ -186,6 +169,33 @@ class PipelinePreviewActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    private fun openDetectedEditor(source: File, kind: DetectionKind) {
+        val destination = File(
+            cacheDir,
+            "ucrop_" + System.nanoTime() + "_" + kind.name.lowercase() + ".jpg",
+        )
+
+        val options = UCrop.Options().apply {
+            setFreeStyleCropEnabled(true)
+            setCompressionQuality(95)
+            setShowCropGrid(true)
+            setShowCropFrame(true)
+            setBrightnessEnabled(true)
+            setContrastEnabled(true)
+            setSaturationEnabled(true)
+            setSharpnessEnabled(true)
+            setHideBottomControls(false)
+        }
+
+        UCrop.of(
+            Uri.fromFile(source),
+            Uri.fromFile(destination),
+        )
+            .withOptions(options)
+            .withMaxResultSize(1600, 1600)
+            .start(this, correctionLauncher)
     }
 
     companion object {
