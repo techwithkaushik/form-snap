@@ -1,6 +1,5 @@
 package org.techwithkaushik.formSnap
 
-import android.content.Intent
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
@@ -8,7 +7,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,13 +31,15 @@ class PipelinePreviewActivity : ComponentActivity() {
         if (result.resultCode == RESULT_OK) {
             val resultUri = result.data?.let { UCrop.getOutput(it) }
             if (resultUri != null) {
-                pendingExternalCorrectionState?.value = resultUri.path?.let { it to kind }
+                pendingExternalCorrection = resultUri.path?.let { it to kind }
+                externalResultVersion += 1L
             }
         }
     }
 
     private var correctionKindForResult: DetectionKind? = null
-    private var pendingExternalCorrectionState: MutableState<Pair<String, DetectionKind>?>? = null
+    private var pendingExternalCorrection: Pair<String, DetectionKind>? = null
+    private var externalResultVersion = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -60,8 +60,6 @@ class PipelinePreviewActivity : ComponentActivity() {
             val state by viewModel.state.collectAsState()
             val scope = rememberCoroutineScope()
             val editingKind = remember { mutableStateOf<DetectionKind?>(null) }
-            val pendingCorrection = remember { mutableStateOf<Pair<String, DetectionKind>?>(null) }
-            pendingExternalCorrectionState = pendingCorrection
 
             LaunchedEffect(path) {
                 viewModel.load(
@@ -74,9 +72,9 @@ class PipelinePreviewActivity : ComponentActivity() {
                 )
             }
 
-            LaunchedEffect(pendingCorrection.value) {
-                val pending = pendingCorrection.value ?: return@LaunchedEffect
-                pendingCorrection.value = null
+            LaunchedEffect(externalResultVersion) {
+                val pending = pendingExternalCorrection ?: return@LaunchedEffect
+                pendingExternalCorrection = null
                 viewModel.replacePreviewFromExternal(
                     pending.second,
                     File(pending.first),
