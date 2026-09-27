@@ -9,32 +9,64 @@ import kotlin.math.min
 
 object LearningStore {
     private const val FILE_NAME = "correction_learning.json"
-    private const val SCHEMA = 1
+    private const val SCHEMA = 2
     private const val MAX_PROFILES = 64
 
-    private fun file(context: Context): File =
-        File(context.filesDir, FILE_NAME)
+    private fun file(context: Context): File = File(context.filesDir, FILE_NAME)
 
     @Synchronized
     fun record(context: Context, correction: LearnedCorrection) {
         val profiles = read(context).toMutableList()
-        val index = profiles.indexOfFirst { it.kind == correction.kind }
-        if (index >= 0) {
-            profiles[index] = CorrectionLearning.blend(profiles[index], correction)
+        val sameKind = profiles.withIndex()
+            .filter { it.value.kind == correction.kind }
+            .maxByOrNull { it.value.sampleCount }
+
+        if (sameKind != null) {
+            profiles[sameKind.index] = CorrectionLearning.blend(sameKind.value, correction)
         } else {
             profiles += correction
         }
 
-        val bounded = profiles
-            .sortedByDescending { it.sampleCount }
-            .take(MAX_PROFILES)
-        write(context, bounded)
+        write(
+            context,
+            profiles.sortedByDescending { it.sampleCount }.take(MAX_PROFILES),
+        )
     }
 
-    fun best(context: Context, kind: DetectionKind): LearnedCorrection? =
-        read(context)
+    fun best(
+        context: Context,
+        kind: DetectionKind,
+        conditionBrightness: Float = 0f,
+        conditionContrast: Float = 1f,
+        conditionSaturation: Float = 1f,
+        conditionEdgeDensity: Float = 0f,
+        aspectRatio: Float = 1f,
+    ): LearnedCorrection? {
+        return read(context)
             .filter { it.kind == kind }
-            .maxByOrNull { it.confidence * (1f + min(100, it.sampleCount) / 100f) }
+            .maxByOrNull { score(it, conditionBrightness, conditionContrast, conditionSaturation, conditionEdgeDensity, aspectRatio) }
+            ?.takeIf { it.sampleCount >= 2 || it.confidence >= 0.70f }
+    }
+
+    private fun score(
+        profile: LearnedCorrection,
+        brightness: Float,
+        contrast: Float,
+        saturation: Float,
+        edgeDensity: Float,
+        aspectRatio: Float,
+    ): Float {
+        val conditionDistance =
+            kotlin.math.abs(profile.conditionBrightness - brightness) +
+                kotlin.math.abs(profile.conditionContrast - contrast) +
+                kotlin.math.abs(profile.conditionSaturation - saturation) +
+                kotlin.math.abs(profile.conditionEdgeDensity - edgeDensity) +
+                kotlin.math.abs(profile.conditionAspectRatio - aspectRatio)
+
+        val similarity = (1f - (conditionDistance / 4f)).coerceIn(0f, 1f)
+        val usage = (min(100, profile.sampleCount) / 100f)
+        return similarity * 0.70f + profile.confidence * 0.20f + usage * 0.10f
+    }
 
     fun clear(context: Context) {
         file(context).delete()
@@ -43,22 +75,26 @@ object LearningStore {
     private fun read(context: Context): List<LearnedCorrection> {
         val target = file(context)
         if (!target.exists()) return emptyList()
+
         return runCatching {
             val root = JSONObject(target.readText())
-            if (root.optInt("schema", -1) != SCHEMA) return emptyList()
+            val schema = root.optInt("schema", -1)
+            if (schema !in 1..SCHEMA) return emptyList()
+
             val array = root.optJSONArray("profiles") ?: JSONArray()
             buildList {
                 for (i in 0 until array.length()) {
-                    parse(array.optJSONObject(i))?.let(::add)
+                    parse(array.optJSONObject(i), schema)?.let(::add)
                 }
             }
         }.getOrDefault(emptyList())
     }
 
-    private fun parse(obj: JSONObject?): LearnedCorrection? {
+    private fun parse(obj: JSONObject?, schema: Int): LearnedCorrection? {
         if (obj == null) return null
         val kind = runCatching { DetectionKind.valueOf(obj.optString("kind")) }.getOrNull() ?: return null
         val appearance = obj.optJSONObject("appearance") ?: JSONObject()
+
         return LearnedCorrection(
             kind = kind,
             boundsDeltaLeft = obj.optDouble("dl", 0.0).toFloat(),
@@ -74,15 +110,21 @@ object LearningStore {
                 inkThreshold = appearance.optInt("it", 150),
                 backgroundCleanup = appearance.optDouble("bg", 0.0).toFloat(),
             ),
+            conditionBrightness = obj.optDouble("cb", 0.0).toFloat(),
+            conditionContrast = obj.optDouble("cc", 1.0).toFloat(),
+            conditionSaturation = obj.optDouble("cs", 1.0).toFloat(),
+            conditionEdgeDensity = obj.optDouble("ce", 0.0).toFloat(),
+            conditionAspectRatio = obj.optDouble("ca", 1.0).toFloat(),
             sampleCount = max(1, obj.optInt("n", 1)),
             confidence = obj.optDouble("cf", 0.5).toFloat().coerceIn(0f, 1f),
-            version = max(1, obj.optInt("v", 1)),
+            version = max(1, obj.optInt("v", if (schema >= 2) 2 else 1)),
         )
     }
 
     private fun write(context: Context, profiles: List<LearnedCorrection>) {
         val root = JSONObject().put("schema", SCHEMA)
         val array = JSONArray()
+
         profiles.forEach { profile ->
             array.put(
                 JSONObject()
@@ -94,6 +136,11 @@ object LearningStore {
                     .put("n", profile.sampleCount)
                     .put("cf", profile.confidence)
                     .put("v", profile.version)
+                    .put("cb", profile.conditionBrightness)
+                    .put("cc", profile.conditionContrast)
+                    .put("cs", profile.conditionSaturation)
+                    .put("ce", profile.conditionEdgeDensity)
+                    .put("ca", profile.conditionAspectRatio)
                     .put(
                         "appearance",
                         JSONObject()
@@ -107,6 +154,7 @@ object LearningStore {
                     )
             )
         }
+
         root.put("profiles", array)
         val target = file(context)
         target.parentFile?.mkdirs()
