@@ -2,6 +2,7 @@ package org.techwithkaushik.formSnap.pipeline
 
 import android.content.Context
 import java.io.File
+import org.techwithkaushik.formSnap.foundation.ProcessingSession
 
 data class ProcessedFileResult(
     val photoPath: String?,
@@ -18,25 +19,30 @@ object ProcessFileService {
         dpi: Int = 300,
     ): ProcessedFileResult {
         val session = ProcessingSession.create(context)
-        try {
-            val result = UniversalPipelineBatch.processFile(input, dpi, context)
-            val photoPath = result.photo?.image?.let {
-                val file = session.file("photo.jpg")
-                org.opencv.imgcodecs.Imgcodecs.imwrite(file.absolutePath, it)
-                file.absolutePath
+        return try {
+            UniversalPipelineBatch.processFile(input, dpi, context).use { result ->
+                val photoPath = result.photo?.image?.let { image ->
+                    val file = session.file("photo.jpg")
+                    check(org.opencv.imgcodecs.Imgcodecs.imwrite(file.absolutePath, image)) {
+                        "Unable to write photo output"
+                    }
+                    file.absolutePath
+                }
+                val signaturePath = result.signature?.image?.let { image ->
+                    val file = session.file("signature.jpg")
+                    check(org.opencv.imgcodecs.Imgcodecs.imwrite(file.absolutePath, image)) {
+                        "Unable to write signature output"
+                    }
+                    file.absolutePath
+                }
+                ProcessedFileResult(
+                    photoPath = photoPath,
+                    signaturePath = signaturePath,
+                    photoQuality = result.photo?.quality,
+                    signatureQuality = result.signature?.quality,
+                    detection = result.detection,
+                )
             }
-            val signaturePath = result.signature?.image?.let {
-                val file = session.file("signature.jpg")
-                org.opencv.imgcodecs.Imgcodecs.imwrite(file.absolutePath, it)
-                file.absolutePath
-            }
-            return ProcessedFileResult(
-                photoPath = photoPath,
-                signaturePath = signaturePath,
-                photoQuality = result.photo?.quality,
-                signatureQuality = result.signature?.quality,
-                detection = result.detection,
-            )
         } finally {
             session.closeAndDelete()
         }
