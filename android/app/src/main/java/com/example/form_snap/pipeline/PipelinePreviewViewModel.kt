@@ -60,21 +60,67 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
             val detection = withContext(Dispatchers.Default) {
                 val source = org.opencv.imgcodecs.Imgcodecs.imread(input.absolutePath)
                 require(!source.empty()) { "Unable to decode input image" }
-                try { UniversalDetectionEngine.detect(source) } finally { source.release() }
+                try {
+                    UniversalDetectionEngine.detect(source)
+                } finally {
+                    source.release()
+                }
             }
             _state.value = PreviewProcessingState(
                 source = input,
-                photoState = detection.photo?.let { PreviewCorrectionStateFactory.fromCandidate(it, detection.sourceWidth, detection.sourceHeight) },
-                signatureState = detection.signature?.let { PreviewCorrectionStateFactory.fromCandidate(it, detection.sourceWidth, detection.sourceHeight) },
+                photoState = detection.photo?.let {
+                    PreviewCorrectionStateFactory.fromCandidate(
+                        it,
+                        detection.sourceWidth,
+                        detection.sourceHeight,
+                    )
+                },
+                signatureState = detection.signature?.let {
+                    PreviewCorrectionStateFactory.fromCandidate(
+                        it,
+                        detection.sourceWidth,
+                        detection.sourceHeight,
+                    )
+                },
             )
             renderDetectedPreviews()
         } catch (t: Throwable) {
-            _state.value = PreviewProcessingState(source = input, error = t.message ?: "Preview failed")
+            _state.value = PreviewProcessingState(
+                source = input,
+                error = t.message ?: "Preview failed",
+            )
         }
     }
 
     suspend fun renderPhoto() = renderKind(DetectionKind.PHOTO)
     suspend fun renderSignature() = renderKind(DetectionKind.SIGNATURE)
+
+    suspend fun accept(kind: DetectionKind) {
+        val correction = stateFor(kind) ?: return
+        FeedbackRecorder.record(
+            context,
+            correction.correction(
+                automatic = candidateFor(kind) ?: return,
+            ).copy(accepted = true),
+        )
+        updateCorrectionState(kind, correction.accept())
+    }
+
+    fun reject(kind: DetectionKind) {
+        val current = _state.value
+        _state.value = when (kind) {
+            DetectionKind.PHOTO -> current.copy(
+                photoState = null,
+                photoPreviewPath = null,
+                photoPreviewVersion = current.photoPreviewVersion + 1L,
+            )
+            DetectionKind.SIGNATURE -> current.copy(
+                signatureState = null,
+                signaturePreviewPath = null,
+                signaturePreviewVersion = current.signaturePreviewVersion + 1L,
+            )
+        }
+    }
 
     fun updateCorrectionState(kind: DetectionKind, correction: PreviewCorrectionState) {
         _state.value = when (kind) {
@@ -83,7 +129,11 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
         }
     }
 
-    fun schedulePreview(kind: DetectionKind, correction: PreviewCorrectionState, delayMs: Long = 100L) {
+    fun schedulePreview(
+        kind: DetectionKind,
+        correction: PreviewCorrectionState,
+        delayMs: Long = 100L,
+    ) {
         updateCorrectionState(kind, correction)
         previewJob?.cancel()
         previewJob = previewScope.launch {
@@ -92,38 +142,59 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
         }
     }
 
-    suspend fun applyCorrection(kind: DetectionKind, correction: PreviewCorrectionState) {
+    suspend fun applyCorrection(
+        kind: DetectionKind,
+        correction: PreviewCorrectionState,
+    ) {
         updateCorrectionState(kind, correction)
         renderKind(kind)
     }
 
-    suspend fun replacePreviewFromExternal(kind: DetectionKind, correctedFile: File) {
+    suspend fun replacePreviewFromExternal(
+        kind: DetectionKind,
+        correctedFile: File,
+    ) {
         require(correctedFile.exists()) { "Corrected crop does not exist" }
         withContext(Dispatchers.Default) {
-            val suffix = if (kind == DetectionKind.PHOTO) "photo_ucrop.jpg" else "signature_ucrop.jpg"
+            val suffix = if (kind == DetectionKind.PHOTO) {
+                "photo_ucrop.jpg"
+            } else {
+                "signature_ucrop.jpg"
+            }
             val target = File(sessionDir, suffix)
             correctedFile.inputStream().use { input ->
-                target.outputStream().use { output -> input.copyTo(output) }
-            }
-        }
-        val path = File(sessionDir, if (kind == DetectionKind.PHOTO) "photo_preview.jpg" else "signature_preview.jpg").absolutePath
-        withContext(Dispatchers.Default) {
-            File(path).outputStream().use { output ->
-                File(sessionDir, if (kind == DetectionKind.PHOTO) "photo_ucrop.jpg" else "signature_ucrop.jpg").inputStream().use { input ->
+                target.outputStream().use { output ->
                     input.copyTo(output)
                 }
             }
         }
+
+        val path = File(
+            sessionDir,
+            if (kind == DetectionKind.PHOTO) "photo_preview.jpg" else "signature_preview.jpg",
+        ).absolutePath
+
+        withContext(Dispatchers.Default) {
+            File(path).outputStream().use { output ->
+                File(
+                    sessionDir,
+                    if (kind == DetectionKind.PHOTO) "photo_ucrop.jpg"
+                    else "signature_ucrop.jpg",
+                ).inputStream().use { input ->
+                    input.copyTo(output)
+                }
+            }
+        }
+
         val current = _state.value
-        _state.value = if (kind == DetectionKind.PHOTO) {
-            current.copy(
+        _state.value = when (kind) {
+            DetectionKind.PHOTO -> current.copy(
                 photoPreviewPath = path,
                 photoPreviewVersion = current.photoPreviewVersion + 1L,
                 processing = false,
                 error = null,
             )
-        } else {
-            current.copy(
+            DetectionKind.SIGNATURE -> current.copy(
                 signaturePreviewPath = path,
                 signaturePreviewVersion = current.signaturePreviewVersion + 1L,
                 processing = false,
@@ -132,7 +203,27 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
         }
     }
 
-    private suspend fun stateFor(kind: DetectionKind): PreviewCorrectionState? =
+    private fun candidateFor(kind: DetectionKind): DetectionCandidate? =
+        when (kind) {
+            DetectionKind.PHOTO -> _state.value.photoState?.let {
+                DetectionCandidate(
+                    kind = it.kind,
+                    bounds = it.automaticBounds,
+                    confidence = 1f,
+                    source = "preview-automatic",
+                )
+            }
+            DetectionKind.SIGNATURE -> _state.value.signatureState?.let {
+                DetectionCandidate(
+                    kind = it.kind,
+                    bounds = it.automaticBounds,
+                    confidence = 1f,
+                    source = "preview-automatic",
+                )
+            }
+        }
+
+    private fun stateFor(kind: DetectionKind): PreviewCorrectionState? =
         when (kind) {
             DetectionKind.PHOTO -> _state.value.photoState
             DetectionKind.SIGNATURE -> _state.value.signatureState
@@ -146,48 +237,79 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
 
     private suspend fun renderKind(kind: DetectionKind) {
         val snapshot = _state.value
-        val correction = if (kind == DetectionKind.PHOTO) snapshot.photoState else snapshot.signatureState
-        if (correction == null) return
+        val correction = when (kind) {
+            DetectionKind.PHOTO -> snapshot.photoState
+            DetectionKind.SIGNATURE -> snapshot.signatureState
+        } ?: return
 
         _state.value = snapshot.copy(processing = true, error = null)
-        val name = if (kind == DetectionKind.PHOTO) "photo_preview.jpg" else "signature_preview.jpg"
-        _state.value = runCatching { render(correction, name) }
-            .fold(
-                { path ->
-                    val latest = _state.value
-                    if (kind == DetectionKind.PHOTO) latest.copy(photoPreviewPath = path, photoPreviewVersion = latest.photoPreviewVersion + 1L, processing = false)
-                    else latest.copy(signaturePreviewPath = path, signaturePreviewVersion = latest.signaturePreviewVersion + 1L, processing = false)
-                },
-                { error -> _state.value.copy(processing = false, error = error.message ?: "Preview failed") }
-            )
+
+        val name = if (kind == DetectionKind.PHOTO) {
+            "photo_preview.jpg"
+        } else {
+            "signature_preview.jpg"
+        }
+
+        _state.value = runCatching {
+            render(correction, name)
+        }.fold(
+            { path ->
+                val latest = _state.value
+                if (kind == DetectionKind.PHOTO) {
+                    latest.copy(
+                        photoPreviewPath = path,
+                        photoPreviewVersion = latest.photoPreviewVersion + 1L,
+                        processing = false,
+                    )
+                } else {
+                    latest.copy(
+                        signaturePreviewPath = path,
+                        signaturePreviewVersion = latest.signaturePreviewVersion + 1L,
+                        processing = false,
+                    )
+                }
+            },
+            { error ->
+                _state.value.copy(
+                    processing = false,
+                    error = error.message ?: "Preview failed",
+                )
+            },
+        )
     }
 
-    private suspend fun render(correction: PreviewCorrectionState, name: String): String =
-        withContext(Dispatchers.Default) {
-            val input = _state.value.source ?: error("No source image")
-            val source = org.opencv.imgcodecs.Imgcodecs.imread(input.absolutePath)
-            require(!source.empty()) { "Unable to decode source image" }
+    private suspend fun render(
+        correction: PreviewCorrectionState,
+        name: String,
+    ): String = withContext(Dispatchers.Default) {
+        val input = _state.value.source ?: error("No source image")
+        val source = org.opencv.imgcodecs.Imgcodecs.imread(input.absolutePath)
+        require(!source.empty()) { "Unable to decode source image" }
+
+        try {
+            val image = PreviewProcessor.render(
+                source = source,
+                state = correction,
+                dpi = dpi,
+                widthMm = if (correction.kind == DetectionKind.PHOTO) photoWidthMm else signatureWidthMm,
+                heightMm = if (correction.kind == DetectionKind.PHOTO) photoHeightMm else signatureHeightMm,
+            )
             try {
-                val image = PreviewProcessor.render(
-                    source = source,
-                    state = correction,
-                    dpi = dpi,
-                    widthMm = if (correction.kind == DetectionKind.PHOTO) photoWidthMm else signatureWidthMm,
-                    heightMm = if (correction.kind == DetectionKind.PHOTO) photoHeightMm else signatureHeightMm,
-                )
-                try {
-                    val target = File(sessionDir, name)
-                    check(org.opencv.imgcodecs.Imgcodecs.imwrite(target.absolutePath, image)) {
-                        "Unable to write preview"
-                    }
-                    target.absolutePath
-                } finally {
-                    image.release()
-                }
+                val target = File(sessionDir, name)
+                check(
+                    org.opencv.imgcodecs.Imgcodecs.imwrite(
+                        target.absolutePath,
+                        image,
+                    ),
+                ) { "Unable to write preview" }
+                target.absolutePath
             } finally {
-                source.release()
+                image.release()
             }
+        } finally {
+            source.release()
         }
+    }
 
     fun loadBitmap(path: String?): Bitmap? {
         if (path.isNullOrBlank()) return null
