@@ -112,8 +112,17 @@ class PipelinePreviewActivity : ComponentActivity() {
                     PreviewCorrectionScreen(
                         state = correctionState,
                         preview = preview,
+                        onBoundsChange = { bounds ->
+                            controller.setBounds(bounds)
+                            scope.launch {
+                                viewModel.applyCorrection(correctionKind.value ?: return@launch, controller.state)
+                            }
+                        },
                         onAppearanceChange = { appearance ->
                             controller.setAppearance(appearance)
+                            scope.launch {
+                                viewModel.applyCorrection(correctionKind.value ?: return@launch, controller.state)
+                            }
                         },
                         onAccept = {
                             controller.accept()
