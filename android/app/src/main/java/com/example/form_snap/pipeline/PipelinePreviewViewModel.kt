@@ -1,9 +1,13 @@
 package org.techwithkaushik.formSnap.pipeline
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
-import org.techwithkaushik.formSnap.foundation.ProcessingSession
+import org.techwithkaushik.formSnap.foundation.ProcessingPaths
 import java.io.File
 
 data class PreviewProcessingState(
@@ -16,64 +20,85 @@ data class PreviewProcessingState(
     val error: String? = null,
 )
 
-class PipelinePreviewViewModel(private val context: Context) {
-    var state: PreviewProcessingState = PreviewProcessingState()
-        private set
+class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
+    private val _state = MutableStateFlow(PreviewProcessingState())
+    val state: StateFlow<PreviewProcessingState> = _state
+
+    private val sessionDir = File(ProcessingPaths.root(context), "preview_session").apply { mkdirs() }
 
     suspend fun load(input: File) {
-        state = PreviewProcessingState(source = input, processing = true)
+        _state.value = PreviewProcessingState(source = input, processing = true)
         try {
             val detection = withContext(Dispatchers.Default) {
                 val source = org.opencv.imgcodecs.Imgcodecs.imread(input.absolutePath)
                 require(!source.empty()) { "Unable to decode input image" }
                 try { UniversalDetectionEngine.detect(source) } finally { source.release() }
             }
-            state = PreviewProcessingState(
+            _state.value = PreviewProcessingState(
                 source = input,
                 photoState = detection.photo?.let { PreviewCorrectionStateFactory.fromCandidate(it, detection.sourceWidth, detection.sourceHeight) },
                 signatureState = detection.signature?.let { PreviewCorrectionStateFactory.fromCandidate(it, detection.sourceWidth, detection.sourceHeight) },
             )
+            renderDetectedPreviews()
         } catch (t: Throwable) {
-            state = PreviewProcessingState(source = input, error = t.message ?: "Preview failed")
+            _state.value = PreviewProcessingState(source = input, error = t.message ?: "Preview failed")
         }
     }
 
-    suspend fun renderPhoto() {
-        renderKind(DetectionKind.PHOTO)
-    }
+    suspend fun renderPhoto() = renderKind(DetectionKind.PHOTO)
+    suspend fun renderSignature() = renderKind(DetectionKind.SIGNATURE)
 
-    suspend fun renderSignature() {
-        renderKind(DetectionKind.SIGNATURE)
+    private suspend fun renderDetectedPreviews() {
+        val current = _state.value
+        if (current.photoState != null) renderKind(DetectionKind.PHOTO)
+        if (current.signatureState != null) renderKind(DetectionKind.SIGNATURE)
     }
 
     private suspend fun renderKind(kind: DetectionKind) {
-        val current = if (kind == DetectionKind.PHOTO) state.photoState else state.signatureState
-        if (current == null) return
-        state = state.copy(processing = true, error = null)
+        val snapshot = _state.value
+        val correction = if (kind == DetectionKind.PHOTO) snapshot.photoState else snapshot.signatureState
+        if (correction == null) return
+
+        _state.value = snapshot.copy(processing = true, error = null)
         val name = if (kind == DetectionKind.PHOTO) "photo_preview.jpg" else "signature_preview.jpg"
-        state = runCatching { render(current, name) }
+        _state.value = runCatching { render(correction, name) }
             .fold(
-                { path -> if (kind == DetectionKind.PHOTO) state.copy(photoPreviewPath = path, processing = false) else state.copy(signaturePreviewPath = path, processing = false) },
-                { error -> state.copy(processing = false, error = error.message ?: "Preview failed") },
+                { path ->
+                    val latest = _state.value
+                    if (kind == DetectionKind.PHOTO) latest.copy(photoPreviewPath = path, processing = false)
+                    else latest.copy(signaturePreviewPath = path, processing = false)
+                },
+                { error -> _state.value.copy(processing = false, error = error.message ?: "Preview failed") }
             )
     }
 
-    private suspend fun render(correction: PreviewCorrectionState, name: String): String = withContext(Dispatchers.Default) {
-        val input = state.source ?: error("No source image")
-        val source = org.opencv.imgcodecs.Imgcodecs.imread(input.absolutePath)
-        require(!source.empty()) { "Unable to decode source image" }
-        val session = ProcessingSession.create(context)
-        try {
-            val image = try { PreviewProcessor.render(source, correction) } finally { source.release() }
+    private suspend fun render(correction: PreviewCorrectionState, name: String): String =
+        withContext(Dispatchers.Default) {
+            val input = _state.value.source ?: error("No source image")
+            val source = org.opencv.imgcodecs.Imgcodecs.imread(input.absolutePath)
+            require(!source.empty()) { "Unable to decode source image" }
             try {
-                val target = session.file(name)
-                check(org.opencv.imgcodecs.Imgcodecs.imwrite(target.absolutePath, image)) { "Unable to write preview" }
-                target.absolutePath
+                val image = PreviewProcessor.render(source, correction)
+                try {
+                    val target = File(sessionDir, name)
+                    check(org.opencv.imgcodecs.Imgcodecs.imwrite(target.absolutePath, image)) {
+                        "Unable to write preview"
+                    }
+                    target.absolutePath
+                } finally {
+                    image.release()
+                }
             } finally {
-                image.release()
+                source.release()
             }
-        } finally {
-            session.closeAndDelete()
         }
+
+    fun loadBitmap(path: String?): Bitmap? {
+        if (path.isNullOrBlank()) return null
+        return BitmapFactory.decodeFile(path)
+    }
+
+    override fun close() {
+        sessionDir.deleteRecursively()
     }
 }
