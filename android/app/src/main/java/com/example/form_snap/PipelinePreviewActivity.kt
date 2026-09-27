@@ -116,8 +116,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                 message = state.error,
                 onProcess = {
                     scope.launch {
-                        viewModel.renderPhoto()
-                        viewModel.renderSignature()
+                        viewModel.redetect()
                     }
                 },
                 onEditPhoto = {
