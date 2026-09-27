@@ -161,8 +161,8 @@ private fun CropEditor(
 
                     detectDragGestures(
                         onDragStart = { offset ->
-                            val sx = sourceWidth.toFloat() / size.width.coerceAtLeast(1).toFloat()
-                            val sy = sourceHeight.toFloat() / size.height.coerceAtLeast(1).toFloat()
+                            val sx = sourceWidth.toFloat() / size.width.toFloat().coerceAtLeast(1f)
+                            val sy = sourceHeight.toFloat() / size.height.toFloat().coerceAtLeast(1f)
                             val x = offset.x * sx
                             val y = offset.y * sy
                             val edge = (minOf(bounds.width(), bounds.height()) * 0.22f).coerceIn(35f, 160f)
