@@ -5,46 +5,34 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import com.yalantis.ucrop.UCrop
 import kotlinx.coroutines.launch
 import org.techwithkaushik.formSnap.pipeline.DetectionKind
 import org.techwithkaushik.formSnap.pipeline.PipelinePreviewViewModel
 import org.techwithkaushik.formSnap.ui.PipelinePreviewScreen
 import org.techwithkaushik.formSnap.ui.PreviewCorrectionScreen
-import org.techwithkaushik.formSnap.ui.UcropCorrectionActivity
+import java.io.File
 
 class PipelinePreviewActivity : ComponentActivity() {
 
     private val correctionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
-        if (result.resultCode != RESULT_OK) {
-            correctionKindForResult = null
-            return@registerForActivityResult
-        }
+        if (result.resultCode != RESULT_OK) return@registerForActivityResult
 
-        val resultPath = result.data
-            ?.getStringExtra(UcropCorrectionActivity.EXTRA_RESULT_PATH)
-            ?: return@registerForActivityResult
-
+        val resultUri = result.data?.let { UCrop.getOutput(it) } ?: return@registerForActivityResult
         val kind = correctionKindForResult ?: return@registerForActivityResult
         correctionKindForResult = null
 
-        setResult(
-            RESULT_OK,
-            Intent()
-                .putExtra(EXTRA_EXTERNAL_CORRECTION_PATH, resultPath)
-                .putExtra(EXTRA_EXTERNAL_CORRECTION_KIND, kind.name),
-        )
-
-        pendingExternalCorrection = resultPath to kind
+        pendingExternalCorrection = resultUri.path?.let { it to kind }
     }
 
     private var correctionKindForResult: DetectionKind? = null
@@ -69,11 +57,10 @@ class PipelinePreviewActivity : ComponentActivity() {
             val state by viewModel.state.collectAsState()
             val scope = rememberCoroutineScope()
             val cropKind = remember { mutableStateOf<DetectionKind?>(null) }
-            val cropSource = remember { mutableStateOf<String?>(null) }
 
             LaunchedEffect(path) {
                 viewModel.load(
-                    input = java.io.File(path),
+                    input = File(path),
                     dpi = dpi.toInt(),
                     photoWidthMm = photoWidthMm,
                     photoHeightMm = photoHeightMm,
@@ -117,16 +104,10 @@ class PipelinePreviewActivity : ComponentActivity() {
                         }
                     },
                     onCorrectPhoto = {
-                        if (state.photoState != null) {
-                            cropKind.value = DetectionKind.PHOTO
-                            cropSource.value = path
-                        }
+                        if (state.photoState != null) cropKind.value = DetectionKind.PHOTO
                     },
                     onCorrectSignature = {
-                        if (state.signatureState != null) {
-                            cropKind.value = DetectionKind.SIGNATURE
-                            cropSource.value = path
-                        }
+                        if (state.signatureState != null) cropKind.value = DetectionKind.SIGNATURE
                     },
                     onBack = {
                         viewModel.close()
@@ -142,22 +123,29 @@ class PipelinePreviewActivity : ComponentActivity() {
                     resultPreview = preview,
                     onOpenCrop = {
                         correctionKindForResult = kind
-                        cropSource.value?.let { sourcePath ->
-                            correctionLauncher.launch(
-                                Intent(this@PipelinePreviewActivity, UcropCorrectionActivity::class.java)
-                                    .putExtra(UcropCorrectionActivity.EXTRA_SOURCE_PATH, sourcePath)
-                                    .putExtra(UcropCorrectionActivity.EXTRA_MAX_WIDTH, 4000)
-                                    .putExtra(UcropCorrectionActivity.EXTRA_MAX_HEIGHT, 4000),
-                            )
+                        val destination = File(
+                            cacheDir,
+                            "ucrop_" + System.nanoTime() + "_" + kind.name.lowercase() + ".jpg",
+                        )
+                        val options = UCrop.Options().apply {
+                            setFreeStyleCropEnabled(true)
+                            setCompressionQuality(95)
+                            setShowCropGrid(true)
+                            setShowCropFrame(true)
                         }
+                        UCrop.of(
+                            Uri.fromFile(File(path)),
+                            Uri.fromFile(destination),
+                        )
+                            .withOptions(options)
+                            .withMaxResultSize(4000, 4000)
+                            .start(this@PipelinePreviewActivity, correctionLauncher)
                     },
                     onAccept = {
                         cropKind.value = null
-                        cropSource.value = null
                     },
                     onReject = {
                         cropKind.value = null
-                        cropSource.value = null
                     },
                 )
             }
