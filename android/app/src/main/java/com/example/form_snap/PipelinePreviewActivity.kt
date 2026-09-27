@@ -77,11 +77,14 @@ class PipelinePreviewActivity : ComponentActivity() {
             val pendingEdit = pendingExternalCorrection
             LaunchedEffect(pendingEdit) {
                 val pending = pendingEdit ?: return@LaunchedEffect
+                val file = File(pending.first)
+                if (file.exists()) {
+                    viewModel.replacePreviewFromExternal(
+                        pending.second,
+                        file,
+                    )
+                }
                 pendingExternalCorrection = null
-                viewModel.replacePreviewFromExternal(
-                    pending.second,
-                    File(pending.first),
-                )
             }
 
             val inputBitmap = remember(state.source?.absolutePath) {
