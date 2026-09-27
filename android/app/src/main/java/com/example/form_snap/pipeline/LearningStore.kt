@@ -4,6 +4,7 @@ import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
@@ -17,19 +18,27 @@ object LearningStore {
     @Synchronized
     fun record(context: Context, correction: LearnedCorrection) {
         val profiles = read(context).toMutableList()
-        val sameKind = profiles.withIndex()
-            .filter { it.value.kind == correction.kind }
-            .maxByOrNull { it.value.sampleCount }
+        val index = profiles.indexOfFirst {
+            it.kind == correction.kind &&
+                close(it.conditionAspectRatio, correction.conditionAspectRatio, 0.15f) &&
+                close(it.conditionBrightness, correction.conditionBrightness, 0.15f) &&
+                close(it.conditionEdgeDensity, correction.conditionEdgeDensity, 0.15f)
+        }
 
-        if (sameKind != null) {
-            profiles[sameKind.index] = CorrectionLearning.blend(sameKind.value, correction)
+        if (index >= 0) {
+            profiles[index] = CorrectionLearning.blend(profiles[index], correction)
         } else {
             profiles += correction
         }
 
         write(
             context,
-            profiles.sortedByDescending { it.sampleCount }.take(MAX_PROFILES),
+            profiles
+                .sortedWith(
+                    compareByDescending<LearnedCorrection> { it.sampleCount }
+                        .thenByDescending { it.confidence },
+                )
+                .take(MAX_PROFILES),
         )
     }
 
@@ -42,35 +51,31 @@ object LearningStore {
         conditionEdgeDensity: Float = 0f,
         aspectRatio: Float = 1f,
     ): LearnedCorrection? {
-        return read(context)
-            .filter { it.kind == kind }
-            .maxByOrNull { score(it, conditionBrightness, conditionContrast, conditionSaturation, conditionEdgeDensity, aspectRatio) }
+        val candidates = read(context).filter { it.kind == kind }
+        if (candidates.isEmpty()) return null
+
+        return candidates
+            .maxByOrNull {
+                val conditionDistance =
+                    abs(it.conditionBrightness - conditionBrightness) +
+                        abs(it.conditionContrast - conditionContrast) +
+                        abs(it.conditionSaturation - conditionSaturation) +
+                        abs(it.conditionEdgeDensity - conditionEdgeDensity) +
+                        abs(it.conditionAspectRatio - aspectRatio)
+
+                val similarity = (1f - conditionDistance / 4f).coerceIn(0f, 1f)
+                val usage = min(100, it.sampleCount) / 100f
+                similarity * 0.70f + it.confidence * 0.20f + usage * 0.10f
+            }
             ?.takeIf { it.sampleCount >= 2 || it.confidence >= 0.70f }
-    }
-
-    private fun score(
-        profile: LearnedCorrection,
-        brightness: Float,
-        contrast: Float,
-        saturation: Float,
-        edgeDensity: Float,
-        aspectRatio: Float,
-    ): Float {
-        val conditionDistance =
-            kotlin.math.abs(profile.conditionBrightness - brightness) +
-                kotlin.math.abs(profile.conditionContrast - contrast) +
-                kotlin.math.abs(profile.conditionSaturation - saturation) +
-                kotlin.math.abs(profile.conditionEdgeDensity - edgeDensity) +
-                kotlin.math.abs(profile.conditionAspectRatio - aspectRatio)
-
-        val similarity = (1f - (conditionDistance / 4f)).coerceIn(0f, 1f)
-        val usage = (min(100, profile.sampleCount) / 100f)
-        return similarity * 0.70f + profile.confidence * 0.20f + usage * 0.10f
     }
 
     fun clear(context: Context) {
         file(context).delete()
     }
+
+    private fun close(a: Float, b: Float, tolerance: Float): Boolean =
+        abs(a - b) <= tolerance
 
     private fun read(context: Context): List<LearnedCorrection> {
         val target = file(context)
@@ -150,8 +155,8 @@ object LearningStore {
                             .put("sh", profile.appearance.sharpness)
                             .put("dn", profile.appearance.denoise)
                             .put("it", profile.appearance.inkThreshold)
-                            .put("bg", profile.appearance.backgroundCleanup)
-                    )
+                            .put("bg", profile.appearance.backgroundCleanup),
+                    ),
             )
         }
 
