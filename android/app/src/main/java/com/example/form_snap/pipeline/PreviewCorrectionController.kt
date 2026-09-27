@@ -3,16 +3,10 @@ package org.techwithkaushik.formSnap.pipeline
 import android.graphics.RectF
 
 class PreviewCorrectionController(
-    private val automatic: DetectionCandidate,
-    private val sourceWidth: Int,
-    private val sourceHeight: Int,
+    private val detectionCandidate: DetectionCandidate? = null,
+    initialState: PreviewCorrectionState,
 ) {
-    var state: PreviewCorrectionState =
-        PreviewCorrectionStateFactory.fromCandidate(
-            automatic,
-            sourceWidth,
-            sourceHeight,
-        )
+    var state: PreviewCorrectionState = initialState
         private set
 
     fun setBounds(bounds: RectF) {
@@ -34,20 +28,23 @@ class PreviewCorrectionController(
     }
 
     fun reset() {
+        val candidate = detectionCandidate ?: return
         state = PreviewCorrectionStateFactory.fromCandidate(
-            automatic,
-            sourceWidth,
-            sourceHeight,
+            candidate,
+            state.sourceWidth,
+            state.sourceHeight,
         )
     }
 
     fun feedback(): CorrectionFeedback = state.correction()
 
     private fun clamp(bounds: RectF): RectF {
-        val left = bounds.left.coerceIn(0f, sourceWidth.toFloat() - 1f)
-        val top = bounds.top.coerceIn(0f, sourceHeight.toFloat() - 1f)
-        val right = bounds.right.coerceIn(left + 1f, sourceWidth.toFloat())
-        val bottom = bounds.bottom.coerceIn(top + 1f, sourceHeight.toFloat())
+        val maxRight = state.sourceWidth.toFloat().coerceAtLeast(1f)
+        val maxBottom = state.sourceHeight.toFloat().coerceAtLeast(1f)
+        val left = bounds.left.coerceIn(0f, maxRight - 1f)
+        val top = bounds.top.coerceIn(0f, maxBottom - 1f)
+        val right = bounds.right.coerceIn(left + 1f, maxRight)
+        val bottom = bounds.bottom.coerceIn(top + 1f, maxBottom)
         return RectF(left, top, right, bottom)
     }
 }
