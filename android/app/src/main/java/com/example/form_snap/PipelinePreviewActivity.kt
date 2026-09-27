@@ -26,18 +26,16 @@ class PipelinePreviewActivity : ComponentActivity() {
     ) { result ->
         val kind = correctionKindForResult ?: return@registerForActivityResult
         correctionKindForResult = null
+        if (result.resultCode != RESULT_OK) return@registerForActivityResult
 
-        if (result.resultCode == RESULT_OK) {
-            val resultUri = result.data?.let { UCrop.getOutput(it) }
-            val resultPath = resultUri?.path
-            if (!resultPath.isNullOrBlank()) {
-                pendingExternalCorrection = resultPath to kind
-            }
-        }
+        val resultUri = result.data?.let { UCrop.getOutput(it) } ?: return@registerForActivityResult
+        val resultPath = resultUri.path ?: return@registerForActivityResult
+        onExternalCorrection?.invoke(kind, File(resultPath))
     }
 
+    private var onExternalCorrection: ((DetectionKind, File) -> Unit)? = null
+
     private var correctionKindForResult: DetectionKind? = null
-    private var pendingExternalCorrection: Pair<String, DetectionKind>? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -58,6 +56,24 @@ class PipelinePreviewActivity : ComponentActivity() {
             val state by viewModel.state.collectAsState()
             val scope = rememberCoroutineScope()
             val editKind = remember { mutableStateOf<DetectionKind?>(null) }
+            val editedPhotoPath = remember { mutableStateOf<String?>(null) }
+            val editedSignaturePath = remember { mutableStateOf<String?>(null) }
+            val editedPhotoVersion = remember { mutableStateOf(0L) }
+            val editedSignatureVersion = remember { mutableStateOf(0L) }
+
+            onExternalCorrection = { kind, file ->
+                when (kind) {
+                    DetectionKind.PHOTO -> {
+                        editedPhotoPath.value = file.absolutePath
+                        editedPhotoVersion.value += 1L
+                    }
+                    DetectionKind.SIGNATURE -> {
+                        editedSignaturePath.value = file.absolutePath
+                        editedSignatureVersion.value += 1L
+                    }
+                }
+                editKind.value = kind
+            }
 
             LaunchedEffect(path) {
                 viewModel.load(
@@ -73,14 +89,21 @@ class PipelinePreviewActivity : ComponentActivity() {
             val inputBitmap = remember(state.source?.absolutePath) {
                 state.source?.let { BitmapFactory.decodeFile(it.absolutePath) }
             }
-            val photoBitmap = remember(state.photoPreviewPath, state.photoPreviewVersion) {
-                viewModel.loadBitmap(state.photoPreviewPath)
+            val photoBitmap = remember(
+                state.photoPreviewPath,
+                state.photoPreviewVersion,
+                editedPhotoPath.value,
+                editedPhotoVersion.value,
+            ) {
+                viewModel.loadBitmap(editedPhotoPath.value ?: state.photoPreviewPath)
             }
             val signatureBitmap = remember(
                 state.signaturePreviewPath,
                 state.signaturePreviewVersion,
+                editedSignaturePath.value,
+                editedSignatureVersion.value,
             ) {
-                viewModel.loadBitmap(state.signaturePreviewPath)
+                viewModel.loadBitmap(editedSignaturePath.value ?: state.signaturePreviewPath)
             }
 
             PipelinePreviewScreen(
