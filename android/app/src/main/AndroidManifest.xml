@@ -9,6 +9,11 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.FormSnap">
         <activity
+            android:name="org.techwithkaushik.formSnap.ui.UcropCorrectionActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.FormSnap" />
+        <activity
             android:name="org.techwithkaushik.formSnap.PipelinePreviewActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
