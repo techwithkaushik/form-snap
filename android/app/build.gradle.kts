@@ -58,5 +58,6 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.core:core-ktx:1.17.0")
     implementation("org.opencv:opencv:4.13.0")
+    implementation("com.github.yalantis:ucrop:2.2.11")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
