@@ -15,20 +15,26 @@ object CropEngine {
     fun crop(source: Mat, candidate: DetectionCandidate): CropOutput {
         require(!source.empty()) { "Source image is empty" }
 
-        val raw = Rect(
-            candidate.bounds.left.toInt(),
-            candidate.bounds.top.toInt(),
-            candidate.bounds.width().toInt(),
-            candidate.bounds.height().toInt(),
-        )
+        val rawLeft = candidate.bounds.left.toInt()
+        val rawTop = candidate.bounds.top.toInt()
+        val rawRight = candidate.bounds.right.toInt()
+        val rawBottom = candidate.bounds.bottom.toInt()
 
-        val paddingX = max(4, (raw.width * 0.06f).toInt())
-        val paddingY = max(4, (raw.height * 0.10f).toInt())
+        val leftBase = max(0, min(source.cols() - 1, rawLeft))
+        val topBase = max(0, min(source.rows() - 1, rawTop))
+        val rightBase = max(leftBase + 1, min(source.cols(), rawRight))
+        val bottomBase = max(topBase + 1, min(source.rows(), rawBottom))
 
-        val left = max(0, raw.left - paddingX)
-        val top = max(0, raw.top - paddingY)
-        val right = min(source.cols(), raw.right + paddingX)
-        val bottom = min(source.rows(), raw.bottom + paddingY)
+        val rawWidth = max(1, rightBase - leftBase)
+        val rawHeight = max(1, bottomBase - topBase)
+
+        val paddingX = max(4, (rawWidth * 0.06f).toInt())
+        val paddingY = max(4, (rawHeight * 0.10f).toInt())
+
+        val left = max(0, leftBase - paddingX)
+        val top = max(0, topBase - paddingY)
+        val right = min(source.cols(), rightBase + paddingX)
+        val bottom = min(source.rows(), bottomBase + paddingY)
 
         val width = max(1, right - left)
         val height = max(1, bottom - top)
