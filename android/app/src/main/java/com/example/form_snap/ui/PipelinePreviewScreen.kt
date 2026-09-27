@@ -29,13 +29,21 @@ fun PipelinePreviewScreen(
     processing: Boolean,
     message: String?,
     onProcess: () -> Unit,
-    onCorrectPhoto: () -> Unit,
-    onCorrectSignature: () -> Unit,
+    onEditPhoto: () -> Unit,
+    onAcceptPhoto: () -> Unit,
+    onRejectPhoto: () -> Unit,
+    onEditSignature: () -> Unit,
+    onAcceptSignature: () -> Unit,
+    onRejectSignature: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    LazyColumn(modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(
+        modifier.padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
         item { Text("Preview") }
+
         inputPreview?.let { bitmap ->
             item {
                 Card {
@@ -48,24 +56,52 @@ fun PipelinePreviewScreen(
                 }
             }
         }
+
         item {
-            Button(onClick = onProcess, enabled = !processing, modifier = Modifier.fillMaxWidth()) {
+            Button(
+                onClick = onProcess,
+                enabled = !processing,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
                 Text(if (processing) "Processing…" else "Process")
             }
         }
+
         message?.let { text -> item { Text(text) } }
+
         if (photoDetected || photoPreview != null) {
             item {
-                OutputPreviewCard("Photo", photoPreview, photoDetected, onCorrectPhoto)
+                OutputPreviewCard(
+                    title = "Photo",
+                    preview = photoPreview,
+                    detected = photoDetected,
+                    onEdit = onEditPhoto,
+                    onAccept = onAcceptPhoto,
+                    onReject = onRejectPhoto,
+                )
             }
         }
+
         if (signatureDetected || signaturePreview != null) {
             item {
-                OutputPreviewCard("Signature", signaturePreview, signatureDetected, onCorrectSignature)
+                OutputPreviewCard(
+                    title = "Signature",
+                    preview = signaturePreview,
+                    detected = signatureDetected,
+                    onEdit = onEditSignature,
+                    onAccept = onAcceptSignature,
+                    onReject = onRejectSignature,
+                )
             }
         }
+
         item {
-            OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Back") }
+            OutlinedButton(
+                onClick = onBack,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Back")
+            }
         }
     }
 }
@@ -75,12 +111,18 @@ private fun OutputPreviewCard(
     title: String,
     preview: Bitmap?,
     detected: Boolean,
-    onCorrect: () -> Unit,
+    onEdit: () -> Unit,
+    onAccept: () -> Unit,
+    onReject: () -> Unit,
 ) {
     Card {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(
+            Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             Text(title)
             Text(if (detected) "Detected" else "Not detected")
+
             preview?.let { bitmap ->
                 Image(
                     bitmap = bitmap.asImageBitmap(),
@@ -89,8 +131,32 @@ private fun OutputPreviewCard(
                     contentScale = ContentScale.Fit,
                 )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onCorrect, enabled = detected) { Text("Correct") }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(
+                    onClick = onReject,
+                    enabled = detected,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Reject")
+                }
+                OutlinedButton(
+                    onClick = onEdit,
+                    enabled = detected,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Edit")
+                }
+                Button(
+                    onClick = onAccept,
+                    enabled = detected,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Accept")
+                }
             }
         }
     }
