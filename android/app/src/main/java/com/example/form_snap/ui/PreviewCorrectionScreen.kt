@@ -103,6 +103,14 @@ fun PreviewCorrectionScreen(
             onValueChange = { onAppearanceChange(state.appearance.copy(denoise = it)) },
             valueRange = 0f..1f,
         )
+        Text("Background cleanup ${state.appearance.backgroundCleanup.asDisplay()}")
+        Slider(
+            value = state.appearance.backgroundCleanup,
+            onValueChange = {
+                onAppearanceChange(state.appearance.copy(backgroundCleanup = it))
+            },
+            valueRange = 0f..1f,
+        )
         Text(
             "Crop: " +
                 "${state.currentBounds.left.toInt()}, ${state.currentBounds.top.toInt()} → " +
