@@ -12,6 +12,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import org.techwithkaushik.formSnap.pipeline.DetectionKind
+import org.techwithkaushik.formSnap.pipeline.FeedbackRecorder
 import org.techwithkaushik.formSnap.pipeline.PreviewCorrectionController
 import org.techwithkaushik.formSnap.pipeline.PipelinePreviewViewModel
 import org.techwithkaushik.formSnap.ui.PipelinePreviewScreen
@@ -94,6 +95,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                         },
                         onAccept = {
                             controller.accept()
+                            FeedbackRecorder.record(applicationContext, controller.feedback())
                             scope.launch {
                                 if (correctionKind.value == DetectionKind.PHOTO) {
                                     viewModel.renderPhoto()
