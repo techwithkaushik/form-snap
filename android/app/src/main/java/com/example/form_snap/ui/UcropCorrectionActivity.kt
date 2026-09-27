@@ -27,8 +27,7 @@ class UcropCorrectionActivity : ComponentActivity() {
             setFreeStyleCropEnabled(true)
             setCompressionQuality(95)
             setShowCropGrid(true)
-            // uCrop's own gesture handling: crop stays interactive while
-            // scale/rotate gestures remain available.
+            setShowCropFrame(true)
         }
 
         UCrop.of(
@@ -48,10 +47,11 @@ class UcropCorrectionActivity : ComponentActivity() {
         if (requestCode != UCrop.REQUEST_CROP) return
 
         if (resultCode == Activity.RESULT_OK) {
-            val resultUri = data?.let(UCrop::getOutput) ?: Uri.fromFile(outputFile)
+            val resultUri = data?.let { UCrop.getOutput(it) }
+            val path = resultUri?.path ?: outputFile.absolutePath
             setResult(
                 Activity.RESULT_OK,
-                Intent().putExtra(EXTRA_RESULT_PATH, resultUri.path),
+                Intent().putExtra(EXTRA_RESULT_PATH, path),
             )
         } else {
             setResult(resultCode, data)
