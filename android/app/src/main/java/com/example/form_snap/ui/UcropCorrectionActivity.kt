@@ -24,11 +24,16 @@ class UcropCorrectionActivity : ComponentActivity() {
         outputFile = File(cacheDir, "ucrop_" + System.nanoTime() + ".jpg")
 
         val options = UCrop.Options().apply {
-            // Only the uCrop functions FormSnap needs:
-            // free-form crop, visible grid and high-quality JPEG output.
+            // FormSnap uses uCrop only for the reliable interactive crop UI.
+            // Keep gestures useful for correction without adding another editor.
             setFreeStyleCropEnabled(true)
             setCompressionQuality(95)
             setShowCropGrid(true)
+            setAllowedGestures(
+                UCropActivity.SCALE,
+                UCropActivity.SCALE,
+                UCropActivity.ROTATE,
+            )
         }
 
         UCrop.of(
@@ -60,6 +65,10 @@ class UcropCorrectionActivity : ComponentActivity() {
     }
 
     companion object {
+        private const val UCropActivity = "ucrop"
+        // Values used by UCrop.Options#setAllowedGestures.
+        const val SCALE = 3
+        const val ROTATE = 3
         const val EXTRA_SOURCE_PATH = "formsnap.ucrop.source_path"
         const val EXTRA_RESULT_PATH = "formsnap.ucrop.result_path"
         const val EXTRA_MAX_WIDTH = "formsnap.ucrop.max_width"
