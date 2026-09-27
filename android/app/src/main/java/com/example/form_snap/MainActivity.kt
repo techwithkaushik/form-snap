@@ -189,7 +189,14 @@ class MainActivity : ComponentActivity() {
                     importKeepsCurrentMode = true
                     openDocument.launch(arrayOf("image/*"))
                 },
-                onExtract = { processSource(source!!, mode, settings) },
+                onExtract = {
+                    val input = source ?: error("No source image")
+                    startActivity(
+                        Intent(this@MainActivity, PipelinePreviewActivity::class.java)
+                            .putExtra(PipelinePreviewActivity.EXTRA_INPUT_PATH, input.absolutePath),
+                    )
+                    Outputs()
+                },
                 onSave = { type, path, personName ->
                     if (hasFolder(type)) {
                         saveMessage = if (saveOutput(type, path, personName)) {
