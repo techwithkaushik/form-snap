@@ -17,7 +17,6 @@ import kotlinx.coroutines.launch
 import org.techwithkaushik.formSnap.pipeline.DetectionKind
 import org.techwithkaushik.formSnap.pipeline.PipelinePreviewViewModel
 import org.techwithkaushik.formSnap.ui.PipelinePreviewScreen
-import org.techwithkaushik.formSnap.ui.PreviewCorrectionScreen
 import java.io.File
 
 class PipelinePreviewActivity : ComponentActivity() {
@@ -59,8 +58,6 @@ class PipelinePreviewActivity : ComponentActivity() {
             val state by viewModel.state.collectAsState()
             val scope = rememberCoroutineScope()
             val editKind = remember { mutableStateOf<DetectionKind?>(null) }
-            val editedPhotoPath = remember { mutableStateOf<String?>(null) }
-            val editedSignaturePath = remember { mutableStateOf<String?>(null) }
 
             LaunchedEffect(path) {
                 viewModel.load(
@@ -71,20 +68,6 @@ class PipelinePreviewActivity : ComponentActivity() {
                     signatureWidthMm = signatureWidthMm,
                     signatureHeightMm = signatureHeightMm,
                 )
-            }
-
-            LaunchedEffect(pendingExternalCorrection) {
-                val pending = pendingExternalCorrection ?: return@LaunchedEffect
-                val file = File(pending.first)
-                if (file.exists()) {
-                    viewModel.replacePreviewFromExternal(pending.second, file)
-                    when (pending.second) {
-                        DetectionKind.PHOTO -> editedPhotoPath.value = file.absolutePath
-                        DetectionKind.SIGNATURE -> editedSignaturePath.value = file.absolutePath
-                    }
-                    editKind.value = pending.second
-                }
-                pendingExternalCorrection = null
             }
 
             val inputBitmap = remember(state.source?.absolutePath) {
