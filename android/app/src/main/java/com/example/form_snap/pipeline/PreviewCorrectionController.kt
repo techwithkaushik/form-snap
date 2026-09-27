@@ -36,7 +36,15 @@ class PreviewCorrectionController(
         )
     }
 
-    fun feedback(): CorrectionFeedback = state.correction()
+    fun feedback(): CorrectionFeedback {
+        val candidate = detectionCandidate ?: DetectionCandidate(
+            kind = state.kind,
+            bounds = state.automaticBounds,
+            confidence = 1f,
+            source = "automatic-preview",
+        )
+        return state.correction(candidate)
+    }
 
     private fun clamp(bounds: RectF): RectF {
         val maxRight = state.sourceWidth.toFloat().coerceAtLeast(1f)
