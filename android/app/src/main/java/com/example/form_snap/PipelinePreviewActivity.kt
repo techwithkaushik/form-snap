@@ -43,7 +43,7 @@ class PipelinePreviewActivity : ComponentActivity() {
             val correctionController = remember { mutableStateOf<PreviewCorrectionController?>(null) }
 
             LaunchedEffect(path) {
-                viewModel.load(java.io.File(path))
+                viewModel.load(input = java.io.File(path), dpi = dpi.toInt(), photoWidthMm = photoWidthMm, photoHeightMm = photoHeightMm, signatureWidthMm = signatureWidthMm, signatureHeightMm = signatureHeightMm)
             }
 
             val inputBitmap = remember(state.source?.absolutePath) {
@@ -117,7 +117,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                         onBoundsChange = { bounds ->
                             controller.setBounds(bounds)
                             scope.launch {
-                                viewModel.applyCorrection(correctionKind.value ?: return@launch, controller.state)
+                                viewModel.updateCorrectionState(correctionKind.value ?: return@launch, controller.state)
                             }
                         },
                         onAppearanceChange = { appearance ->
