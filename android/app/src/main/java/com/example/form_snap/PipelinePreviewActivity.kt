@@ -7,11 +7,15 @@ import androidx.activity.compose.setContent
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
+import org.techwithkaushik.formSnap.pipeline.DetectionKind
+import org.techwithkaushik.formSnap.pipeline.PreviewCorrectionController
 import org.techwithkaushik.formSnap.pipeline.PipelinePreviewViewModel
 import org.techwithkaushik.formSnap.ui.PipelinePreviewScreen
+import org.techwithkaushik.formSnap.ui.PreviewCorrectionScreen
 
 class PipelinePreviewActivity : ComponentActivity() {
 
@@ -25,11 +29,11 @@ class PipelinePreviewActivity : ComponentActivity() {
         }
 
         setContent {
-            val viewModel = remember {
-                PipelinePreviewViewModel(applicationContext)
-            }
+            val viewModel = remember { PipelinePreviewViewModel(applicationContext) }
             val state by viewModel.state.collectAsState()
             val scope = rememberCoroutineScope()
+            val correctionKind = remember { mutableStateOf<DetectionKind?>(null) }
+            val correctionController = remember { mutableStateOf<PreviewCorrectionController?>(null) }
 
             LaunchedEffect(path) {
                 viewModel.load(java.io.File(path))
@@ -45,36 +49,73 @@ class PipelinePreviewActivity : ComponentActivity() {
                 viewModel.loadBitmap(state.signaturePreviewPath)
             }
 
-            PipelinePreviewScreen(
-                inputPreview = inputBitmap,
-                photoPreview = photoBitmap,
-                signaturePreview = signatureBitmap,
-                photoDetected = state.photoState != null,
-                signatureDetected = state.signatureState != null,
-                processing = state.processing,
-                message = state.error,
-                onProcess = {
-                    scope.launch {
-                        viewModel.renderPhoto()
-                        viewModel.renderSignature()
-                    }
-                },
-                onCorrectPhoto = {
-                    // Correction editor integration follows after this host is stable.
-                },
-                onCorrectSignature = {
-                    // Correction editor integration follows after this host is stable.
-                },
-                onBack = {
-                    viewModel.close()
-                    finish()
-                },
-            )
+            if (correctionKind.value == null) {
+                PipelinePreviewScreen(
+                    inputPreview = inputBitmap,
+                    photoPreview = photoBitmap,
+                    signaturePreview = signatureBitmap,
+                    photoDetected = state.photoState != null,
+                    signatureDetected = state.signatureState != null,
+                    processing = state.processing,
+                    message = state.error,
+                    onProcess = {
+                        scope.launch {
+                            viewModel.renderPhoto()
+                            viewModel.renderSignature()
+                        }
+                    },
+                    onCorrectPhoto = {
+                        state.photoState?.let {
+                            correctionController.value = PreviewCorrectionController(it)
+                            correctionKind.value = DetectionKind.PHOTO
+                        }
+                    },
+                    onCorrectSignature = {
+                        state.signatureState?.let {
+                            correctionController.value = PreviewCorrectionController(it)
+                            correctionKind.value = DetectionKind.SIGNATURE
+                        }
+                    },
+                    onBack = {
+                        viewModel.close()
+                        finish()
+                    },
+                )
+            } else {
+                val controller = correctionController.value
+                val correctionState = controller?.state
+                if (controller != null && correctionState != null) {
+                    val preview = if (correctionKind.value == DetectionKind.PHOTO) photoBitmap else signatureBitmap
+                    PreviewCorrectionScreen(
+                        state = correctionState,
+                        preview = preview,
+                        onAppearanceChange = { appearance ->
+                            controller.setAppearance(appearance)
+                        },
+                        onAccept = {
+                            val feedback = controller.accept()
+                            scope.launch {
+                                if (correctionKind.value == DetectionKind.PHOTO) {
+                                    viewModel.renderPhoto()
+                                } else {
+                                    viewModel.renderSignature()
+                                }
+                                correctionKind.value = null
+                                correctionController.value = null
+                            }
+                        },
+                        onReject = {
+                            controller.reject()
+                            correctionKind.value = null
+                            correctionController.value = null
+                        },
+                        onReset = {
+                            controller.reset()
+                        },
+                    )
+                }
+            }
         }
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
     }
 
     companion object {
