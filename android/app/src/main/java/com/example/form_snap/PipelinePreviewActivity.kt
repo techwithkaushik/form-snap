@@ -24,7 +24,6 @@ class PipelinePreviewActivity : ComponentActivity() {
         }
 
         setContent {
-            FormSnapTheme {
                 val viewModel = remember { PipelinePreviewViewModel(applicationContext) }
                 val state by viewModel.state.collectAsState()
                 val scope = rememberCoroutineScope()
@@ -43,7 +42,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                     viewModel.loadBitmap(state.signaturePreviewPath)
                 }
 
-                PipelinePreviewScreen(
+                org.techwithkaushik.formSnap.ui.PipelinePreviewScreen(
                     inputPreview = inputBitmap,
                     photoPreview = photoBitmap,
                     signaturePreview = signatureBitmap,
