@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
 android {
     namespace = "org.techwithkaushik.formSnap"
     compileSdk = 37
@@ -47,6 +48,7 @@ android {
         }
     }
 }
+
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
     implementation(composeBom)
@@ -58,6 +60,6 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.core:core-ktx:1.17.0")
     implementation("org.opencv:opencv:4.13.0")
-    implementation("com.github.yalantis:ucrop:2.2.8")
+    implementation("com.github.jens-muenker:uCrop-n-Edit:4.1.1-non-native")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
