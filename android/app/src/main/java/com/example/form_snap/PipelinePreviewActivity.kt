@@ -26,6 +26,10 @@ class PipelinePreviewActivity : ComponentActivity() {
         val path = intent.getStringExtra(EXTRA_INPUT_PATH)
         val maxKb = intent.getIntExtra(EXTRA_MAX_KB, 50)
         val dpi = intent.getDoubleExtra(EXTRA_DPI, 300.0)
+        val photoWidthMm = intent.getDoubleExtra(EXTRA_PHOTO_WIDTH_MM, 40.0)
+        val photoHeightMm = intent.getDoubleExtra(EXTRA_PHOTO_HEIGHT_MM, 50.0)
+        val signatureWidthMm = intent.getDoubleExtra(EXTRA_SIGNATURE_WIDTH_MM, 50.0)
+        val signatureHeightMm = intent.getDoubleExtra(EXTRA_SIGNATURE_HEIGHT_MM, 20.0)
         if (path.isNullOrBlank()) {
             finish()
             return
@@ -153,5 +157,9 @@ class PipelinePreviewActivity : ComponentActivity() {
         const val EXTRA_INPUT_PATH = "formsnap.input_path"
         const val EXTRA_MAX_KB = "formsnap.max_kb"
         const val EXTRA_DPI = "formsnap.dpi"
+        const val EXTRA_PHOTO_WIDTH_MM = "formsnap.photo_width_mm"
+        const val EXTRA_PHOTO_HEIGHT_MM = "formsnap.photo_height_mm"
+        const val EXTRA_SIGNATURE_WIDTH_MM = "formsnap.signature_width_mm"
+        const val EXTRA_SIGNATURE_HEIGHT_MM = "formsnap.signature_height_mm"
     }
 }
