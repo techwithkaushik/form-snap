@@ -2,8 +2,10 @@ package org.techwithkaushik.formSnap
 
 import android.graphics.BitmapFactory
 import android.os.Bundle
+import android.content.Intent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -16,9 +18,33 @@ import org.techwithkaushik.formSnap.pipeline.FeedbackRecorder
 import org.techwithkaushik.formSnap.pipeline.PreviewCorrectionController
 import org.techwithkaushik.formSnap.pipeline.PipelinePreviewViewModel
 import org.techwithkaushik.formSnap.ui.PipelinePreviewScreen
+import org.techwithkaushik.formSnap.ui.UcropCorrectionActivity
 import org.techwithkaushik.formSnap.ui.PreviewCorrectionScreen
 
 class PipelinePreviewActivity : ComponentActivity() {
+
+    private val correctionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val data = result.data
+        if (result.resultCode == RESULT_OK && data != null) {
+            val resultPath = data.getStringExtra(UcropCorrectionActivity.EXTRA_RESULT_PATH)
+            if (!resultPath.isNullOrBlank()) {
+                val kind = correctionKindForResult
+                if (kind != null) {
+                    correctionKindForResult = null
+                    setResult(
+                        RESULT_OK,
+                        Intent().putExtra(EXTRA_EXTERNAL_CORRECTION_PATH, resultPath),
+                    )
+                    // The main preview flow remains unchanged; uCrop is available
+                    // as the focused correction tool.
+                }
+            }
+        }
+    }
+
+    private var correctionKindForResult: DetectionKind? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -74,34 +100,12 @@ class PipelinePreviewActivity : ComponentActivity() {
                     },
                     onCorrectPhoto = {
                         state.photoState?.let { correction ->
-                            val candidate = org.techwithkaushik.formSnap.pipeline.DetectionCandidate(
-                                kind = DetectionKind.PHOTO,
-                                bounds = correction.automaticBounds,
-                                confidence = 1f,
-                                source = "automatic-preview",
-                            )
-                            correctionController.value = PreviewCorrectionController(
-                                detectionCandidate = candidate,
-                                initialState = correction,
-                            )
-                            correctionUiState.value = correction
-                            correctionKind.value = DetectionKind.PHOTO
+                            openUcrop(correctionKind = DetectionKind.PHOTO, sourcePath = path)
                         }
                     },
                     onCorrectSignature = {
                         state.signatureState?.let { correction ->
-                            val candidate = org.techwithkaushik.formSnap.pipeline.DetectionCandidate(
-                                kind = DetectionKind.SIGNATURE,
-                                bounds = correction.automaticBounds,
-                                confidence = 1f,
-                                source = "automatic-preview",
-                            )
-                            correctionController.value = PreviewCorrectionController(
-                                detectionCandidate = candidate,
-                                initialState = correction,
-                            )
-                            correctionUiState.value = correction
-                            correctionKind.value = DetectionKind.SIGNATURE
+                            openUcrop(correctionKind = DetectionKind.SIGNATURE, sourcePath = path)
                         }
                     },
                     onBack = {
@@ -159,6 +163,16 @@ class PipelinePreviewActivity : ComponentActivity() {
         }
     }
 
+    private fun openUcrop(correctionKind: DetectionKind, sourcePath: String) {
+        correctionKindForResult = correctionKind
+        correctionLauncher.launch(
+            Intent(this, UcropCorrectionActivity::class.java)
+                .putExtra(UcropCorrectionActivity.EXTRA_SOURCE_PATH, sourcePath)
+                .putExtra(UcropCorrectionActivity.EXTRA_MAX_WIDTH, 4000)
+                .putExtra(UcropCorrectionActivity.EXTRA_MAX_HEIGHT, 4000),
+        )
+    }
+
     companion object {
         const val EXTRA_INPUT_PATH = "formsnap.input_path"
         const val EXTRA_MAX_KB = "formsnap.max_kb"
@@ -167,5 +181,6 @@ class PipelinePreviewActivity : ComponentActivity() {
         const val EXTRA_PHOTO_HEIGHT_MM = "formsnap.photo_height_mm"
         const val EXTRA_SIGNATURE_WIDTH_MM = "formsnap.signature_width_mm"
         const val EXTRA_SIGNATURE_HEIGHT_MM = "formsnap.signature_height_mm"
+        const val EXTRA_EXTERNAL_CORRECTION_PATH = "formsnap.external_correction_path"
     }
 }
