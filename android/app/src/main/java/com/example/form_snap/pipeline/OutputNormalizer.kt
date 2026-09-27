@@ -18,11 +18,13 @@ object OutputNormalizer {
         candidate: DetectionCandidate,
         kind: DetectionKind,
         dpi: Int = 300,
+        widthMm: Double? = null,
+        heightMm: Double? = null,
     ): NormalizedOutput {
         require(!source.empty()) { "Source image is empty" }
 
-        val widthPx = max(1, mmToPx(defaultWidthMm(kind), dpi))
-        val heightPx = max(1, mmToPx(defaultHeightMm(kind), dpi))
+        val widthPx = max(1, mmToPx(widthMm ?: defaultWidthMm(kind), dpi))
+        val heightPx = max(1, mmToPx(heightMm ?: defaultHeightMm(kind), dpi))
         val crop = CropEngine.crop(source, candidate)
         val cleaned = BorderCleaner.clean(crop.image, kind)
         crop.image.release()
