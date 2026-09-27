@@ -99,6 +99,18 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
     suspend fun renderPhoto() = renderKind(DetectionKind.PHOTO)
     suspend fun renderSignature() = renderKind(DetectionKind.SIGNATURE)
 
+    suspend fun redetect() {
+        val input = _state.value.source ?: return
+        load(
+            input = input,
+            dpi = dpi,
+            photoWidthMm = photoWidthMm,
+            photoHeightMm = photoHeightMm,
+            signatureWidthMm = signatureWidthMm,
+            signatureHeightMm = signatureHeightMm,
+        )
+    }
+
     suspend fun accept(kind: DetectionKind) {
         val correction = stateFor(kind) ?: return
         val automatic = candidateFor(kind) ?: return
@@ -117,11 +129,15 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
                 photoState = null,
                 photoPreviewPath = null,
                 photoPreviewVersion = current.photoPreviewVersion + 1L,
+                processing = false,
+                error = null,
             )
             DetectionKind.SIGNATURE -> current.copy(
                 signatureState = null,
                 signaturePreviewPath = null,
                 signaturePreviewVersion = current.signaturePreviewVersion + 1L,
+                processing = false,
+                error = null,
             )
         }
     }
