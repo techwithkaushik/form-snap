@@ -172,7 +172,7 @@ private fun CropEditor(
             if (viewWidth > 1f && viewHeight > 1f) {
                 val sx = viewWidth / sourceWidth.toFloat()
                 val sy = viewHeight / sourceHeight.toFloat()
-                drawRect(Color.White, Offset(bounds.left * sx, bounds.top * sy), Size(bounds.width() * sx, bounds.height() * sy), androidx.compose.ui.graphics.drawscope.Stroke(3f))
+                drawRect(color = Color.White, topLeft = Offset(bounds.left * sx, bounds.top * sy), size = Size(bounds.width() * sx, bounds.height() * sy), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f))
             }
         }
     }
