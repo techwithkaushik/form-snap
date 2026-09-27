@@ -69,15 +69,15 @@ fun PreviewCorrectionScreen(
                     modifier = Modifier.weight(1f),
                 ) { Text("Reject") }
 
-                Button(
-                    onClick = onAccept,
-                    modifier = Modifier.weight(1f),
-                ) { Text("Accept") }
-
                 OutlinedButton(
                     onClick = onOpenCrop,
                     modifier = Modifier.weight(1f),
                 ) { Text("Edit") }
+
+                Button(
+                    onClick = onAccept,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Accept") }
             }
         }
     }
