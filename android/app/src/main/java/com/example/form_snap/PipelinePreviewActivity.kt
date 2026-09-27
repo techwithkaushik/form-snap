@@ -41,6 +41,7 @@ class PipelinePreviewActivity : ComponentActivity() {
             val scope = rememberCoroutineScope()
             val correctionKind = remember { mutableStateOf<DetectionKind?>(null) }
             val correctionController = remember { mutableStateOf<PreviewCorrectionController?>(null) }
+            val correctionUiState = remember { mutableStateOf<org.techwithkaushik.formSnap.pipeline.PreviewCorrectionState?>(null) }
 
             LaunchedEffect(path) {
                 viewModel.load(input = java.io.File(path), dpi = dpi.toInt(), photoWidthMm = photoWidthMm, photoHeightMm = photoHeightMm, signatureWidthMm = signatureWidthMm, signatureHeightMm = signatureHeightMm)
@@ -49,10 +50,10 @@ class PipelinePreviewActivity : ComponentActivity() {
             val inputBitmap = remember(state.source?.absolutePath) {
                 state.source?.let { BitmapFactory.decodeFile(it.absolutePath) }
             }
-            val photoBitmap = remember(state.photoPreviewPath) {
+            val photoBitmap = remember(state.photoPreviewPath, state.photoPreviewVersion) {
                 viewModel.loadBitmap(state.photoPreviewPath)
             }
-            val signatureBitmap = remember(state.signaturePreviewPath) {
+            val signatureBitmap = remember(state.signaturePreviewPath, state.signaturePreviewVersion) {
                 viewModel.loadBitmap(state.signaturePreviewPath)
             }
 
@@ -83,6 +84,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                                 detectionCandidate = candidate,
                                 initialState = correction,
                             )
+                            correctionUiState.value = correction
                             correctionKind.value = DetectionKind.PHOTO
                         }
                     },
@@ -98,6 +100,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                                 detectionCandidate = candidate,
                                 initialState = correction,
                             )
+                            correctionUiState.value = correction
                             correctionKind.value = DetectionKind.SIGNATURE
                         }
                     },
@@ -108,23 +111,22 @@ class PipelinePreviewActivity : ComponentActivity() {
                 )
             } else {
                 val controller = correctionController.value
-                val correctionState = controller?.state
+                val correctionState = correctionUiState.value
                 if (controller != null && correctionState != null) {
                     val preview = if (correctionKind.value == DetectionKind.PHOTO) photoBitmap else signatureBitmap
                     PreviewCorrectionScreen(
                         state = correctionState,
-                        preview = preview,
+                        source = inputBitmap,
+                        resultPreview = preview,
                         onBoundsChange = { bounds ->
                             controller.setBounds(bounds)
-                            scope.launch {
-                                viewModel.updateCorrectionState(correctionKind.value ?: return@launch, controller.state)
-                            }
+                            correctionUiState.value = controller.state
+                            correctionKind.value?.let { viewModel.schedulePreview(it, controller.state) }
                         },
                         onAppearanceChange = { appearance ->
                             controller.setAppearance(appearance)
-                            scope.launch {
-                                viewModel.applyCorrection(correctionKind.value ?: return@launch, controller.state)
-                            }
+                            correctionUiState.value = controller.state
+                            correctionKind.value?.let { viewModel.schedulePreview(it, controller.state) }
                         },
                         onAccept = {
                             controller.accept()
@@ -135,17 +137,21 @@ class PipelinePreviewActivity : ComponentActivity() {
                                 } else {
                                     viewModel.renderSignature()
                                 }
+                                correctionUiState.value = null
                                 correctionKind.value = null
                                 correctionController.value = null
                             }
                         },
                         onReject = {
                             controller.reject()
+                            correctionUiState.value = null
                             correctionKind.value = null
                             correctionController.value = null
                         },
                         onReset = {
                             controller.reset()
+                            correctionUiState.value = controller.state
+                            correctionKind.value?.let { viewModel.schedulePreview(it, controller.state) }
                         },
                     )
                 }
