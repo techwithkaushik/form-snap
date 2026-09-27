@@ -11,6 +11,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
+import androidx.compose.runtime.key
 import org.techwithkaushik.formSnap.pipeline.DetectionKind
 import org.techwithkaushik.formSnap.pipeline.PreviewCorrectionController
 import org.techwithkaushik.formSnap.pipeline.PipelinePreviewViewModel
@@ -93,7 +94,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                             controller.setAppearance(appearance)
                         },
                         onAccept = {
-                            val feedback = controller.accept()
+                            controller.accept()
                             scope.launch {
                                 if (correctionKind.value == DetectionKind.PHOTO) {
                                     viewModel.renderPhoto()
