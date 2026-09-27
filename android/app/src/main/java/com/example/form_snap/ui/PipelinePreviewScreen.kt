@@ -69,7 +69,7 @@ fun PipelinePreviewScreen(
 
         message?.let { text -> item { Text(text) } }
 
-        if (photoDetected || photoPreview != null) {
+        if (photoDetected) {
             item {
                 OutputPreviewCard(
                     title = "Photo",
@@ -82,7 +82,7 @@ fun PipelinePreviewScreen(
             }
         }
 
-        if (signatureDetected || signaturePreview != null) {
+        if (signatureDetected) {
             item {
                 OutputPreviewCard(
                     title = "Signature",
