@@ -66,7 +66,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                     },
                     onCorrectPhoto = {
                         state.photoState?.let {
-                            correctionController.value = PreviewCorrectionController(it)
+                            correctionController.value = PreviewCorrectionController(initialState = it)
                             correctionKind.value = DetectionKind.PHOTO
                         }
                     },
