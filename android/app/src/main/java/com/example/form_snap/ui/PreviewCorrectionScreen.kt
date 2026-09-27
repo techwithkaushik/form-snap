@@ -25,7 +25,6 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -202,7 +201,6 @@ private fun CropEditor(
                 topLeft = Offset(left, top),
                 size = Size(width, height),
                 style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f),
-                pathEffect = PathEffect.dashPathEffect(floatArrayOf(16f, 10f)),
             )
         }
     }
