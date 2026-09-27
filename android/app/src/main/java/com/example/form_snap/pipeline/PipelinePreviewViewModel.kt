@@ -142,7 +142,8 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
         previewJob?.cancel()
         previewJob = previewScope.launch {
             delay(delayMs)
-            if (correction == stateFor(kind)) {
+            val current = stateFor(kind)
+            if (current == correction) {
                 renderKind(kind)
             }
         }
@@ -163,24 +164,20 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
         require(correctedFile.exists()) { "Corrected crop does not exist" }
 
         withContext(Dispatchers.Default) {
-            val suffix = if (kind == DetectionKind.PHOTO) {
-                "photo_ucrop.jpg"
-            } else {
-                "signature_ucrop.jpg"
-            }
-            val target = File(sessionDir, suffix)
+            val target = File(
+                sessionDir,
+                if (kind == DetectionKind.PHOTO) "photo_ucrop.jpg" else "signature_ucrop.jpg",
+            )
             correctedFile.inputStream().use { input ->
                 target.outputStream().use { output -> input.copyTo(output) }
             }
 
-            val path = File(
+            val previewTarget = File(
                 sessionDir,
-                if (kind == DetectionKind.PHOTO) "photo_preview.jpg"
-                else "signature_preview.jpg",
+                if (kind == DetectionKind.PHOTO) "photo_preview.jpg" else "signature_preview.jpg",
             )
-
-            File(path.absolutePath).outputStream().use { output ->
-                target.inputStream().use { input -> input.copyTo(output) }
+            target.inputStream().use { input ->
+                previewTarget.outputStream().use { output -> input.copyTo(output) }
             }
         }
 
