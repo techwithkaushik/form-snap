@@ -51,7 +51,8 @@ private enum class DragMode {
 @Composable
 fun PreviewCorrectionScreen(
     state: PreviewCorrectionState,
-    preview: Bitmap?,
+    source: Bitmap?,
+    resultPreview: Bitmap?,
     onBoundsChange: (RectF) -> Unit,
     onAppearanceChange: (AppearanceAdjustments) -> Unit,
     onAccept: () -> Unit,
@@ -64,8 +65,27 @@ fun PreviewCorrectionScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item { Text(if (state.kind == DetectionKind.PHOTO) "Photo correction" else "Signature correction") }
-        preview?.let { bitmap ->
-            item { CropEditor(bitmap, state.currentBounds, state.sourceWidth, state.sourceHeight, onBoundsChange) }
+        source?.let { bitmap ->
+            item {
+                CropEditor(
+                    bitmap = bitmap,
+                    bounds = state.currentBounds,
+                    sourceWidth = state.sourceWidth,
+                    sourceHeight = state.sourceHeight,
+                    onBoundsChange = onBoundsChange,
+                )
+            }
+        }
+        resultPreview?.let { bitmap ->
+            item {
+                Text("Result preview")
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxWidth().aspectRatio(bitmap.width.toFloat() / bitmap.height.toFloat()),
+                    contentScale = ContentScale.Fit,
+                )
+            }
         }
         item {
             Text("Brightness ${state.appearance.brightness.asDisplay()}")
@@ -141,8 +161,8 @@ private fun CropEditor(
 
                     detectDragGestures(
                         onDragStart = { offset ->
-                            val sx = sourceWidth.toFloat() / size.width.coerceAtLeast(1f)
-                            val sy = sourceHeight.toFloat() / size.height.coerceAtLeast(1f)
+                            val sx = sourceWidth.toFloat() / size.width.coerceAtLeast(1).toFloat()
+                            val sy = sourceHeight.toFloat() / size.height.coerceAtLeast(1).toFloat()
                             val x = offset.x * sx
                             val y = offset.y * sy
                             val edge = (minOf(bounds.width(), bounds.height()) * 0.22f).coerceIn(35f, 160f)
@@ -183,8 +203,8 @@ private fun CropEditor(
 
                             when (mode) {
                                 DragMode.MOVE -> {
-                                    val maxLeft = (sourceWidth - next.width()).coerceAtLeast(0f)
-                                    val maxTop = (sourceHeight - next.height()).coerceAtLeast(0f)
+                                    val maxLeft = (sourceWidth.toFloat() - next.width()).coerceAtLeast(0f)
+                                    val maxTop = (sourceHeight.toFloat() - next.height()).coerceAtLeast(0f)
                                     next.offsetTo(
                                         (startBounds.left + dx).coerceIn(0f, maxLeft),
                                         (startBounds.top + dy).coerceIn(0f, maxTop),
