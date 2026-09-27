@@ -3,7 +3,12 @@ package org.techwithkaushik.formSnap.pipeline
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
@@ -33,6 +38,8 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
     val state: StateFlow<PreviewProcessingState> = _state
 
     private val sessionDir = File(ProcessingPaths.root(context), "preview_session").apply { mkdirs() }
+    private val previewScope = CoroutineScope(Dispatchers.Main.immediate)
+    private var previewJob: Job? = null
 
     suspend fun load(
         input: File,
@@ -47,6 +54,7 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
         this.photoHeightMm = photoHeightMm.coerceAtLeast(1.0)
         this.signatureWidthMm = signatureWidthMm.coerceAtLeast(1.0)
         this.signatureHeightMm = signatureHeightMm.coerceAtLeast(1.0)
+        previewJob?.cancel()
         _state.value = PreviewProcessingState(source = input, processing = true)
         try {
             val detection = withContext(Dispatchers.Default) {
