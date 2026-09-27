@@ -9,7 +9,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.techwithkaushik.formSnap.pipeline.PipelinePreviewViewModel
 import org.techwithkaushik.formSnap.ui.PipelinePreviewScreen
@@ -24,7 +23,7 @@ class PipelinePreviewActivity : ComponentActivity() {
         }
 
         setContent {
-                val viewModel = remember { PipelinePreviewViewModel(applicationContext) }
+            val viewModel = remember { PipelinePreviewViewModel(applicationContext) }
                 val state by viewModel.state.collectAsState()
                 val scope = rememberCoroutineScope()
 
@@ -42,7 +41,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                     viewModel.loadBitmap(state.signaturePreviewPath)
                 }
 
-                org.techwithkaushik.formSnap.ui.PipelinePreviewScreen(
+            org.techwithkaushik.formSnap.ui.PipelinePreviewScreen(
                     inputPreview = inputBitmap,
                     photoPreview = photoBitmap,
                     signaturePreview = signatureBitmap,
