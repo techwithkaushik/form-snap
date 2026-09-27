@@ -2,59 +2,69 @@ package org.techwithkaushik.formSnap.pipeline
 
 import org.opencv.core.Mat
 
-enum class CorrectionAction {
-    ACCEPT,
-    ADJUST,
-    REJECT,
-}
-
-data class CorrectionInput(
-    val photo: DetectionCandidate?,
-    val signature: DetectionCandidate?,
-    val action: CorrectionAction,
-)
-
-data class PipelineOutput(
-    val detection: DetectionResult,
-    val photo: Mat?,
-    val signature: Mat?,
-    val photoQuality: QualityResult?,
-    val signatureQuality: QualityResult?,
-) : AutoCloseable {
-    override fun close() {
-        photo?.release()
-        signature?.release()
-    }
-}
-
 object UniversalPipeline {
-    fun process(source: Mat, dpi: Int = 300): PipelineOutput {
+    fun process(
+        source: Mat,
+        kind: DetectionKind,
+        dpi: Int = 300,
+        context: android.content.Context? = null,
+    ): PipelineStageOutput {
         require(!source.empty()) { "Source image is empty" }
 
         val detection = UniversalDetectionEngine.detect(source)
-        val photoCandidate = detection.photo
-        val signatureCandidate = detection.signature
-
-        val photoOutput = photoCandidate?.let {
-            OutputNormalizer.normalize(source, it, DetectionKind.PHOTO, dpi)
-        }
-        val signatureOutput = signatureCandidate?.let {
-            OutputNormalizer.normalize(source, it, DetectionKind.SIGNATURE, dpi)
+        val candidate = when (kind) {
+            DetectionKind.PHOTO -> detection.photo
+            DetectionKind.SIGNATURE -> detection.signature
         }
 
-        val photoQuality = photoOutput?.let {
-            ImageQualityGate.evaluate(it.image, DetectionKind.PHOTO)
-        }
-        val signatureQuality = signatureOutput?.let {
-            ImageQualityGate.evaluate(it.image, DetectionKind.SIGNATURE)
+        if (candidate == null) {
+            return PipelineStageOutput(
+                detection = detection,
+                kind = kind,
+                image = null,
+                quality = null,
+                learnedBlend = 0f,
+                learned = null,
+            )
         }
 
-        return PipelineOutput(
-            detection = detection,
-            photo = photoOutput?.image,
-            signature = signatureOutput?.image,
-            photoQuality = photoQuality,
-            signatureQuality = signatureQuality,
+        val learned = context?.let { LearningStore.best(it, kind) }
+        val application = LearnedProfileApplier.apply(candidate, learned)
+        val adjustedCandidate = candidate.copy(bounds = application.bounds)
+
+        val output = OutputNormalizer.normalize(source, adjustedCandidate, kind, dpi)
+        val appearanceApplied = AppearanceProcessor.apply(
+            output.image,
+            application.appearance,
+            kind,
         )
+        output.image.release()
+
+        val quality = ImageQualityGate.evaluate(appearanceApplied, kind)
+
+        return PipelineStageOutput(
+            detection = detection.copy(
+                photo = if (kind == DetectionKind.PHOTO) adjustedCandidate else detection.photo,
+                signature = if (kind == DetectionKind.SIGNATURE) adjustedCandidate else detection.signature,
+            ),
+            kind = kind,
+            image = appearanceApplied,
+            quality = quality,
+            learnedBlend = application.blend,
+            learned = learned,
+        )
+    }
+}
+
+data class PipelineStageOutput(
+    val detection: DetectionResult,
+    val kind: DetectionKind,
+    val image: Mat?,
+    val quality: QualityResult?,
+    val learnedBlend: Float,
+    val learned: LearnedCorrection?,
+) : AutoCloseable {
+    override fun close() {
+        image?.release()
     }
 }
