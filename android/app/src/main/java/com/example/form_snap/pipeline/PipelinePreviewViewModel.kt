@@ -40,6 +40,8 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
     private val sessionDir = File(ProcessingPaths.root(context), "preview_session").apply { mkdirs() }
     private val previewScope = CoroutineScope(Dispatchers.Main.immediate)
     private var previewJob: Job? = null
+    private val previewScope = CoroutineScope(Dispatchers.Main.immediate)
+    private var previewJob: Job? = null
 
     suspend fun load(
         input: File,
