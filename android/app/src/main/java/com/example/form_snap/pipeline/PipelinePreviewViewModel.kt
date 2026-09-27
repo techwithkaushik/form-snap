@@ -21,6 +21,12 @@ data class PreviewProcessingState(
 )
 
 class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
+    private var dpi: Int = 300
+    private var photoWidthMm: Double = 40.0
+    private var photoHeightMm: Double = 50.0
+    private var signatureWidthMm: Double = 50.0
+    private var signatureHeightMm: Double = 20.0
+
     private val _state = MutableStateFlow(PreviewProcessingState())
     val state: StateFlow<PreviewProcessingState> = _state
 
@@ -100,7 +106,13 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
             val source = org.opencv.imgcodecs.Imgcodecs.imread(input.absolutePath)
             require(!source.empty()) { "Unable to decode source image" }
             try {
-                val image = PreviewProcessor.render(source, correction)
+                val image = PreviewProcessor.render(
+                            source = source,
+                            state = correction,
+                            dpi = dpi,
+                            widthMm = if (kind == DetectionKind.PHOTO) photoWidthMm else signatureWidthMm,
+                            heightMm = if (kind == DetectionKind.PHOTO) photoHeightMm else signatureHeightMm,
+                        )
                 try {
                     val target = File(sessionDir, name)
                     check(org.opencv.imgcodecs.Imgcodecs.imwrite(target.absolutePath, image)) {
