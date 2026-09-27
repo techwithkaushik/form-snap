@@ -56,7 +56,14 @@ class PipelinePreviewActivity : ComponentActivity() {
             val viewModel = remember { PipelinePreviewViewModel(applicationContext) }
             val state by viewModel.state.collectAsState()
             val scope = rememberCoroutineScope()
-            val cropKind = remember { mutableStateOf<DetectionKind?>(null) }
+            val editKind = remember { mutableStateOf<DetectionKind?>(null) }
+            val sourceForEdit = remember(state.photoPreviewPath, state.signaturePreviewPath, editKind.value) {
+                when (editKind.value) {
+                    DetectionKind.PHOTO -> state.photoPreviewPath
+                    DetectionKind.SIGNATURE -> state.signaturePreviewPath
+                    null -> null
+                }
+            }
 
             LaunchedEffect(path) {
                 viewModel.load(
@@ -76,6 +83,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                     pending.second,
                     File(pending.first),
                 )
+                editKind.value = pending.second
             }
 
             val inputBitmap = remember(state.source?.absolutePath) {
@@ -88,7 +96,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                 viewModel.loadBitmap(state.signaturePreviewPath)
             }
 
-            if (cropKind.value == null) {
+            if (editKind.value == null) {
                 PipelinePreviewScreen(
                     inputPreview = inputBitmap,
                     photoPreview = photoBitmap,
@@ -103,11 +111,23 @@ class PipelinePreviewActivity : ComponentActivity() {
                             viewModel.renderSignature()
                         }
                     },
-                    onCorrectPhoto = {
-                        if (state.photoState != null) cropKind.value = DetectionKind.PHOTO
+                    onEditPhoto = {
+                        if (state.photoState != null) editKind.value = DetectionKind.PHOTO
                     },
-                    onCorrectSignature = {
-                        if (state.signatureState != null) cropKind.value = DetectionKind.SIGNATURE
+                    onAcceptPhoto = {
+                        scope.launch { viewModel.accept(DetectionKind.PHOTO) }
+                    },
+                    onRejectPhoto = {
+                        viewModel.reject(DetectionKind.PHOTO)
+                    },
+                    onEditSignature = {
+                        if (state.signatureState != null) editKind.value = DetectionKind.SIGNATURE
+                    },
+                    onAcceptSignature = {
+                        scope.launch { viewModel.accept(DetectionKind.SIGNATURE) }
+                    },
+                    onRejectSignature = {
+                        viewModel.reject(DetectionKind.SIGNATURE)
                     },
                     onBack = {
                         viewModel.close()
@@ -115,14 +135,21 @@ class PipelinePreviewActivity : ComponentActivity() {
                     },
                 )
             } else {
-                val kind = cropKind.value!!
-                val preview = if (kind == DetectionKind.PHOTO) photoBitmap else signatureBitmap
+                val kind = editKind.value!!
+                val editedBitmap = when (kind) {
+                    DetectionKind.PHOTO -> photoBitmap
+                    DetectionKind.SIGNATURE -> signatureBitmap
+                }
+                val editSource = sourceForEdit?.let { File(it) }?.let {
+                    BitmapFactory.decodeFile(it.absolutePath)
+                } ?: editedBitmap
 
                 PreviewCorrectionScreen(
-                    source = inputBitmap,
-                    resultPreview = preview,
+                    source = editSource,
+                    resultPreview = editedBitmap,
                     onOpenCrop = {
                         correctionKindForResult = kind
+                        val currentFile = sourceForEdit?.let(::File) ?: return@PreviewCorrectionScreen
                         val destination = File(
                             cacheDir,
                             "ucrop_" + System.nanoTime() + "_" + kind.name.lowercase() + ".jpg",
@@ -132,9 +159,14 @@ class PipelinePreviewActivity : ComponentActivity() {
                             setCompressionQuality(95)
                             setShowCropGrid(true)
                             setShowCropFrame(true)
+                            setBrightnessEnabled(true)
+                            setContrastEnabled(true)
+                            setSaturationEnabled(true)
+                            setSharpnessEnabled(true)
+                            setHideBottomControls(false)
                         }
                         UCrop.of(
-                            Uri.fromFile(File(path)),
+                            Uri.fromFile(currentFile),
                             Uri.fromFile(destination),
                         )
                             .withOptions(options)
@@ -142,10 +174,14 @@ class PipelinePreviewActivity : ComponentActivity() {
                             .start(this@PipelinePreviewActivity, correctionLauncher)
                     },
                     onAccept = {
-                        cropKind.value = null
+                        scope.launch {
+                            viewModel.accept(kind)
+                            editKind.value = null
+                        }
                     },
                     onReject = {
-                        cropKind.value = null
+                        viewModel.reject(kind)
+                        editKind.value = null
                     },
                 )
             }
