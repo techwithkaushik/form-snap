@@ -1,12 +1,8 @@
 package org.techwithkaushik.formSnap.pipeline
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.opencv.android.Utils
-import org.opencv.core.Mat
 import org.techwithkaushik.formSnap.foundation.ProcessingSession
 import java.io.File
 
@@ -18,7 +14,7 @@ data class PreviewProcessingState(
     val signaturePreviewPath: String? = null,
     val processing: Boolean = false,
     val error: String? = null,
- )
+)
 
 class PipelinePreviewViewModel(private val context: Context) {
     var state: PreviewProcessingState = PreviewProcessingState()
@@ -29,6 +25,7 @@ class PipelinePreviewViewModel(private val context: Context) {
         try {
             val detection = withContext(Dispatchers.Default) {
                 val source = org.opencv.imgcodecs.Imgcodecs.imread(input.absolutePath)
+                require(!source.empty()) { "Unable to decode input image" }
                 try { UniversalDetectionEngine.detect(source) } finally { source.release() }
             }
             state = PreviewProcessingState(
@@ -42,31 +39,40 @@ class PipelinePreviewViewModel(private val context: Context) {
     }
 
     suspend fun renderPhoto() {
-        val current = state.photoState ?: return
-        state = state.copy(processing = true, error = null)
-        state = runCatching { render(current, "photo_preview.jpg") }
-            .fold({ state.copy(photoPreviewPath = it, processing = false) }, { state.copy(processing = false, error = it.message ?: "Photo preview failed") })
+        renderKind(DetectionKind.PHOTO)
     }
 
     suspend fun renderSignature() {
-        val current = state.signatureState ?: return
+        renderKind(DetectionKind.SIGNATURE)
+    }
+
+    private suspend fun renderKind(kind: DetectionKind) {
+        val current = if (kind == DetectionKind.PHOTO) state.photoState else state.signatureState
+        if (current == null) return
         state = state.copy(processing = true, error = null)
-        state = runCatching { render(current, "signature_preview.jpg") }
-            .fold({ state.copy(signaturePreviewPath = it, processing = false) }, { state.copy(processing = false, error = it.message ?: "Signature preview failed") })
+        val name = if (kind == DetectionKind.PHOTO) "photo_preview.jpg" else "signature_preview.jpg"
+        state = runCatching { render(current, name) }
+            .fold(
+                { path -> if (kind == DetectionKind.PHOTO) state.copy(photoPreviewPath = path, processing = false) else state.copy(signaturePreviewPath = path, processing = false) },
+                { error -> state.copy(processing = false, error = error.message ?: "Preview failed") },
+            )
     }
 
     private suspend fun render(correction: PreviewCorrectionState, name: String): String = withContext(Dispatchers.Default) {
         val input = state.source ?: error("No source image")
         val source = org.opencv.imgcodecs.Imgcodecs.imread(input.absolutePath)
+        require(!source.empty()) { "Unable to decode source image" }
         val session = ProcessingSession.create(context)
         try {
-            val image = PreviewProcessor.render(source, correction)
-            val target = session.file(name)
-            check(org.opencv.imgcodecs.Imgcodecs.imwrite(target.absolutePath, image)) { "Unable to write preview" }
-            image.release()
-            target.absolutePath
+            val image = try { PreviewProcessor.render(source, correction) } finally { source.release() }
+            try {
+                val target = session.file(name)
+                check(org.opencv.imgcodecs.Imgcodecs.imwrite(target.absolutePath, image)) { "Unable to write preview" }
+                target.absolutePath
+            } finally {
+                image.release()
+            }
         } finally {
-            source.release()
             session.closeAndDelete()
         }
     }
