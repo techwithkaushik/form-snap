@@ -3,16 +3,14 @@ package org.techwithkaushik.formSnap.pipeline
 import android.graphics.RectF
 
 class PreviewCorrectionController(
-    private val detectionCandidate: DetectionCandidate? = null,
+    private val detectionCandidate: DetectionCandidate,
     initialState: PreviewCorrectionState,
 ) {
     var state: PreviewCorrectionState = initialState
         private set
 
     fun setBounds(bounds: RectF) {
-        state = state.withBounds(
-            clamp(bounds),
-        )
+        state = state.withBounds(clamp(bounds))
     }
 
     fun setAppearance(adjustments: AppearanceAdjustments) {
@@ -28,23 +26,14 @@ class PreviewCorrectionController(
     }
 
     fun reset() {
-        val candidate = detectionCandidate ?: return
         state = PreviewCorrectionStateFactory.fromCandidate(
-            candidate,
+            detectionCandidate,
             state.sourceWidth,
             state.sourceHeight,
         )
     }
 
-    fun feedback(): CorrectionFeedback {
-        val candidate = detectionCandidate ?: DetectionCandidate(
-            kind = state.kind,
-            bounds = state.automaticBounds,
-            confidence = 1f,
-            source = "automatic-preview",
-        )
-        return state.correction(candidate)
-    }
+    fun feedback(): CorrectionFeedback = state.correction(detectionCandidate)
 
     private fun clamp(bounds: RectF): RectF {
         val maxRight = state.sourceWidth.toFloat().coerceAtLeast(1f)
