@@ -38,16 +38,17 @@ fun PreviewCorrectionScreen(
                     Image(
                         bitmap = it.asImageBitmap(),
                         contentDescription = null,
-                        modifier = Modifier.fillMaxWidth().height(300.dp),
+                        modifier = Modifier.fillMaxWidth().height(250.dp),
                         contentScale = ContentScale.Fit,
                     )
                 }
             }
         }
+
         item {
             resultPreview?.let {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Current result")
+                    Text("Edit detected image")
                     Image(
                         bitmap = it.asImageBitmap(),
                         contentDescription = null,
@@ -57,19 +58,26 @@ fun PreviewCorrectionScreen(
                 }
             }
         }
+
         item {
-            OutlinedButton(onClick = onOpenCrop, modifier = Modifier.fillMaxWidth()) {
-                Text("Crop / Resize")
-            }
-        }
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onReject, modifier = Modifier.weight(1f)) {
-                    Text("Reject")
-                }
-                Button(onClick = onAccept, modifier = Modifier.weight(1f)) {
-                    Text("Accept")
-                }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(
+                    onClick = onReject,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Reject") }
+
+                Button(
+                    onClick = onAccept,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Accept") }
+
+                OutlinedButton(
+                    onClick = onOpenCrop,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Edit") }
             }
         }
     }
