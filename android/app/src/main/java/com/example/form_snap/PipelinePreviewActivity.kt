@@ -5,8 +5,8 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.setContent
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -15,8 +15,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import org.techwithkaushik.formSnap.pipeline.DetectionKind
-import org.techwithkaushik.formSnap.pipeline.FeedbackRecorder
-import org.techwithkaushik.formSnap.pipeline.PreviewCorrectionController
 import org.techwithkaushik.formSnap.pipeline.PipelinePreviewViewModel
 import org.techwithkaushik.formSnap.ui.PipelinePreviewScreen
 import org.techwithkaushik.formSnap.ui.PreviewCorrectionScreen
@@ -27,26 +25,30 @@ class PipelinePreviewActivity : ComponentActivity() {
     private val correctionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
-        if (result.resultCode != RESULT_OK) return@registerForActivityResult
-        val resultPath = result.data?.getStringExtra(UcropCorrectionActivity.EXTRA_RESULT_PATH)
+        if (result.resultCode != RESULT_OK) {
+            correctionKindForResult = null
+            return@registerForActivityResult
+        }
+
+        val resultPath = result.data
+            ?.getStringExtra(UcropCorrectionActivity.EXTRA_RESULT_PATH)
             ?: return@registerForActivityResult
+
         val kind = correctionKindForResult ?: return@registerForActivityResult
-
-        // Return the corrected crop to this activity; MainActivity is not involved.
-        val correctionResult = Intent()
-            .putExtra(EXTRA_EXTERNAL_CORRECTION_PATH, resultPath)
-            .putExtra(EXTRA_EXTERNAL_CORRECTION_KIND, kind.name)
-        setResult(RESULT_OK, correctionResult)
-
-        // Re-render the corrected crop inside the existing preview/editor pipeline.
-        externalCorrectionPath = resultPath
-        externalCorrectionKind = kind
         correctionKindForResult = null
+
+        setResult(
+            RESULT_OK,
+            Intent()
+                .putExtra(EXTRA_EXTERNAL_CORRECTION_PATH, resultPath)
+                .putExtra(EXTRA_EXTERNAL_CORRECTION_KIND, kind.name),
+        )
+
+        pendingExternalCorrection = resultPath to kind
     }
 
     private var correctionKindForResult: DetectionKind? = null
-    private var externalCorrectionPath: String? = null
-    private var externalCorrectionKind: DetectionKind? = null
+    private var pendingExternalCorrection: Pair<String, DetectionKind>? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -66,9 +68,8 @@ class PipelinePreviewActivity : ComponentActivity() {
             val viewModel = remember { PipelinePreviewViewModel(applicationContext) }
             val state by viewModel.state.collectAsState()
             val scope = rememberCoroutineScope()
-            val correctionKind = remember { mutableStateOf<DetectionKind?>(null) }
-            val correctionController = remember { mutableStateOf<PreviewCorrectionController?>(null) }
-            val correctionUiState = remember { mutableStateOf<org.techwithkaushik.formSnap.pipeline.PreviewCorrectionState?>(null) }
+            val cropKind = remember { mutableStateOf<DetectionKind?>(null) }
+            val cropSource = remember { mutableStateOf<String?>(null) }
 
             LaunchedEffect(path) {
                 viewModel.load(
@@ -78,6 +79,15 @@ class PipelinePreviewActivity : ComponentActivity() {
                     photoHeightMm = photoHeightMm,
                     signatureWidthMm = signatureWidthMm,
                     signatureHeightMm = signatureHeightMm,
+                )
+            }
+
+            LaunchedEffect(pendingExternalCorrection) {
+                val pending = pendingExternalCorrection ?: return@LaunchedEffect
+                pendingExternalCorrection = null
+                viewModel.replacePreviewFromExternal(
+                    pending.second,
+                    File(pending.first),
                 )
             }
 
@@ -91,7 +101,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                 viewModel.loadBitmap(state.signaturePreviewPath)
             }
 
-            if (correctionKind.value == null) {
+            if (cropKind.value == null) {
                 PipelinePreviewScreen(
                     inputPreview = inputBitmap,
                     photoPreview = photoBitmap,
@@ -107,13 +117,15 @@ class PipelinePreviewActivity : ComponentActivity() {
                         }
                     },
                     onCorrectPhoto = {
-                        state.photoState?.let {
-                            openUcrop(DetectionKind.PHOTO, path)
+                        if (state.photoState != null) {
+                            cropKind.value = DetectionKind.PHOTO
+                            cropSource.value = path
                         }
                     },
                     onCorrectSignature = {
-                        state.signatureState?.let {
-                            openUcrop(DetectionKind.SIGNATURE, path)
+                        if (state.signatureState != null) {
+                            cropKind.value = DetectionKind.SIGNATURE
+                            cropSource.value = path
                         }
                     },
                     onBack = {
@@ -122,76 +134,34 @@ class PipelinePreviewActivity : ComponentActivity() {
                     },
                 )
             } else {
-                val controller = correctionController.value
-                val correctionState = correctionUiState.value
-                if (controller != null && correctionState != null) {
-                    val preview = if (correctionKind.value == DetectionKind.PHOTO) photoBitmap else signatureBitmap
-                    PreviewCorrectionScreen(
-                        state = correctionState,
-                        source = inputBitmap,
-                        resultPreview = preview,
-                        onBoundsChange = { bounds ->
-                            controller.setBounds(bounds)
-                            correctionUiState.value = controller.state
-                            correctionKind.value?.let { viewModel.schedulePreview(it, controller.state) }
-                        },
-                        onAppearanceChange = { appearance ->
-                            controller.setAppearance(appearance)
-                            correctionUiState.value = controller.state
-                            correctionKind.value?.let { viewModel.schedulePreview(it, controller.state) }
-                        },
-                        onAccept = {
-                            controller.accept()
-                            FeedbackRecorder.record(applicationContext, controller.feedback())
-                            scope.launch {
-                                if (correctionKind.value == DetectionKind.PHOTO) {
-                                    viewModel.renderPhoto()
-                                } else {
-                                    viewModel.renderSignature()
-                                }
-                                correctionUiState.value = null
-                                correctionKind.value = null
-                                correctionController.value = null
-                            }
-                        },
-                        onReject = {
-                            controller.reject()
-                            correctionUiState.value = null
-                            correctionKind.value = null
-                            correctionController.value = null
-                        },
-                        onReset = {
-                            controller.reset()
-                            correctionUiState.value = controller.state
-                            correctionKind.value?.let { viewModel.schedulePreview(it, controller.state) }
-                        },
-                    )
-                }
-            }
+                val kind = cropKind.value!!
+                val preview = if (kind == DetectionKind.PHOTO) photoBitmap else signatureBitmap
 
-            externalCorrectionPath?.let { correctedPath ->
-                val kind = externalCorrectionKind ?: return@let
-                val correctedUri = Uri.fromFile(java.io.File(correctedPath))
-                // The uCrop output is already cropped. Keep it as the current
-                // candidate preview while retaining the existing OpenCV pipeline
-                // for final appearance normalization and learning feedback.
-                scope.launch {
-                    viewModel.replacePreviewFromExternal(kind, correctedUri)
-                    externalCorrectionPath = null
-                    externalCorrectionKind = null
-                }
+                PreviewCorrectionScreen(
+                    source = inputBitmap,
+                    resultPreview = preview,
+                    onOpenCrop = {
+                        correctionKindForResult = kind
+                        cropSource.value?.let { sourcePath ->
+                            correctionLauncher.launch(
+                                Intent(this@PipelinePreviewActivity, UcropCorrectionActivity::class.java)
+                                    .putExtra(UcropCorrectionActivity.EXTRA_SOURCE_PATH, sourcePath)
+                                    .putExtra(UcropCorrectionActivity.EXTRA_MAX_WIDTH, 4000)
+                                    .putExtra(UcropCorrectionActivity.EXTRA_MAX_HEIGHT, 4000),
+                            )
+                        }
+                    },
+                    onAccept = {
+                        cropKind.value = null
+                        cropSource.value = null
+                    },
+                    onReject = {
+                        cropKind.value = null
+                        cropSource.value = null
+                    },
+                )
             }
         }
-    }
-
-    private fun openUcrop(kind: DetectionKind, sourcePath: String) {
-        correctionKindForResult = kind
-        correctionLauncher.launch(
-            Intent(this, UcropCorrectionActivity::class.java)
-                .putExtra(UcropCorrectionActivity.EXTRA_SOURCE_PATH, sourcePath)
-                .putExtra(UcropCorrectionActivity.EXTRA_MAX_WIDTH, 4000)
-                .putExtra(UcropCorrectionActivity.EXTRA_MAX_HEIGHT, 4000),
-        )
     }
 
     companion object {
