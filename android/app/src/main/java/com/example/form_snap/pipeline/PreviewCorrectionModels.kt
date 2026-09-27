@@ -24,14 +24,9 @@ data class PreviewCorrectionState(
     fun reject(): PreviewCorrectionState =
         copy(action = CorrectionAction.REJECT)
 
-    fun correction(): CorrectionFeedback = CorrectionFeedback(
+    fun correction(automatic: DetectionCandidate): CorrectionFeedback = CorrectionFeedback(
         kind = kind,
-        automatic = DetectionCandidate(
-            kind = kind,
-            bounds = automaticBounds,
-            confidence = 1f,
-            source = "automatic-preview",
-        ),
+        automatic = automatic,
         correctedBounds = currentBounds,
         appearance = appearance,
         accepted = action == CorrectionAction.ACCEPT,
