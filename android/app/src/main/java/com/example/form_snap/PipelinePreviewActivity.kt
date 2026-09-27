@@ -72,7 +72,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                     },
                     onCorrectSignature = {
                         state.signatureState?.let {
-                            correctionController.value = PreviewCorrectionController(it)
+                            correctionController.value = PreviewCorrectionController(initialState = it)
                             correctionKind.value = DetectionKind.SIGNATURE
                         }
                     },
