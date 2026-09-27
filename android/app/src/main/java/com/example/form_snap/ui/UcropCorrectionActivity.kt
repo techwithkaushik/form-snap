@@ -5,6 +5,8 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import com.yalantis.ucrop.UCrop
 import java.io.File
 
@@ -12,12 +14,26 @@ import java.io.File
  * Legacy compatibility wrapper.
  *
  * Current correction flow launches uCrop-n-Edit directly from
- * PipelinePreviewActivity. This class is retained only for source
- * compatibility with older callers.
+ * PipelinePreviewActivity. This class is retained only for older callers.
  */
 class UcropCorrectionActivity : ComponentActivity() {
 
     private lateinit var outputFile: File
+
+    private val cropLauncher: ActivityResultLauncher<Intent> =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == Activity.RESULT_OK) {
+                val resultUri = result.data?.let { UCrop.getOutput(it) }
+                val path = resultUri?.path ?: outputFile.absolutePath
+                setResult(
+                    Activity.RESULT_OK,
+                    Intent().putExtra(EXTRA_RESULT_PATH, path),
+                )
+            } else {
+                setResult(result.resultCode, result.data)
+            }
+            finish()
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -50,24 +66,7 @@ class UcropCorrectionActivity : ComponentActivity() {
                 intent.getIntExtra(EXTRA_MAX_WIDTH, 4000),
                 intent.getIntExtra(EXTRA_MAX_HEIGHT, 4000),
             )
-            .start(this, UCrop.REQUEST_CROP)
-    }
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != UCrop.REQUEST_CROP) return
-
-        if (resultCode == Activity.RESULT_OK) {
-            val resultUri = data?.let { UCrop.getOutput(it) }
-            val path = resultUri?.path ?: outputFile.absolutePath
-            setResult(
-                Activity.RESULT_OK,
-                Intent().putExtra(EXTRA_RESULT_PATH, path),
-            )
-        } else {
-            setResult(resultCode, data)
-        }
-        finish()
+            .start(this, cropLauncher)
     }
 
     companion object {
