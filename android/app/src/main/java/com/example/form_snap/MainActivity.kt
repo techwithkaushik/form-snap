@@ -193,7 +193,9 @@ class MainActivity : ComponentActivity() {
                     val input = source ?: error("No source image")
                     startActivity(
                         Intent(this@MainActivity, PipelinePreviewActivity::class.java)
-                            .putExtra(PipelinePreviewActivity.EXTRA_INPUT_PATH, input.absolutePath),
+                            .putExtra(PipelinePreviewActivity.EXTRA_INPUT_PATH, input.absolutePath)
+                            .putExtra(PipelinePreviewActivity.EXTRA_MAX_KB, settings.maxKb)
+                            .putExtra(PipelinePreviewActivity.EXTRA_DPI, settings.dpi),
                     )
                     Outputs()
                 },
