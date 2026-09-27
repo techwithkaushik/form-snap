@@ -40,6 +40,11 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
         signatureWidthMm: Double = 50.0,
         signatureHeightMm: Double = 20.0,
     ) {
+        this.dpi = dpi.coerceAtLeast(72)
+        this.photoWidthMm = photoWidthMm.coerceAtLeast(1.0)
+        this.photoHeightMm = photoHeightMm.coerceAtLeast(1.0)
+        this.signatureWidthMm = signatureWidthMm.coerceAtLeast(1.0)
+        this.signatureHeightMm = signatureHeightMm.coerceAtLeast(1.0)
         _state.value = PreviewProcessingState(source = input, processing = true)
         try {
             val detection = withContext(Dispatchers.Default) {
@@ -110,8 +115,8 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
                             source = source,
                             state = correction,
                             dpi = dpi,
-                            widthMm = if (kind == DetectionKind.PHOTO) photoWidthMm else signatureWidthMm,
-                            heightMm = if (kind == DetectionKind.PHOTO) photoHeightMm else signatureHeightMm,
+                            widthMm = if (correction.kind == DetectionKind.PHOTO) photoWidthMm else signatureWidthMm,
+                            heightMm = if (correction.kind == DetectionKind.PHOTO) photoHeightMm else signatureHeightMm,
                         )
                 try {
                     val target = File(sessionDir, name)
