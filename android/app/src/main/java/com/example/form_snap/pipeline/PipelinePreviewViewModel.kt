@@ -26,7 +26,14 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
 
     private val sessionDir = File(ProcessingPaths.root(context), "preview_session").apply { mkdirs() }
 
-    suspend fun load(input: File) {
+    suspend fun load(
+        input: File,
+        dpi: Int = 300,
+        photoWidthMm: Double = 40.0,
+        photoHeightMm: Double = 50.0,
+        signatureWidthMm: Double = 50.0,
+        signatureHeightMm: Double = 20.0,
+    ) {
         _state.value = PreviewProcessingState(source = input, processing = true)
         try {
             val detection = withContext(Dispatchers.Default) {
