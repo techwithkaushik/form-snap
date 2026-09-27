@@ -74,8 +74,9 @@ class PipelinePreviewActivity : ComponentActivity() {
                 )
             }
 
-            LaunchedEffect(editKind.value, state.photoPreviewVersion, state.signaturePreviewVersion) {
-                val pending = pendingExternalCorrection ?: return@LaunchedEffect
+            val pendingEdit = pendingExternalCorrection
+            LaunchedEffect(pendingEdit) {
+                val pending = pendingEdit ?: return@LaunchedEffect
                 pendingExternalCorrection = null
                 viewModel.replacePreviewFromExternal(
                     pending.second,
