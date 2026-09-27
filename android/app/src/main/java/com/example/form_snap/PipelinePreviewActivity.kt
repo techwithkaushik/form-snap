@@ -30,15 +30,17 @@ class PipelinePreviewActivity : ComponentActivity() {
 
         if (result.resultCode == RESULT_OK) {
             val resultUri = result.data?.let { UCrop.getOutput(it) }
-            if (resultUri != null) {
-                pendingExternalCorrection = resultUri.path?.let { it to kind }
-                editResultVersion.value += 1L
+            val resultPath = resultUri?.path
+            if (!resultPath.isNullOrBlank()) {
+                pendingExternalCorrection = resultPath to kind
+                editResultCallback?.invoke()
             }
         }
     }
 
     private var correctionKindForResult: DetectionKind? = null
     private var pendingExternalCorrection: Pair<String, DetectionKind>? = null
+    private var editResultCallback: (() -> Unit)? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -59,6 +61,7 @@ class PipelinePreviewActivity : ComponentActivity() {
             val state by viewModel.state.collectAsState()
             val scope = rememberCoroutineScope()
             val editKind = remember { mutableStateOf<DetectionKind?>(null) }
+            editResultCallback = { editKind.value = pendingExternalCorrection?.second }
 
             LaunchedEffect(path) {
                 viewModel.load(
@@ -71,16 +74,13 @@ class PipelinePreviewActivity : ComponentActivity() {
                 )
             }
 
-            val editResultVersion = remember { mutableStateOf(0L) }
-
-            LaunchedEffect(editResultVersion.value) {
+            LaunchedEffect(editKind.value, state.photoPreviewVersion, state.signaturePreviewVersion) {
                 val pending = pendingExternalCorrection ?: return@LaunchedEffect
                 pendingExternalCorrection = null
                 viewModel.replacePreviewFromExternal(
                     pending.second,
                     File(pending.first),
                 )
-                editKind.value = pending.second
             }
 
             val inputBitmap = remember(state.source?.absolutePath) {
