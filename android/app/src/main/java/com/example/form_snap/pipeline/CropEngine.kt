@@ -2,7 +2,6 @@ package org.techwithkaushik.formSnap.pipeline
 
 import android.graphics.Rect
 import org.opencv.core.Mat
-import org.opencv.imgproc.Imgproc
 import kotlin.math.max
 import kotlin.math.min
 
@@ -15,9 +14,6 @@ object CropEngine {
 
     fun crop(source: Mat, candidate: DetectionCandidate): CropOutput {
         require(!source.empty()) { "Source image is empty" }
-
-        val scaleX = source.cols().toFloat() / max(1f, source.cols().toFloat())
-        val scaleY = source.rows().toFloat() / max(1f, source.rows().toFloat())
 
         val raw = Rect(
             candidate.bounds.left.toInt(),
