@@ -2,6 +2,12 @@ package org.techwithkaushik.formSnap.pipeline
 
 import android.graphics.RectF
 
+enum class CorrectionAction {
+    ACCEPT,
+    ADJUST,
+    REJECT,
+}
+
 enum class AdjustmentKind {
     MOVE,
     RESIZE,
