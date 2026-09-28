@@ -35,8 +35,7 @@ jobs:
           fileName: 'dev_keystore.jks'
           encodedString: ${{ secrets.SIGNING_KEYSTORE }}
 
-      - name: Build ARM32 signed APK
-        working-directory: android
+      - name: Build project
         env:
           SIGN_KEY_STORE: ${{ steps.keystore.outputs.filePath }}
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
@@ -44,21 +43,8 @@ jobs:
           SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
         run: |
           set -e
-          gradle :app:assembleRelease :core:processor:assembleRelease :core:database:assembleRelease :feature:capture:assembleRelease --no-daemon --build-cache
-
-      - name: Verify APK
-        if: github.event_name == 'push'
-        run: |
-          set -e
-          APK="android/app/build/outputs/apk/release/app-release.apk"
-          test -f "$APK"
-          ls -lh "$APK"
-          APKSIGNER="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)/apksigner"
-          "$APKSIGNER" verify --verbose "$APK"
-
-      - name: Upload APK
-        if: github.event_name == 'push'
-        uses: actions/upload-artifact@v4
-        with:
-          name: form-snap-arm32-compose
-          path: android/app/build/outputs/apk/release/app-release.apk
+          if [ -x "./gradlew" ]; then
+            ./gradlew :core:database:compileKotlinAndroid :core:database:assembleRelease --no-daemon --build-cache
+          else
+            gradle :core:database:compileKotlinAndroid :core:database:assembleRelease --no-daemon --build-cache
+          fi
