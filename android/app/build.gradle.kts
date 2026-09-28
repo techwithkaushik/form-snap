@@ -62,6 +62,7 @@ dependencies {
     implementation(project(":core:processor"))
     implementation(project(":core:database"))
     implementation(project(":feature:capture"))
+    implementation(project(":feature:pipeline"))
     implementation("org.opencv:opencv:4.13.0")
     implementation("com.github.jens-muenker:uCrop-n-Edit:4.1.1-non-native")
     debugImplementation("androidx.compose.ui:ui-tooling")
