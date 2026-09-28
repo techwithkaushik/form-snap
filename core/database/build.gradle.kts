@@ -1,0 +1,38 @@
+plugins {
+    id("org.jetbrains.kotlin.multiplatform")
+    id("com.android.library")
+    id("app.cash.sqldelight")
+}
+
+kotlin {
+    androidTarget()
+
+    sourceSets {
+        val commonMain by getting {
+            dependencies {
+                implementation("app.cash.sqldelight:runtime:2.3.2")
+            }
+        }
+    }
+}
+
+android {
+    namespace = "org.techwithkaushik.formsnap.core.database"
+    compileSdk = 37
+
+    defaultConfig {
+        minSdk = 23
+    }
+}
+
+sqldelight {
+    databases {
+        create("FormSnapDatabase") {
+            packageName.set("org.techwithkaushik.formsnap.core.database")
+        }
+    }
+}
+
+dependencies {
+    add("androidMainImplementation", "app.cash.sqldelight:android-driver:2.3.2")
+}
