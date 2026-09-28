@@ -40,6 +40,8 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
     private val sessionDir = File(ProcessingPaths.root(context), "preview_session").apply { mkdirs() }
     private val previewScope = CoroutineScope(Dispatchers.Main.immediate)
     private var previewJob: Job? = null
+    private val rejectedPhotoBounds = mutableSetOf<android.graphics.RectF>()
+    private val rejectedSignatureBounds = mutableSetOf<android.graphics.RectF>()
 
     suspend fun load(
         input: File,
@@ -63,7 +65,11 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
                 val source = org.opencv.imgcodecs.Imgcodecs.imread(input.absolutePath)
                 require(!source.empty()) { "Unable to decode input image" }
                 try {
-                    UniversalDetectionEngine.detect(source)
+                    UniversalDetectionEngine.detect(
+                        source = source,
+                        rejectedPhotoBounds = rejectedPhotoBounds,
+                        rejectedSignatureBounds = rejectedSignatureBounds,
+                    )
                 } finally {
                     source.release()
                 }
@@ -124,6 +130,14 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
 
     fun reject(kind: DetectionKind) {
         val current = _state.value
+        val correction = stateFor(kind)
+        if (correction != null) {
+            val rejected = android.graphics.RectF(correction.automaticBounds)
+            when (kind) {
+                DetectionKind.PHOTO -> rejectedPhotoBounds.add(rejected)
+                DetectionKind.SIGNATURE -> rejectedSignatureBounds.add(rejected)
+            }
+        }
         _state.value = when (kind) {
             DetectionKind.PHOTO -> current.copy(
                 photoState = null,
