@@ -5,7 +5,9 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-set(OpenCV_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../../../../opencv")
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,max-page-size=16384")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvisibility=hidden")
+
 find_package(OpenCV REQUIRED)
 
 add_library(formsnap_processor SHARED
@@ -19,9 +21,4 @@ target_include_directories(formsnap_processor PRIVATE
 target_link_libraries(formsnap_processor
     ${OpenCV_LIBS}
     log
-)
-
-set_target_properties(formsnap_processor PROPERTIES
-    CXX_VISIBILITY_PRESET hidden
-    VISIBILITY_INLINES_HIDDEN YES
 )
