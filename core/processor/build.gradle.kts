@@ -7,7 +7,6 @@ kotlin {
     androidTarget()
 
     sourceSets {
-        val commonMain by getting
         val androidMain by getting {
             dependencies {
                 implementation(libs.opencv.android)
@@ -22,16 +21,12 @@ android {
 
     defaultConfig {
         minSdk = libs.versions.androidMinSdk.get().toInt()
-        ndk {
-            abiFilters += setOf("arm64-v8a", "armeabi-v7a")
-        }
 
-        externalNativeBuild {
-            cmake {
-                arguments(
-                    "-DANDROID_STL=c++_shared",
-                )
-            }
+        ndk {
+            abiFilters += setOf(
+                "arm64-v8a",
+                "armeabi-v7a",
+            )
         }
     }
 
