@@ -115,6 +115,13 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        val pipelineLauncher = rememberLauncherForActivityResult(
+            StartActivityForResult(),
+        ) {
+            source = null
+            mode = CaptureMode.WHOLE_FORM
+        }
+
         val folderPicker = rememberLauncherForActivityResult(
             ActivityResultContracts.OpenDocumentTree(),
         ) { uri ->
@@ -191,7 +198,7 @@ class MainActivity : ComponentActivity() {
                 },
                 onExtract = {
                     val input = source ?: error("No source image")
-                    startActivity(
+                    pipelineLauncher.launch(
                         Intent(this@MainActivity, PipelinePreviewActivity::class.java)
                             .putExtra(PipelinePreviewActivity.EXTRA_INPUT_PATH, input.absolutePath)
                             .putExtra(PipelinePreviewActivity.EXTRA_MAX_KB, settings.maxKb)
