@@ -20,7 +20,22 @@ CREATE TABLE detection_feedback (
     block_size INTEGER NOT NULL,
     local_c REAL NOT NULL,
     accepted INTEGER NOT NULL,
+    action_index INTEGER NOT NULL,
+    context_brightness REAL NOT NULL,
+    context_edge_density REAL NOT NULL,
+    context_aspect REAL NOT NULL,
     created_at INTEGER NOT NULL
+);
+
+CREATE TABLE policy_stat (
+    kind TEXT NOT NULL,
+    context_key TEXT NOT NULL,
+    action_index INTEGER NOT NULL,
+    visits INTEGER NOT NULL DEFAULT 0,
+    total_reward REAL NOT NULL DEFAULT 0.0,
+    last_reward REAL NOT NULL DEFAULT 0.0,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (kind, context_key, action_index)
 );
 
 CREATE INDEX detection_feedback_kind_index
@@ -29,13 +44,17 @@ ON detection_feedback(kind);
 CREATE INDEX detection_feedback_sample_index
 ON detection_feedback(sample_key);
 
+CREATE INDEX policy_stat_kind_context_index
+ON policy_stat(kind, context_key);
+
 insertFeedback:
 INSERT INTO detection_feedback(
     sample_key, kind, source_width, source_height,
     estimated_left, estimated_top, estimated_right, estimated_bottom,
     corrected_left, corrected_top, corrected_right, corrected_bottom,
-    adaptive_bias, block_size, local_c, accepted, created_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    adaptive_bias, block_size, local_c, accepted, action_index,
+    context_brightness, context_edge_density, context_aspect, created_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 recentByKind:
 SELECT * FROM detection_feedback
@@ -55,3 +74,18 @@ FROM detection_feedback
 WHERE kind = ?
   AND accepted = 1
 GROUP BY kind;
+
+upsertPolicyStat:
+INSERT INTO policy_stat(
+    kind, context_key, action_index, visits, total_reward, last_reward, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(kind, context_key, action_index) DO UPDATE SET
+    visits = excluded.visits,
+    total_reward = excluded.total_reward,
+    last_reward = excluded.last_reward,
+    updated_at = excluded.updated_at;
+
+policyStats:
+SELECT * FROM policy_stat
+WHERE kind = ?
+  AND context_key = ?;
