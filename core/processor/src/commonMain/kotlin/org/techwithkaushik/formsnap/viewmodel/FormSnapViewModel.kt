@@ -1,7 +1,5 @@
 package org.techwithkaushik.formsnap.viewmodel
 
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -19,8 +17,14 @@ data class FormSnapUiState(
     val error: String? = null,
 )
 
-class FormSnapViewModel : ViewModel() {
-    private val processingJob = SupervisorJob(viewModelScope.coroutineContext[Job])
+class FormSnapViewModel(
+    private val processor: ImageProcessor = ImageProcessor(),
+) {
+    private val supervisorJob = SupervisorJob()
+    private val processingJob = supervisorJob
+
+    private val _state = MutableStateFlow(FormSnapUiState())
+    val state: StateFlow<FormSnapUiState> = _state.asStateFlow()
 
     private val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
         _state.value = _state.value.copy(
@@ -28,11 +32,6 @@ class FormSnapViewModel : ViewModel() {
             error = throwable.message ?: "Image processing failed.",
         )
     }
-
-    private val _state = MutableStateFlow(FormSnapUiState())
-    val state: StateFlow<FormSnapUiState> = _state.asStateFlow()
-
-    private val processor = ImageProcessor()
 
     fun processForm(
         imageData: ByteArray,
@@ -42,12 +41,13 @@ class FormSnapViewModel : ViewModel() {
         processingJob.cancelChildren()
         _state.value = FormSnapUiState(processing = true)
 
-        viewModelScope.launch(
-            context = processingJob + Dispatchers.Default + exceptionHandler,
-        ) {
+        kotlinx.coroutines.CoroutineScope(
+            supervisorJob + Dispatchers.Default + exceptionHandler,
+        ).launch {
+            val input = imageData.copyOf()
             val result = withContext(Dispatchers.Default) {
                 processor.processForm(
-                    imageData = imageData,
+                    imageData = input,
                     adaptiveBlockSize = adaptiveBlockSize,
                     adaptiveConstant = adaptiveConstant,
                 )
@@ -55,12 +55,17 @@ class FormSnapViewModel : ViewModel() {
             _state.value = FormSnapUiState(
                 processing = false,
                 result = result,
+                error = null,
             )
         }
     }
 
-    override fun onCleared() {
-        processingJob.cancel()
-        super.onCleared()
+    fun clearResult() {
+        processingJob.cancelChildren()
+        _state.value = FormSnapUiState()
+    }
+
+    fun close() {
+        supervisorJob.cancel()
     }
 }
