@@ -1,11 +1,11 @@
 package org.techwithkaushik.formsnap.viewmodel
 
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CoroutineExceptionHandler
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,9 +20,9 @@ data class FormSnapUiState(
 
 class FormSnapViewModel(
     private val processor: ImageProcessor = ImageProcessor(),
-) : AutoCloseable {
+) : ViewModel() {
 
-    private val supervisorJob = SupervisorJob()
+    private val processingSupervisor = SupervisorJob(viewModelScope.coroutineContext[Job])
 
     private val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
         _state.value = _state.value.copy(
@@ -31,11 +31,10 @@ class FormSnapViewModel(
         )
     }
 
-    private val scope = CoroutineScope(
-        supervisorJob +
-            Dispatchers.Default +
-            exceptionHandler,
-    )
+    private val processingScope = viewModelScope +
+        processingSupervisor +
+        Dispatchers.Default +
+        exceptionHandler
 
     private var processingJob: Job? = null
 
@@ -61,7 +60,7 @@ class FormSnapViewModel(
             error = null,
         )
 
-        processingJob = scope.launch {
+        processingJob = processingScope.launch {
             val result = processor.processForm(
                 imageData = input,
                 adaptiveBlockSize = adaptiveBlockSize,
@@ -90,9 +89,10 @@ class FormSnapViewModel(
         _state.value = FormSnapUiState()
     }
 
-    override fun close() {
+    override fun onCleared() {
         processingJob?.cancel()
         processingJob = null
-        scope.cancel()
+        processingSupervisor.cancel()
+        super.onCleared()
     }
 }
