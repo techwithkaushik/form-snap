@@ -7,6 +7,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
@@ -207,7 +208,7 @@ private fun bindCamera(
                         .setTargetRotation(rotation)
                         .build()
                         .also {
-                            it.surfaceProvider =
+                            it.setSurfaceProvider =
                                 previewView.surfaceProvider
                         }
 
