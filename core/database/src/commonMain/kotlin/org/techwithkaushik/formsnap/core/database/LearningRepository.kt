@@ -16,13 +16,33 @@ class LearningRepository(
         feedbackQueries.observeMeanDrift(kind)
             .asFlow()
             .map { query ->
-                query.executeAsOneOrNull()?.toThresholdProfile()
+                query.executeAsOneOrNull()?.let { row ->
+                    ThresholdProfile(
+                        kind = row.kind,
+                        bias = safeBias(row.mean_delta_bias ?: DEFAULT_BIAS),
+                        sampleCount = row.sample_count ?: 0L,
+                        meanDx = row.mean_delta_x ?: 0.0,
+                        meanDy = row.mean_delta_y ?: 0.0,
+                        meanDw = row.mean_delta_width ?: 0.0,
+                        meanDh = row.mean_delta_height ?: 0.0,
+                    )
+                }
             }
 
     fun profile(kind: String): ThresholdProfile? =
         feedbackQueries.meanDrift(kind)
             .executeAsOneOrNull()
-            ?.toThresholdProfile()
+            ?.let { row ->
+                ThresholdProfile(
+                    kind = row.kind,
+                    bias = safeBias(row.mean_delta_bias ?: DEFAULT_BIAS),
+                    sampleCount = row.sample_count ?: 0L,
+                    meanDx = row.mean_delta_x ?: 0.0,
+                    meanDy = row.mean_delta_y ?: 0.0,
+                    meanDw = row.mean_delta_width ?: 0.0,
+                    meanDh = row.mean_delta_height ?: 0.0,
+                )
+            }
 
     fun recordAcceptedCorrection(
         sample: DetectionSample,
@@ -53,6 +73,7 @@ class LearningRepository(
         updatePolicy(
             kind = bounded.kind,
             context = context,
+            actionIndex = ACCEPT_ACTION,
             reward = rewardFor(bounded),
         )
     }
@@ -86,6 +107,7 @@ class LearningRepository(
         updatePolicy(
             kind = bounded.kind,
             context = context,
+            actionIndex = REJECT_ACTION,
             reward = -1.0,
         )
     }
@@ -96,48 +118,37 @@ class LearningRepository(
     ): List<PolicyStat> =
         policyQueries.selectByContext(kind, context.key())
             .executeAsList()
-            .map {
+            .map { row ->
                 PolicyStat(
-                    kind = it.kind,
-                    contextKey = it.context_key,
-                    actionIndex = it.action_index.toInt(),
-                    visits = it.visits,
-                    totalReward = it.total_reward,
-                    lastReward = it.last_reward,
-                    updatedAt = it.updated_at,
+                    kind = row.kind,
+                    contextKey = row.context_key,
+                    actionIndex = row.action_index.toInt(),
+                    visits = row.visits,
+                    totalReward = row.total_reward,
+                    lastReward = row.last_reward,
+                    updatedAt = row.updated_at,
                 )
             }
 
     fun recommendedAction(
         kind: String,
         context: LearningContext,
-    ): Int? {
-        val stats = policy(kind, context)
-        return stats.maxByOrNull { stat ->
-            averageReward(stat)
-        }?.actionIndex
-    }
+    ): Int? =
+        policy(kind, context)
+            .filter { it.visits > 0L }
+            .maxByOrNull { it.totalReward / it.visits.toDouble() }
+            ?.actionIndex
 
-    fun recommendedBias(kind: String): Double {
-        val profile = profile(kind) ?: return DEFAULT_BIAS
-        return profile.bias.coerceIn(MIN_BIAS, MAX_BIAS)
-    }
-
-    fun recommendedThreshold(
-        kind: String,
-        baseBias: Double = DEFAULT_BIAS,
-    ): Double {
-        val profile = profile(kind)
-        val learned = profile?.bias ?: baseBias
-        return learned.coerceIn(MIN_BIAS, MAX_BIAS)
-    }
+    fun recommendedBias(kind: String): Double =
+        (profile(kind)?.bias ?: DEFAULT_BIAS)
+            .coerceIn(MIN_BIAS, MAX_BIAS)
 
     private fun updatePolicy(
         kind: String,
         context: LearningContext,
+        actionIndex: Int,
         reward: Double,
     ) {
-        val actionIndex = if (reward >= 0.0) ACCEPT_ACTION else REJECT_ACTION
         val key = context.key()
         val existing = policyQueries.selectByAction(
             kind = kind,
@@ -160,53 +171,51 @@ class LearningRepository(
     }
 
     private fun sanitize(sample: DetectionSample): DetectionSample {
+        require(sample.sampleKey.isNotBlank())
+        require(sample.kind.isNotBlank())
         require(sample.sourceWidth > 0)
         require(sample.sourceHeight > 0)
         require(sample.estimatedWidth > 0.0)
         require(sample.estimatedHeight > 0.0)
+        require(sample.estimatedX >= 0.0)
+        require(sample.estimatedY >= 0.0)
 
-        val dx = clampDrift(sample.correctedX - sample.estimatedX)
-        val dy = clampDrift(sample.correctedY - sample.estimatedY)
-        val dw = clampDrift(sample.correctedWidth - sample.estimatedWidth)
-        val dh = clampDrift(sample.correctedHeight - sample.estimatedHeight)
-
-        val estimatedRight = sample.estimatedX + sample.estimatedWidth
-        val estimatedBottom = sample.estimatedY + sample.estimatedHeight
+        val dx = safeDelta(sample.correctedX - sample.estimatedX)
+        val dy = safeDelta(sample.correctedY - sample.estimatedY)
+        val dw = safeDelta(sample.correctedWidth - sample.estimatedWidth)
+        val dh = safeDelta(sample.correctedHeight - sample.estimatedHeight)
 
         val correctedX = (sample.estimatedX + dx)
             .coerceIn(0.0, max(0.0, sample.sourceWidth.toDouble() - 1.0))
         val correctedY = (sample.estimatedY + dy)
             .coerceIn(0.0, max(0.0, sample.sourceHeight.toDouble() - 1.0))
-
-        val correctedWidth = max(
-            1.0,
-            min(
-                sample.estimatedWidth + dw,
-                sample.sourceWidth.toDouble() - correctedX,
-            ),
-        )
-        val correctedHeight = max(
-            1.0,
-            min(
-                sample.estimatedHeight + dh,
-                sample.sourceHeight.toDouble() - correctedY,
-            ),
-        )
+        val correctedWidth = min(
+            max(1.0, sample.estimatedWidth + dw),
+            sample.sourceWidth.toDouble() - correctedX,
+        ).coerceAtLeast(1.0)
+        val correctedHeight = min(
+            max(1.0, sample.estimatedHeight + dh),
+            sample.sourceHeight.toDouble() - correctedY,
+        ).coerceAtLeast(1.0)
 
         return sample.copy(
             correctedX = correctedX,
             correctedY = correctedY,
             correctedWidth = correctedWidth,
             correctedHeight = correctedHeight,
-            thresholdBias = sample.thresholdBias.coerceIn(MIN_BIAS, MAX_BIAS),
-            blockSize = normalizedBlockSize(sample.blockSize),
+            thresholdBias = safeBias(sample.thresholdBias),
+            blockSize = normalizeBlock(sample.blockSize),
         )
     }
 
-    private fun clampDrift(value: Double): Double =
-        value.coerceIn(-MAX_DRIFT_PER_STEP, MAX_DRIFT_PER_STEP)
+    private fun safeDelta(delta: Double): Double =
+        if (delta.isFinite()) delta.coerceIn(-MAX_DRIFT_PER_STEP, MAX_DRIFT_PER_STEP)
+        else 0.0
 
-    private fun normalizedBlockSize(value: Int): Int {
+    private fun safeBias(value: Double): Double =
+        if (value.isFinite()) value.coerceIn(MIN_BIAS, MAX_BIAS) else DEFAULT_BIAS
+
+    private fun normalizeBlock(value: Int): Int {
         val bounded = value.coerceIn(3, 99)
         return if (bounded % 2 == 0) bounded + 1 else bounded
     }
@@ -216,38 +225,20 @@ class LearningRepository(
         val dy = abs(sample.correctedY - sample.estimatedY)
         val dw = abs(sample.correctedWidth - sample.estimatedWidth)
         val dh = abs(sample.correctedHeight - sample.estimatedHeight)
-        val normalized = (dx + dy + dw + dh) / (4.0 * MAX_DRIFT_PER_STEP)
-        return 1.0 - normalized.coerceIn(0.0, 2.0)
+        val magnitude = (dx + dy + dw + dh) / (4.0 * MAX_DRIFT_PER_STEP)
+        return (1.0 - magnitude).coerceIn(-1.0, 1.0)
     }
-
-    private fun averageReward(stat: PolicyStat): Double =
-        if (stat.visits <= 0L) 0.0
-        else stat.totalReward / stat.visits.toDouble()
 
     private fun nowEpochMillis(): Long = expectEpochMillis()
-
-    private fun <T> T.asLong(): Long = when (this) {
-        is Long -> this
-        else -> error("Unsupported time value")
-    }
 
     companion object {
         const val MIN_BIAS = 1.0
         const val MAX_BIAS = 15.0
+        const val DEFAULT_BIAS = 8.0
         const val MAX_DRIFT_PER_STEP = 3.0
         const val REJECT_ACTION = 0
         const val ACCEPT_ACTION = 1
-        const val DEFAULT_BIAS = 8.0
     }
 }
-
-private fun <T> T.toThresholdProfileUnsafe(): ThresholdProfile =
-    error("Generated database row mapping is not available for this type")
-
-private fun Long.toThresholdProfile(): ThresholdProfile =
-    error("Invalid threshold profile source")
-
-private fun nowEpochMillis(): Long =
-    error("Platform time implementation missing")
 
 expect fun expectEpochMillis(): Long
