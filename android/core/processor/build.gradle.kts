@@ -10,6 +10,7 @@ android {
         minSdk = 23
         ndk {
             abiFilters += "armeabi-v7a"
+            stl = "c++_shared"
         }
         externalNativeBuild {
             cmake {
