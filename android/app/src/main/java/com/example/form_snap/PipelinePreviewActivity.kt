@@ -82,10 +82,16 @@ class PipelinePreviewActivity : ComponentActivity() {
     }
 
     private fun recreatePipelineWithInput(file: File) {
-        startActivity(
-            intent.copy()
-                .putExtra(EXTRA_INPUT_PATH, file.absolutePath)
-        )
+        val launchIntent = android.content.Intent(this, PipelinePreviewActivity::class.java).apply {
+            putExtra(EXTRA_INPUT_PATH, file.absolutePath)
+            putExtra(EXTRA_MAX_KB, intent.getDoubleExtra(EXTRA_MAX_KB, 50.0))
+            putExtra(EXTRA_DPI, intent.getDoubleExtra(EXTRA_DPI, 300.0))
+            putExtra(EXTRA_PHOTO_WIDTH_MM, intent.getDoubleExtra(EXTRA_PHOTO_WIDTH_MM, 40.0))
+            putExtra(EXTRA_PHOTO_HEIGHT_MM, intent.getDoubleExtra(EXTRA_PHOTO_HEIGHT_MM, 50.0))
+            putExtra(EXTRA_SIGNATURE_WIDTH_MM, intent.getDoubleExtra(EXTRA_SIGNATURE_WIDTH_MM, 50.0))
+            putExtra(EXTRA_SIGNATURE_HEIGHT_MM, intent.getDoubleExtra(EXTRA_SIGNATURE_HEIGHT_MM, 20.0))
+        }
+        startActivity(launchIntent)
         finish()
     }
 
