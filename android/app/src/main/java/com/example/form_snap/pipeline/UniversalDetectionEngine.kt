@@ -26,7 +26,11 @@ object UniversalDetectionEngine {
         val frameLike: Boolean,
     )
 
-    fun detect(source: Mat): DetectionResult {
+    fun detect(
+        source: Mat,
+        rejectedPhotoBounds: Set<android.graphics.RectF> = emptySet(),
+        rejectedSignatureBounds: Set<android.graphics.RectF> = emptySet(),
+    ): DetectionResult {
         require(!source.empty()) { "Source image is empty" }
 
         val work = Mat()
@@ -59,8 +63,8 @@ object UniversalDetectionEngine {
 
             val candidates = collectCandidates(morph, gray)
 
-            val photo = selectPhoto(candidates)
-            val signature = selectSignature(candidates, photo, gray)
+            val photo = selectPhoto(candidates, rejectedPhotoBounds)
+            val signature = selectSignature(candidates, photo, gray, rejectedSignatureBounds)
 
             val invScale = if (scale == 0.0) 1.0 else 1.0 / scale
 
@@ -170,9 +174,11 @@ object UniversalDetectionEngine {
 
     private fun selectPhoto(
         candidates: List<ShapeCandidate>,
+        rejectedBounds: Set<android.graphics.RectF>,
     ): ShapeCandidate? {
         return candidates
             .asSequence()
+            .filter { candidate -> !isRejected(candidate.rect, rejectedBounds) }
             .filter {
                 val ratio = it.rect.width.toDouble() / max(1, it.rect.height).toDouble()
                 ratio in 0.55..1.15
@@ -189,11 +195,13 @@ object UniversalDetectionEngine {
         candidates: List<ShapeCandidate>,
         photo: ShapeCandidate?,
         gray: Mat,
+        rejectedBounds: Set<android.graphics.RectF>,
     ): ShapeCandidate? {
         val photoBottom = photo?.rect?.br()?.y ?: gray.rows() * 0.45
 
         return candidates
             .asSequence()
+            .filter { candidate -> !isRejected(candidate.rect, rejectedBounds) }
             .filter {
                 val ratio = it.rect.width.toDouble() / max(1, it.rect.height).toDouble()
                 ratio in 1.55..4.2
