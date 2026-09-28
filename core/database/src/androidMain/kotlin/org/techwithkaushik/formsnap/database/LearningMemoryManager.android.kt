@@ -91,6 +91,9 @@ actual class LearningMemoryManager(
             archive.userCorrectionLogs.forEach { row ->
                 database.learningDatabaseQueries.replaceLog(
                     id = row.id,
+                )
+                database.learningDatabaseQueries.insertReplacementLog(
+                    id = row.id,
                     sampleKey = row.sampleKey,
                     kind = row.kind,
                     sourceWidth = row.sourceWidth.toLong(),
