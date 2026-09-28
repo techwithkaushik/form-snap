@@ -52,7 +52,7 @@ INSERT INTO detection_feedback(
     corrected_x, corrected_y, corrected_width, corrected_height,
     threshold_bias, block_size, accepted,
     brightness_bucket, edge_density_bucket, aspect_bucket, created_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 meanDrift:
 SELECT
@@ -61,7 +61,7 @@ SELECT
     AVG(delta_y) AS mean_delta_y,
     AVG(delta_width) AS mean_delta_width,
     AVG(delta_height) AS mean_delta_height,
-    AVG(threshold_bias) AS mean_delta_bias,
+    AVG(threshold_bias) AS mean_threshold_bias,
     COUNT(*) AS sample_count
 FROM detection_feedback
 WHERE kind = ? AND accepted = 1
@@ -74,7 +74,7 @@ SELECT
     AVG(delta_y) AS mean_delta_y,
     AVG(delta_width) AS mean_delta_width,
     AVG(delta_height) AS mean_delta_height,
-    AVG(threshold_bias) AS mean_delta_bias,
+    AVG(threshold_bias) AS mean_threshold_bias,
     COUNT(*) AS sample_count
 FROM detection_feedback
 WHERE kind = ? AND accepted = 1
