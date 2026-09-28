@@ -89,7 +89,7 @@ actual class LearningMemoryManager(
 
         database.transaction {
             archive.userCorrectionLogs.forEach { row ->
-                database.detectionFeedbackQueries.replaceFeedback(
+                database.learningDatabaseQueries.replaceLog(
                     id = row.id,
                     sampleKey = row.sampleKey,
                     kind = row.kind,
@@ -114,7 +114,7 @@ actual class LearningMemoryManager(
             }
 
             archive.tunedParameters.forEach { row ->
-                database.detectionFeedbackQueries.upsertPolicy(
+                database.learningDatabaseQueries.upsertParameter(
                     kind = row.kind,
                     contextKey = row.contextKey,
                     actionIndex = row.actionIndex.toLong(),
@@ -145,12 +145,12 @@ actual class LearningMemoryManager(
     }
 
     private fun readArchive(): LearningMemoryArchiveDto {
-        val logs = database.learningExportQueries
+        val logs = database.learningDatabaseQueries
             .selectAllLogs()
             .executeAsList()
             .take(MAX_ROWS)
 
-        val parameters = database.learningExportQueries
+        val parameters = database.learningDatabaseQueries
             .selectAllParameters()
             .executeAsList()
             .take(MAX_ROWS)
