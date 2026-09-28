@@ -1,7 +1,5 @@
 package org.techwithkaushik.formsnap.database
 
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -10,26 +8,6 @@ class LearningRepository(
     private val database: LearningDatabase,
 ) {
     private val learningQueries = database.learningDatabaseQueries
-
-    fun observeProfile(kind: String): Flow<ThresholdProfile?> =
-        learningQueries.observeMeanDrift(kind)
-            .asFlow()
-            .map { query ->
-                query.executeAsOneOrNull()?.let { row ->
-                    ThresholdProfile(
-                        kind = row.kind,
-                        bias = learnedBias(
-                            row.mean_threshold_bias,
-                            row.sample_count ?: 0L,
-                        ),
-                        sampleCount = row.sample_count ?: 0L,
-                        meanDx = row.mean_delta_x ?: 0.0,
-                        meanDy = row.mean_delta_y ?: 0.0,
-                        meanDw = row.mean_delta_width ?: 0.0,
-                        meanDh = row.mean_delta_height ?: 0.0,
-                    )
-                }
-            }
 
     fun profile(kind: String): ThresholdProfile? =
         learningQueries.meanDrift(kind)
@@ -107,7 +85,7 @@ class LearningRepository(
         kind: String,
         context: LearningContext,
     ): List<PolicyStat> =
-        database.detectionFeedbackQueries
+        learningQueries
             .selectByContext(
                 kind = kind,
                 contextKey = context.key(),
@@ -146,7 +124,7 @@ class LearningRepository(
         actionIndex: Int,
         reward: Double,
     ) {
-        val existing = database.detectionFeedbackQueries
+        val existing = learningQueries
             .selectByAction(
                 kind = kind,
                 contextKey = context.key(),
@@ -157,7 +135,7 @@ class LearningRepository(
         val visits = (existing?.visits ?: 0L) + 1L
         val totalReward = (existing?.total_reward ?: 0.0) + reward
 
-        database.detectionFeedbackQueries.upsertParameter(
+        learningQueries.upsertParameter(
             kind = kind,
             contextKey = context.key(),
             actionIndex = actionIndex.toLong(),
