@@ -43,7 +43,7 @@ class PipelinePreviewActivity : ComponentActivity() {
     private val cameraLauncher: ActivityResultLauncher<Uri> =
         registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
             if (!ok) return@registerForActivityResult
-            val uri = cameraUri ?: return@registerForActivityResult
+            val uri = cameraUri
             val file = File(cacheDir, "recapture_" + System.nanoTime() + ".jpg")
             contentResolver.openInputStream(uri)?.use { input ->
                 file.outputStream().use { output -> input.copyTo(output) }
@@ -61,7 +61,7 @@ class PipelinePreviewActivity : ComponentActivity() {
             if (file.exists()) recreatePipelineWithInput(file)
         }
 
-    private var cameraUri: Uri? = null
+    private lateinit var cameraUri: Uri
 
     private fun launchRecapture() {
         val file = File(cacheDir, "recapture_source_" + System.nanoTime() + ".jpg")
@@ -70,7 +70,7 @@ class PipelinePreviewActivity : ComponentActivity() {
             BuildConfig.APPLICATION_ID + ".fileprovider",
             file,
         )
-        cameraLauncher.launch(cameraUri!!)
+        cameraLauncher.launch(cameraUri)
     }
 
     private fun launchImport() {
@@ -176,7 +176,8 @@ class PipelinePreviewActivity : ComponentActivity() {
                 onRecapture = { launchRecapture() },
                 onReimport = { launchImport() },
                 onEditPhoto = {
-                    val file = state.photoPreviewPath?.let(::File)
+                    val currentPath = editedPhotoPath.value ?: state.photoPreviewPath
+                    val file = currentPath?.let(::File)
                     if (state.photoState != null && file?.exists() == true) {
                         correctionKindForResult = DetectionKind.PHOTO
                         openDetectedEditor(file, DetectionKind.PHOTO)
@@ -189,7 +190,8 @@ class PipelinePreviewActivity : ComponentActivity() {
                     viewModel.reject(DetectionKind.PHOTO)
                 },
                 onEditSignature = {
-                    val file = state.signaturePreviewPath?.let(::File)
+                    val currentPath = editedSignaturePath.value ?: state.signaturePreviewPath
+                    val file = currentPath?.let(::File)
                     if (state.signatureState != null && file?.exists() == true) {
                         correctionKindForResult = DetectionKind.SIGNATURE
                         openDetectedEditor(file, DetectionKind.SIGNATURE)
