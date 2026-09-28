@@ -125,7 +125,7 @@ SELECT kind,
        AVG(threshold_bias) AS meanBias,
        COUNT(*) AS sampleCount
 FROM UserCorrectionLog
-WHERE kind = ? AND accepted = 1
+WHERE kind = :kind AND accepted = 1
 GROUP BY kind;
 
 selectByContext:
