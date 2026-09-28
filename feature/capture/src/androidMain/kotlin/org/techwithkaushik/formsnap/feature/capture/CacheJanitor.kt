@@ -11,7 +11,7 @@ actual class CacheJanitor(
 ) {
     private val appContext = context.applicationContext
 
-    actual suspend fun clearTemporaryAssets() = withContext(Dispatchers.IO) {
+    actual suspend fun clearTemporaryAssets(): Unit = withContext(Dispatchers.IO) {
         val root = appContext.cacheDir
         val managedDirectories = setOf(
             "formsnap_capture",
