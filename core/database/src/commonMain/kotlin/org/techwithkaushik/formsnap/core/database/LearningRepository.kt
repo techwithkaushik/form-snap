@@ -35,7 +35,7 @@ class LearningRepository(
             ?.let { row ->
                 ThresholdProfile(
                     kind = row.kind,
-                    bias = safeBias(row.mean_delta_bias ?: DEFAULT_BIAS),
+                    bias = learnedBias(row.mean_threshold_bias, row.sample_count ?: 0L),
                     sampleCount = row.sample_count ?: 0L,
                     meanDx = row.mean_delta_x ?: 0.0,
                     meanDy = row.mean_delta_y ?: 0.0,
@@ -227,6 +227,12 @@ class LearningRepository(
         val dh = abs(sample.correctedHeight - sample.estimatedHeight)
         val magnitude = (dx + dy + dw + dh) / (4.0 * MAX_DRIFT_PER_STEP)
         return (1.0 - magnitude).coerceIn(-1.0, 1.0)
+    }
+
+    private fun learnedBias(meanStoredBias: Double?, samples: Long): Double {
+        if (samples < 4L) return DEFAULT_BIAS
+        val mean = meanStoredBias ?: DEFAULT_BIAS
+        return safeBias(mean)
     }
 
     private fun nowEpochMillis(): Long = expectEpochMillis()
