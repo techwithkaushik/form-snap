@@ -94,41 +94,41 @@ actual class LearningMemoryManager(
                 )
                 database.learningDatabaseQueries.insertReplacementLog(
                     id = row.id,
-                    sample_key = row.sampleKey,
+                    sample_key = row.sample_key,
                     kind = row.kind,
-                    source_width = row.sourceWidth.toLong(),
-                    source_height = row.sourceHeight.toLong(),
-                    estimated_x = row.estimatedX,
-                    estimated_y = row.estimatedY,
-                    estimated_width = row.estimatedWidth,
-                    estimated_height = row.estimatedHeight,
-                    corrected_x = row.correctedX,
-                    corrected_y = row.correctedY,
-                    corrected_width = row.correctedWidth,
-                    corrected_height = row.correctedHeight,
-                    delta_x = row.correctedX - row.estimatedX,
-                    delta_y = row.correctedY - row.estimatedY,
-                    delta_width = row.correctedWidth - row.estimatedWidth,
-                    delta_height = row.correctedHeight - row.estimatedHeight,
-                    threshold_bias = row.thresholdBias,
-                    block_size = row.blockSize.toLong(),
+                    source_width = row.source_width.toLong(),
+                    source_height = row.source_height.toLong(),
+                    estimated_x = row.estimated_x,
+                    estimated_y = row.estimated_y,
+                    estimated_width = row.estimated_width,
+                    estimated_height = row.estimated_height,
+                    corrected_x = row.corrected_x,
+                    corrected_y = row.corrected_y,
+                    corrected_width = row.corrected_width,
+                    corrected_height = row.corrected_height,
+                    delta_x = row.corrected_x - row.estimated_x,
+                    delta_y = row.corrected_y - row.estimated_y,
+                    delta_width = row.corrected_width - row.estimated_width,
+                    delta_height = row.corrected_height - row.estimated_height,
+                    threshold_bias = row.threshold_bias,
+                    block_size = row.block_size.toLong(),
                     accepted = if (row.accepted) 1L else 0L,
-                    brightness_bucket = row.brightnessBucket.toLong(),
-                    edge_density_bucket = row.edgeDensityBucket.toLong(),
-                    aspect_bucket = row.aspectBucket.toLong(),
-                    created_at = row.createdAt,
+                    brightness_bucket = row.brightness_bucket.toLong(),
+                    edge_density_bucket = row.edge_density_bucket.toLong(),
+                    aspect_bucket = row.aspect_bucket.toLong(),
+                    created_at = row.created_at,
                 )
             }
 
             archive.tunedParameters.forEach { row ->
                 database.learningDatabaseQueries.upsertParameter(
                     kind = row.kind,
-                    context_key = row.contextKey,
-                    action_index = row.actionIndex.toLong(),
+                    context_key = row.context_key,
+                    action_index = row.action_index.toLong(),
                     visits = row.visits,
-                    total_reward = row.totalReward,
-                    last_reward = row.lastReward,
-                    updated_at = row.updatedAt,
+                    total_reward = row.total_reward,
+                    last_reward = row.last_reward,
+                    updated_at = row.updated_at,
                 )
             }
         }
@@ -168,36 +168,36 @@ actual class LearningMemoryManager(
             userCorrectionLogs = logs.map { row ->
                 UserCorrectionLogDto(
                     id = row.id,
-                    sampleKey = row.sample_key,
+                    sample_key = row.sample_key,
                     kind = row.kind,
-                    sourceWidth = row.source_width.toInt(),
-                    sourceHeight = row.source_height.toInt(),
-                    estimatedX = row.estimated_x,
-                    estimatedY = row.estimated_y,
-                    estimatedWidth = row.estimated_width,
-                    estimatedHeight = row.estimated_height,
-                    correctedX = row.corrected_x,
-                    correctedY = row.corrected_y,
-                    correctedWidth = row.corrected_width,
-                    correctedHeight = row.corrected_height,
-                    thresholdBias = row.threshold_bias,
-                    blockSize = row.block_size.toInt(),
+                    source_width = row.source_width.toInt(),
+                    source_height = row.source_height.toInt(),
+                    estimated_x = row.estimated_x,
+                    estimated_y = row.estimated_y,
+                    estimated_width = row.estimated_width,
+                    estimated_height = row.estimated_height,
+                    corrected_x = row.corrected_x,
+                    corrected_y = row.corrected_y,
+                    corrected_width = row.corrected_width,
+                    corrected_height = row.corrected_height,
+                    threshold_bias = row.threshold_bias,
+                    block_size = row.block_size.toInt(),
                     accepted = row.accepted != 0L,
-                    brightnessBucket = row.brightness_bucket.toInt(),
-                    edgeDensityBucket = row.edge_density_bucket.toInt(),
-                    aspectBucket = row.aspect_bucket.toInt(),
-                    createdAt = row.created_at,
+                    brightness_bucket = row.brightness_bucket.toInt(),
+                    edge_density_bucket = row.edge_density_bucket.toInt(),
+                    aspect_bucket = row.aspect_bucket.toInt(),
+                    created_at = row.created_at,
                 )
             },
             tunedParameters = parameters.map { row ->
                 TunedParameterDto(
                     kind = row.kind,
-                    contextKey = row.context_key,
-                    actionIndex = row.action_index.toInt(),
+                    context_key = row.context_key,
+                    action_index = row.action_index.toInt(),
                     visits = row.visits,
-                    totalReward = row.total_reward,
-                    lastReward = row.last_reward,
-                    updatedAt = row.updated_at,
+                    total_reward = row.total_reward,
+                    last_reward = row.last_reward,
+                    updated_at = row.updated_at,
                 )
             },
         )
@@ -260,32 +260,32 @@ actual class LearningMemoryManager(
 
         archive.userCorrectionLogs.forEach { row ->
             require(row.id > 0L)
-            require(row.sampleKey.isNotBlank())
+            require(row.sample_key.isNotBlank())
             require(row.kind.isNotBlank())
-            require(row.sourceWidth > 0)
-            require(row.sourceHeight > 0)
-            require(row.estimatedX.isFinite() && row.estimatedY.isFinite())
-            require(row.estimatedWidth.isFinite() && row.estimatedWidth > 0.0)
-            require(row.estimatedHeight.isFinite() && row.estimatedHeight > 0.0)
-            require(row.correctedX.isFinite() && row.correctedY.isFinite())
-            require(row.correctedWidth.isFinite() && row.correctedWidth > 0.0)
-            require(row.correctedHeight.isFinite() && row.correctedHeight > 0.0)
-            require(row.thresholdBias.isFinite())
-            require(row.blockSize in 3..999 && row.blockSize % 2 == 1)
-            require(row.brightnessBucket in 0..31)
-            require(row.edgeDensityBucket in 0..31)
-            require(row.aspectBucket in 0..31)
-            require(row.createdAt >= 0L)
+            require(row.source_width > 0)
+            require(row.source_height > 0)
+            require(row.estimated_x.isFinite() && row.estimated_y.isFinite())
+            require(row.estimated_width.isFinite() && row.estimated_width > 0.0)
+            require(row.estimated_height.isFinite() && row.estimated_height > 0.0)
+            require(row.corrected_x.isFinite() && row.corrected_y.isFinite())
+            require(row.corrected_width.isFinite() && row.corrected_width > 0.0)
+            require(row.corrected_height.isFinite() && row.corrected_height > 0.0)
+            require(row.threshold_bias.isFinite())
+            require(row.block_size in 3..999 && row.block_size % 2 == 1)
+            require(row.brightness_bucket in 0..31)
+            require(row.edge_density_bucket in 0..31)
+            require(row.aspect_bucket in 0..31)
+            require(row.created_at >= 0L)
         }
 
         archive.tunedParameters.forEach { row ->
             require(row.kind.isNotBlank())
-            require(row.contextKey.isNotBlank())
-            require(row.actionIndex in 0..MAX_ACTION_INDEX)
+            require(row.context_key.isNotBlank())
+            require(row.action_index in 0..MAX_ACTION_INDEX)
             require(row.visits >= 0L)
-            require(row.totalReward.isFinite())
-            require(row.lastReward.isFinite())
-            require(row.updatedAt >= 0L)
+            require(row.total_reward.isFinite())
+            require(row.last_reward.isFinite())
+            require(row.updated_at >= 0L)
         }
     }
 }
