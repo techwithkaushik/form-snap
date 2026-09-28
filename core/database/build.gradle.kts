@@ -45,6 +45,12 @@ android {
     }
 }
 
+tasks.register("compileKotlinAndroid") {
+    group = "verification"
+    description = "Compatibility lifecycle task for the Android Kotlin compilation."
+    dependsOn("compileReleaseKotlinAndroid")
+}
+
 sqldelight {
     databases {
         create("LearningDatabase") {
