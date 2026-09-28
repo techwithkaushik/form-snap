@@ -17,9 +17,11 @@ kotlin {
                 implementation(libs.kotlinx.serialization.json)
             }
         }
+
         val androidMain by getting {
             dependencies {
                 implementation(libs.sqldelight.android)
+                implementation(libs.kotlinx.coroutines.android)
             }
         }
     }
@@ -28,8 +30,18 @@ kotlin {
 android {
     namespace = "org.techwithkaushik.formsnap.database"
     compileSdk = libs.versions.androidCompileSdk.get().toInt()
+
     defaultConfig {
         minSdk = libs.versions.androidMinSdk.get().toInt()
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        buildConfig = false
     }
 }
 
