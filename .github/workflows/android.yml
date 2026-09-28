@@ -44,7 +44,7 @@ jobs:
           SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
         run: |
           set -e
-          gradle :app:assembleRelease --no-daemon --build-cache
+          gradle :app:assembleRelease :core:processor:assembleRelease :core:database:assembleRelease :feature:capture:assembleRelease --no-daemon --build-cache
 
       - name: Verify APK
         if: github.event_name == 'push'
