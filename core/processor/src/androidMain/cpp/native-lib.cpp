@@ -5,31 +5,31 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstdint>
 #include <vector>
 
 namespace {
 
 constexpr int kMaxDimension = 1024;
-constexpr int kMinAdaptiveBlock = 3;
-constexpr int kMaxAdaptiveBlock = 99;
+constexpr int kMinBlockSize = 3;
+constexpr int kMaxBlockSize = 99;
+constexpr double kDefaultConstant = 8.0;
 constexpr double kMinConstant = -32.0;
 constexpr double kMaxConstant = 32.0;
 constexpr int kJpegQuality = 92;
-constexpr char kLogTag[] = "FormSnapProcessor";
+constexpr char kTag[] = "FormSnapProcessor";
 
-int normalizedOddBlock(int requested) {
+int safeBlockSize(int requested) {
     const int bounded = std::clamp(
         requested,
-        kMinAdaptiveBlock,
-        kMaxAdaptiveBlock
+        kMinBlockSize,
+        kMaxBlockSize
     );
-    return bounded % 2 == 0 ? bounded + 1 : bounded;
+    return (bounded % 2 == 0) ? bounded + 1 : bounded;
 }
 
-double normalizedConstant(double requested) {
+double safeConstant(double requested) {
     if (!std::isfinite(requested)) {
-        return 8.0;
+        return kDefaultConstant;
     }
     return std::clamp(
         requested,
@@ -38,71 +38,54 @@ double normalizedConstant(double requested) {
     );
 }
 
-cv::Mat decodeColor(
-    const jbyte* bytes,
-    jsize size
-) {
-    if (bytes == nullptr || size <= 0) {
+cv::Mat resizePreservingAspectRatio(const cv::Mat& src) {
+    if (src.empty()) {
         return {};
     }
 
-    std::vector<uchar> encoded(
-        reinterpret_cast<const uchar*>(bytes),
-        reinterpret_cast<const uchar*>(bytes) + size
+    const int sourceWidth = src.cols;
+    const int sourceHeight = src.rows;
+    const int largestSide = std::max(
+        sourceWidth,
+        sourceHeight
     );
 
-    cv::Mat decoded = cv::imdecode(
-        encoded,
-        cv::IMREAD_COLOR
-    );
-    encoded.clear();
-    encoded.shrink_to_fit();
-    return decoded;
-}
-
-cv::Mat resizePreservingAspect(
-    const cv::Mat& source
-) {
-    if (source.empty()) {
-        return {};
-    }
-
-    const int width = source.cols;
-    const int height = source.rows;
-    const int maxDimension = std::max(width, height);
-
-    if (maxDimension <= kMaxDimension) {
-        return source.clone();
+    if (largestSide <= kMaxDimension) {
+        return src.clone();
     }
 
     const double scale =
         static_cast<double>(kMaxDimension) /
-        static_cast<double>(maxDimension);
+        static_cast<double>(largestSide);
 
     const int targetWidth = std::max(
         1,
         static_cast<int>(
-            std::lround(static_cast<double>(width) * scale)
+            std::lround(
+                static_cast<double>(sourceWidth) * scale
+            )
         )
     );
 
     const int targetHeight = std::max(
         1,
         static_cast<int>(
-            std::lround(static_cast<double>(height) * scale)
+            std::lround(
+                static_cast<double>(sourceHeight) * scale
+            )
         )
     );
 
-    cv::Mat resized;
+    cv::Mat working_img;
     cv::resize(
-        source,
-        resized,
+        src,
+        working_img,
         cv::Size(targetWidth, targetHeight),
         0.0,
         0.0,
         cv::INTER_AREA
     );
-    return resized;
+    return working_img;
 }
 
 jbyteArray encodeJpeg(
@@ -113,14 +96,12 @@ jbyteArray encodeJpeg(
         return nullptr;
     }
 
-    std::vector<int> parameters{
+    std::vector<uchar> encoded;
+    const std::vector<int> parameters{
         cv::IMWRITE_JPEG_QUALITY,
-        kJpegQuality,
-        cv::IMWRITE_JPEG_OPTIMIZE,
-        1
+        kJpegQuality
     };
 
-    std::vector<uchar> encoded;
     if (!cv::imencode(
         ".jpg",
         image,
@@ -132,11 +113,11 @@ jbyteArray encodeJpeg(
         return nullptr;
     }
 
-    const jsize outputSize =
+    const jsize size =
         static_cast<jsize>(encoded.size());
 
     jbyteArray output =
-        env->NewByteArray(outputSize);
+        env->NewByteArray(size);
 
     if (output == nullptr) {
         encoded.clear();
@@ -147,7 +128,7 @@ jbyteArray encodeJpeg(
     env->SetByteArrayRegion(
         output,
         0,
-        outputSize,
+        size,
         reinterpret_cast<const jbyte*>(encoded.data())
     );
 
@@ -162,16 +143,16 @@ jbyteArray encodeJpeg(
     return output;
 }
 
-void logFailure(const char* message) {
+void logError(const char* message) {
     __android_log_print(
         ANDROID_LOG_ERROR,
-        kLogTag,
+        kTag,
         "%s",
         message
     );
 }
 
-}  // namespace
+} 
 
 extern "C"
 JNIEXPORT jbyteArray JNICALL
@@ -186,7 +167,9 @@ Java_org_techwithkaushik_formsnap_processor_ImageProcessor_processNativeForm(
         return nullptr;
     }
 
-    const jsize inputSize = env->GetArrayLength(input);
+    const jsize inputSize =
+        env->GetArrayLength(input);
+
     if (inputSize <= 0) {
         return nullptr;
     }
@@ -198,17 +181,27 @@ Java_org_techwithkaushik_formsnap_processor_ImageProcessor_processNativeForm(
         return nullptr;
     }
 
-    cv::Mat source;
-    cv::Mat resized;
+    cv::Mat src;
+    cv::Mat working_img;
     cv::Mat gray;
     cv::Mat blurred;
     cv::Mat binary;
 
+    jbyteArray output = nullptr;
+
     try {
-        source = decodeColor(
-            inputBytes,
-            inputSize
+        std::vector<uchar> encoded(
+            reinterpret_cast<const uchar*>(inputBytes),
+            reinterpret_cast<const uchar*>(inputBytes) + inputSize
         );
+
+        src = cv::imdecode(
+            encoded,
+            cv::IMREAD_COLOR
+        );
+
+        encoded.clear();
+        encoded.shrink_to_fit();
 
         env->ReleaseByteArrayElements(
             input,
@@ -217,32 +210,38 @@ Java_org_techwithkaushik_formsnap_processor_ImageProcessor_processNativeForm(
         );
         inputBytes = nullptr;
 
-        if (source.empty()) {
-            logFailure("Unable to decode input image.");
-            source.release();
-            return nullptr;
+        if (src.empty()) {
+            logError("Input image decoding failed.");
+            throw std::runtime_error(
+                "Unable to decode input image."
+            );
         }
 
-        resized = resizePreservingAspect(source);
-        source.release();
+        working_img =
+            resizePreservingAspectRatio(src);
 
-        if (resized.empty()) {
-            logFailure("Unable to resize input image.");
-            resized.release();
-            return nullptr;
+        src.release();
+
+        if (working_img.empty()) {
+            logError("Aspect-ratio preserving resize failed.");
+            throw std::runtime_error(
+                "Unable to resize input image."
+            );
         }
 
         cv::cvtColor(
-            resized,
+            working_img,
             gray,
             cv::COLOR_BGR2GRAY
         );
-        resized.release();
+
+        working_img.release();
 
         if (gray.empty()) {
-            logFailure("Unable to convert input image to grayscale.");
-            gray.release();
-            return nullptr;
+            logError("Grayscale conversion failed.");
+            throw std::runtime_error(
+                "Unable to convert image to grayscale."
+            );
         }
 
         cv::GaussianBlur(
@@ -253,19 +252,15 @@ Java_org_techwithkaushik_formsnap_processor_ImageProcessor_processNativeForm(
             0.0,
             cv::BORDER_DEFAULT
         );
+
         gray.release();
 
         if (blurred.empty()) {
-            logFailure("Unable to blur grayscale image.");
-            blurred.release();
-            return nullptr;
+            logError("Gaussian blur failed.");
+            throw std::runtime_error(
+                "Unable to blur grayscale image."
+            );
         }
-
-        const int safeBlock =
-            normalizedOddBlock(static_cast<int>(blockSize));
-
-        const double safeConstant =
-            normalizedConstant(static_cast<double>(constant));
 
         cv::adaptiveThreshold(
             blurred,
@@ -273,35 +268,54 @@ Java_org_techwithkaushik_formsnap_processor_ImageProcessor_processNativeForm(
             255,
             cv::ADAPTIVE_THRESH_GAUSSIAN_C,
             cv::THRESH_BINARY_INV,
-            safeBlock,
-            safeConstant
+            safeBlockSize(
+                static_cast<int>(blockSize)
+            ),
+            safeConstant(
+                static_cast<double>(constant)
+            )
         );
+
         blurred.release();
 
         if (binary.empty()) {
-            logFailure("Adaptive threshold produced an empty image.");
-            binary.release();
-            return nullptr;
+            logError("Adaptive threshold failed.");
+            throw std::runtime_error(
+                "Adaptive threshold produced no output."
+            );
         }
 
-        jbyteArray output = encodeJpeg(
+        output = encodeJpeg(
             env,
             binary
         );
 
         binary.release();
-        return output;
 
+        if (output == nullptr) {
+            throw std::runtime_error(
+                "Unable to encode processed image."
+            );
+        }
+
+        return output;
     } catch (const cv::Exception& error) {
         __android_log_print(
             ANDROID_LOG_ERROR,
-            kLogTag,
-            "OpenCV processing failure: %s",
+            kTag,
+            "OpenCV exception: %s",
+            error.what()
+        );
+    } catch (const std::exception& error) {
+        __android_log_print(
+            ANDROID_LOG_ERROR,
+            kTag,
+            "Native processing exception: %s",
             error.what()
         );
     } catch (...) {
-        logFailure(
-            "Unexpected native processing failure."
+        logError(
+            "Unknown native processing exception."
         );
     }
 
@@ -311,13 +325,33 @@ Java_org_techwithkaushik_formsnap_processor_ImageProcessor_processNativeForm(
             inputBytes,
             JNI_ABORT
         );
+        inputBytes = nullptr;
     }
 
-    source.release();
-    resized.release();
-    gray.release();
-    blurred.release();
-    binary.release();
+    if (src.data != nullptr) {
+        src.release();
+    }
+
+    if (working_img.data != nullptr) {
+        working_img.release();
+    }
+
+    if (gray.data != nullptr) {
+        gray.release();
+    }
+
+    if (blurred.data != nullptr) {
+        blurred.release();
+    }
+
+    if (binary.data != nullptr) {
+        binary.release();
+    }
+
+    if (output != nullptr) {
+        env->DeleteLocalRef(output);
+        output = nullptr;
+    }
 
     return nullptr;
 }
