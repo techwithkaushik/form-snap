@@ -16,14 +16,14 @@ class LearningRepository(
                 ThresholdProfile(
                     kind = row.kind,
                     bias = learnedBias(
-                        row.mean_threshold_bias,
-                        row.sample_count ?: 0L,
+                        row.meanBias,
+                        row.sampleCount,
                     ),
-                    sampleCount = row.sample_count ?: 0L,
-                    meanDx = row.mean_delta_x ?: 0.0,
-                    meanDy = row.mean_delta_y ?: 0.0,
-                    meanDw = row.mean_delta_width ?: 0.0,
-                    meanDh = row.mean_delta_height ?: 0.0,
+                    sampleCount = row.sampleCount,
+                    meanDx = row.meanDx ?: 0.0,
+                    meanDy = row.meanDy ?: 0.0,
+                    meanDw = row.meanDw ?: 0.0,
+                    meanDh = row.meanDh ?: 0.0,
                 )
             }
 
@@ -98,12 +98,12 @@ class LearningRepository(
             .map { row ->
                 PolicyStat(
                     kind = row.kind,
-                    contextKey = row.context_key,
-                    actionIndex = row.action_index.toInt(),
+                    contextKey = row.contextKey,
+                    actionIndex = row.actionIndex.toInt(),
                     visits = row.visits,
-                    totalReward = row.total_reward,
-                    lastReward = row.last_reward,
-                    updatedAt = row.updated_at,
+                    totalReward = row.totalReward,
+                    lastReward = row.lastReward,
+                    updatedAt = row.updatedAt,
                 )
             }
 
@@ -137,7 +137,7 @@ class LearningRepository(
             .executeAsOneOrNull()
 
         val visits = (existing?.visits ?: 0L) + 1L
-        val totalReward = (existing?.total_reward ?: 0.0) + reward
+        val totalReward = (existing?.totalReward ?: 0.0) + reward
 
         learningQueries.upsertParameter(
             kind = kind,
