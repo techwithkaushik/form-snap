@@ -1,27 +1,41 @@
 plugins {
-    id("org.jetbrains.kotlin.multiplatform")
-    id("com.android.kotlin.multiplatform.library")
+    alias(libs.plugins.kotlin.multiplatform)
+    alias(libs.plugins.android.library)
 }
 
 kotlin {
-    android()
+    androidTarget()
+
+    sourceSets {
+        val commonMain by getting
+
+        val androidMain by getting {
+            dependencies {
+                implementation(project(":core:database"))
+                implementation(project(":core:processor"))
+                implementation(libs.kotlinx.coroutines.android)
+                implementation(libs.androidx.core)
+                implementation(libs.androidx.lifecycle.viewmodel)
+                implementation(libs.opencv.android)
+            }
+        }
+    }
 }
 
 android {
     namespace = "org.techwithkaushik.formsnap.feature.pipeline"
-    compileSdk = 37
-    minSdk = 23
+    compileSdk = libs.versions.androidCompileSdk.get().toInt()
+
+    defaultConfig {
+        minSdk = libs.versions.androidMinSdk.get().toInt()
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
 
     buildFeatures {
         buildConfig = false
     }
-}
-
-dependencies {
-    add("androidMainImplementation", project(":core:database"))
-    add("androidMainImplementation", project(":core:processor"))
-    add("androidMainImplementation", "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
-    add("androidMainImplementation", "androidx.core:core-ktx:1.17.0")
-    add("androidMainImplementation", "androidx.lifecycle:lifecycle-viewmodel-ktx:2.9.4")
-    add("androidMainImplementation", "org.opencv:opencv:4.13.0")
 }
