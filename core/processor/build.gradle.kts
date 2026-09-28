@@ -1,47 +1,26 @@
 plugins {
-    id("com.android.library")
+    id("org.jetbrains.kotlin.multiplatform")
+    id("com.android.kotlin.multiplatform.library")
 }
 
-val opencvSdkDir = providers.gradleProperty("opencv.sdk.dir")
-    .orElse(providers.environmentVariable("OPENCV_ANDROID_SDK"))
-    .orElse(
-        providers.fileContents(
-            project.layout.projectDirectory.file("local.properties"),
-        ).asText.map { textValue ->
-            textValue.lineSequence()
-                .map(String::trim)
-                .firstOrNull { it.startsWith("opencv.sdk.dir=") }
-                ?.substringAfter('=')
-                ?.trim()
-                .orEmpty()
-        },
-    )
-    .orNull
-
-require(!opencvSdkDir.isNullOrBlank()) {
-    "OpenCV Android SDK path is required. Set -Popencv.sdk.dir=/path/to/OpenCV-android-sdk or OPENCV_ANDROID_SDK."
+kotlin {
+    android()
+    sourceSets {
+        val androidMain by getting
+    }
 }
 
 android {
     namespace = "org.techwithkaushik.formsnap.core.processor"
     compileSdk = 37
+    minSdk = 23
 
-    defaultConfig {
-        minSdk = 23
-        ndk {
-            abiFilters.addAll(setOf("arm64-v8a", "armeabi-v7a"))
-            stl = "c++_shared"
-        }
-        externalNativeBuild {
-            cmake {
-                arguments(
-                    "-DOPENCV_ANDROID_SDK=$opencvSdkDir",
-                    "-DOpenCV_DIR=$opencvSdkDir/sdk/native/jni",
-                    "-DCMAKE_TOOLCHAIN_FILE=${android.ndkDirectory.absolutePath}/build/cmake/android.toolchain.cmake",
-                    "-DANDROID_STL=c++_shared",
-                )
-            }
-        }
+    buildFeatures {
+        buildConfig = false
+    }
+
+    ndk {
+        abiFilters.addAll(setOf("arm64-v8a", "armeabi-v7a"))
     }
 
     externalNativeBuild {
@@ -51,21 +30,21 @@ android {
         }
     }
 
-    buildFeatures {
-        buildConfig = false
-    }
-
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-    }
-
-    packaging {
-        jniLibs {
-            pickFirsts += setOf(
-                "lib/arm64-v8a/libc++_shared.so",
-                "lib/armeabi-v7a/libc++_shared.so",
-            )
+    defaultConfig {
+        externalNativeBuild {
+            cmake {
+                val sdk = providers.gradleProperty("opencv.sdk.dir")
+                    .orElse(providers.environmentVariable("OPENCV_ANDROID_SDK"))
+                    .getOrElse("")
+                require(sdk.isNotBlank()) {
+                    "OpenCV Android SDK path is required. Set -Popencv.sdk.dir or OPENCV_ANDROID_SDK."
+                }
+                arguments(
+                    "-DOPENCV_ANDROID_SDK=$sdk",
+                    "-DOpenCV_DIR=$sdk/sdk/native/jni",
+                    "-DANDROID_STL=c++_shared",
+                )
+            }
         }
     }
 }
