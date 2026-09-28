@@ -11,6 +11,12 @@ kotlin {
         val commonMain by getting {
             dependencies {
                 implementation("app.cash.sqldelight:runtime:2.3.2")
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
+            }
+        }
+        val androidMain by getting {
+            dependencies {
+                implementation("app.cash.sqldelight:android-driver:2.3.2")
             }
         }
     }
@@ -31,8 +37,4 @@ sqldelight {
             packageName.set("org.techwithkaushik.formsnap.core.database")
         }
     }
-}
-
-dependencies {
-    add("androidMainImplementation", "app.cash.sqldelight:android-driver:2.3.2")
 }
