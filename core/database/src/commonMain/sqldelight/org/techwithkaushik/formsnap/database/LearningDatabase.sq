@@ -6,7 +6,7 @@ CREATE TABLE UserCorrectionLog (
     detectedY INTEGER NOT NULL,
     correctedX INTEGER NOT NULL,
     correctedY INTEGER NOT NULL,
-    isRejected INTEGER AS Boolean NOT NULL DEFAULT 0
+    isRejected INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE TunedParameters (
