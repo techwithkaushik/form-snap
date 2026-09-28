@@ -1,199 +1,84 @@
 CREATE TABLE UserCorrectionLog (
     id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-    sample_key TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    source_width INTEGER NOT NULL,
-    source_height INTEGER NOT NULL,
-    estimated_x REAL NOT NULL,
-    estimated_y REAL NOT NULL,
-    estimated_width REAL NOT NULL,
-    estimated_height REAL NOT NULL,
-    corrected_x REAL NOT NULL,
-    corrected_y REAL NOT NULL,
-    corrected_width REAL NOT NULL,
-    corrected_height REAL NOT NULL,
-    delta_x REAL NOT NULL,
-    delta_y REAL NOT NULL,
-    delta_width REAL NOT NULL,
-    delta_height REAL NOT NULL,
-    threshold_bias REAL NOT NULL,
-    block_size INTEGER NOT NULL,
-    accepted INTEGER NOT NULL,
-    brightness_bucket INTEGER NOT NULL,
-    edge_density_bucket INTEGER NOT NULL,
-    aspect_bucket INTEGER NOT NULL,
-    created_at INTEGER NOT NULL
+    timestamp INTEGER NOT NULL,
+    contentType TEXT NOT NULL,
+    detectedX INTEGER NOT NULL,
+    detectedY INTEGER NOT NULL,
+    correctedX INTEGER NOT NULL,
+    correctedY INTEGER NOT NULL,
+    isRejected INTEGER AS Boolean NOT NULL DEFAULT 0
 );
 
 CREATE TABLE TunedParameters (
     kind TEXT NOT NULL,
-    context_key TEXT NOT NULL,
-    action_index INTEGER NOT NULL,
+    contextKey TEXT NOT NULL,
+    actionIndex INTEGER NOT NULL,
     visits INTEGER NOT NULL DEFAULT 0,
-    total_reward REAL NOT NULL DEFAULT 0.0,
-    last_reward REAL NOT NULL DEFAULT 0.0,
-    updated_at INTEGER NOT NULL,
-    PRIMARY KEY (kind, context_key, action_index)
+    totalReward REAL NOT NULL DEFAULT 0.0,
+    lastReward REAL NOT NULL DEFAULT 0.0,
+    updatedAt INTEGER NOT NULL,
+    PRIMARY KEY (kind, contextKey, actionIndex)
 );
 
-CREATE INDEX user_correction_log_kind_created
-ON UserCorrectionLog(kind, created_at DESC);
-
-CREATE INDEX user_correction_log_sample_key
-ON UserCorrectionLog(sample_key);
-
-CREATE INDEX tuned_parameters_lookup
-ON TunedParameters(kind, context_key);
-
 insertLog:
-INSERT INTO UserCorrectionLog(
-    sample_key,
+INSERT INTO UserCorrectionLog (
+    timestamp,
+    contentType,
+    detectedX,
+    detectedY,
+    correctedX,
+    correctedY,
+    isRejected
+) VALUES (
+    :timestamp,
+    :contentType,
+    :detectedX,
+    :detectedY,
+    :correctedX,
+    :correctedY,
+    :isRejected
+);
+
+insertParameter:
+INSERT OR REPLACE INTO TunedParameters (
     kind,
-    source_width,
-    source_height,
-    estimated_x,
-    estimated_y,
-    estimated_width,
-    estimated_height,
-    corrected_x,
-    corrected_y,
-    corrected_width,
-    corrected_height,
-    delta_x,
-    delta_y,
-    delta_width,
-    delta_height,
-    threshold_bias,
-    block_size,
-    accepted,
-    brightness_bucket,
-    edge_density_bucket,
-    aspect_bucket,
-    created_at
-) VALUES (:sampleKey, :kind, :sourceWidth, :sourceHeight, :estimatedX, :estimatedY, :estimatedWidth, :estimatedHeight, :correctedX, :correctedY, :correctedWidth, :correctedHeight, :deltaX, :deltaY, :deltaWidth, :deltaHeight, :thresholdBias, :blockSize, :accepted, :brightnessBucket, :edgeDensityBucket, :aspectBucket, :createdAt);
-
-replaceLog:
-DELETE FROM UserCorrectionLog
-WHERE id = :id;
-
-insertReplacementLog:
-INSERT INTO UserCorrectionLog(
-    id,
-    sample_key,
-    kind,
-    source_width,
-    source_height,
-    estimated_x,
-    estimated_y,
-    estimated_width,
-    estimated_height,
-    corrected_x,
-    corrected_y,
-    corrected_width,
-    corrected_height,
-    delta_x,
-    delta_y,
-    delta_width,
-    delta_height,
-    threshold_bias,
-    block_size,
-    accepted,
-    brightness_bucket,
-    edge_density_bucket,
-    aspect_bucket,
-    created_at
-) VALUES (:id, :sampleKey, :kind, :sourceWidth, :sourceHeight, :estimatedX, :estimatedY, :estimatedWidth, :estimatedHeight, :correctedX, :correctedY, :correctedWidth, :correctedHeight, :deltaX, :deltaY, :deltaWidth, :deltaHeight, :thresholdBias, :blockSize, :accepted, :brightnessBucket, :edgeDensityBucket, :aspectBucket, :createdAt);
-
-meanDrift:
-SELECT kind,
-       AVG(delta_x) AS meanDx,
-       AVG(delta_y) AS meanDy,
-       AVG(delta_width) AS meanDw,
-       AVG(delta_height) AS meanDh,
-       AVG(threshold_bias) AS meanBias,
-       COUNT(*) AS sampleCount
-FROM UserCorrectionLog
-WHERE kind = :kind AND accepted = 1
-GROUP BY kind;
-
-observeMeanDrift:
-SELECT kind,
-       AVG(delta_x) AS meanDx,
-       AVG(delta_y) AS meanDy,
-       AVG(delta_width) AS meanDw,
-       AVG(delta_height) AS meanDh,
-       AVG(threshold_bias) AS meanBias,
-       COUNT(*) AS sampleCount
-FROM UserCorrectionLog
-WHERE kind = :kind AND accepted = 1
-GROUP BY kind;
-
-selectByContext:
-SELECT kind,
-       context_key AS contextKey,
-       action_index AS actionIndex,
-       visits,
-       total_reward AS totalReward,
-       last_reward AS lastReward,
-       updated_at AS updatedAt
-FROM TunedParameters
-WHERE kind = :kind AND context_key = :contextKey
-ORDER BY action_index;
-
-selectByAction:
-SELECT kind,
-       context_key AS contextKey,
-       action_index AS actionIndex,
-       visits,
-       total_reward AS totalReward,
-       last_reward AS lastReward,
-       updated_at AS updatedAt
-FROM TunedParameters
-WHERE kind = :kind AND context_key = :contextKey AND action_index = :actionIndex
-LIMIT 1;
-
-upsertParameter:
-INSERT OR REPLACE INTO TunedParameters(
-    kind,
-    context_key,
-    action_index,
+    contextKey,
+    actionIndex,
     visits,
-    total_reward,
-    last_reward,
-    updated_at
-) VALUES (:kind, :contextKey, :actionIndex, :visits, :totalReward, :lastReward, :updatedAt);
+    totalReward,
+    lastReward,
+    updatedAt
+) VALUES (
+    :kind,
+    :contextKey,
+    :actionIndex,
+    :visits,
+    :totalReward,
+    :lastReward,
+    :updatedAt
+);
 
 selectAllLogs:
-SELECT id,
-       sample_key,
-       kind,
-       source_width,
-       source_height,
-       estimated_x,
-       estimated_y,
-       estimated_width,
-       estimated_height,
-       corrected_x,
-       corrected_y,
-       corrected_width,
-       corrected_height,
-       threshold_bias,
-       block_size,
-       accepted,
-       brightness_bucket,
-       edge_density_bucket,
-       aspect_bucket,
-       created_at
+SELECT
+    id,
+    timestamp,
+    contentType,
+    detectedX,
+    detectedY,
+    correctedX,
+    correctedY,
+    isRejected
 FROM UserCorrectionLog
 ORDER BY id;
 
 selectAllParameters:
-SELECT kind,
-       context_key,
-       action_index,
-       visits,
-       total_reward,
-       last_reward,
-       updated_at
+SELECT
+    kind,
+    contextKey,
+    actionIndex,
+    visits,
+    totalReward,
+    lastReward,
+    updatedAt
 FROM TunedParameters
-ORDER BY kind, context_key, action_index;
+ORDER BY kind, contextKey, actionIndex;
