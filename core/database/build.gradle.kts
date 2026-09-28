@@ -1,41 +1,42 @@
 plugins {
-    id("org.jetbrains.kotlin.multiplatform")
-    id("org.jetbrains.kotlin.plugin.serialization")
-    id("com.android.kotlin.multiplatform.library")
-    id("app.cash.sqldelight")
+    alias(libs.plugins.kotlin.multiplatform)
+    alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.android.library)
+    alias(libs.plugins.sqldelight)
 }
 
 kotlin {
-    android()
+    androidTarget()
 
     sourceSets {
         val commonMain by getting {
             dependencies {
-                implementation("app.cash.sqldelight:runtime:2.3.2")
-                implementation("app.cash.sqldelight:coroutines-extensions:2.3.2")
-                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
-                implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
+                implementation(libs.sqldelight.runtime)
+                implementation(libs.sqldelight.coroutines)
+                implementation(libs.kotlinx.coroutines.core)
+                implementation(libs.kotlinx.serialization.json)
             }
         }
         val androidMain by getting {
             dependencies {
-                implementation("app.cash.sqldelight:android-driver:2.3.2")
+                implementation(libs.sqldelight.android)
             }
         }
     }
 }
 
 android {
-    namespace = "org.techwithkaushik.formsnap.core.database"
-    compileSdk = 37
-
-    minSdk = 23
+    namespace = "org.techwithkaushik.formsnap.database"
+    compileSdk = libs.versions.androidCompileSdk.get().toInt()
+    defaultConfig {
+        minSdk = libs.versions.androidMinSdk.get().toInt()
+    }
 }
 
 sqldelight {
     databases {
-        create("FormSnapDatabase") {
-            packageName.set("org.techwithkaushik.formsnap.core.database")
+        create("LearningDatabase") {
+            packageName.set("org.techwithkaushik.formsnap.database")
         }
     }
 }
