@@ -116,7 +116,7 @@ class MainActivity : ComponentActivity() {
         }
 
         val pipelineLauncher = rememberLauncherForActivityResult(
-            StartActivityForResult(),
+            ActivityResultContracts.StartActivityForResult(),
         ) {
             source = null
             mode = CaptureMode.WHOLE_FORM
