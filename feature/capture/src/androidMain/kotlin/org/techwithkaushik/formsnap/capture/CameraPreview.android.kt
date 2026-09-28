@@ -208,8 +208,9 @@ private fun bindCamera(
                         .setTargetRotation(rotation)
                         .build()
                         .also {
-                            it.setSurfaceProvider =
-                                previewView.surfaceProvider
+                            it.setSurfaceProvider(
+                                previewView.surfaceProvider,
+                            )
                         }
 
                 val capture =
