@@ -8,18 +8,18 @@ data class UserCorrectionLogBackup(
     val id: Long,
     val timestamp: Long,
     val contentType: String,
-    val detectedX: Int,
-    val detectedY: Int,
-    val correctedX: Int,
-    val correctedY: Int,
-    val isRejected: Boolean,
+    val detectedX: Long,
+    val detectedY: Long,
+    val correctedX: Long,
+    val correctedY: Long,
+    val isRejected: Long,
 )
 
 @Serializable
 data class TunedParameterBackup(
     val kind: String,
     val contextKey: String,
-    val actionIndex: Int,
+    val actionIndex: Long,
     val visits: Long,
     val totalReward: Double,
     val lastReward: Double,
@@ -29,8 +29,8 @@ data class TunedParameterBackup(
 @Serializable
 data class LearningMemoryBackup(
     val schemaVersion: Int = 1,
-    val userCorrectionLogs: List<UserCorrectionLogBackup>,
-    val tunedParameters: List<TunedParameterBackup>,
+    val userCorrectionLogs: List<UserCorrectionLogBackup> = emptyList(),
+    val tunedParameters: List<TunedParameterBackup> = emptyList(),
 )
 
 class LearningMemoryManager(
@@ -54,11 +54,11 @@ class LearningMemoryManager(
                         id = row.id,
                         timestamp = row.timestamp,
                         contentType = row.contentType,
-                        detectedX = row.detectedX.toInt(),
-                        detectedY = row.detectedY.toInt(),
-                        correctedX = row.correctedX.toInt(),
-                        correctedY = row.correctedY.toInt(),
-                        isRejected = row.isRejected,
+                        detectedX = row.detectedX,
+                        detectedY = row.detectedY,
+                        correctedX = row.correctedX,
+                        correctedY = row.correctedY,
+                        isRejected = row.isRejected.toLong(),
                     )
                 },
             tunedParameters = queries
@@ -68,7 +68,7 @@ class LearningMemoryManager(
                     TunedParameterBackup(
                         kind = row.kind,
                         contextKey = row.contextKey,
-                        actionIndex = row.actionIndex.toInt(),
+                        actionIndex = row.actionIndex,
                         visits = row.visits,
                         totalReward = row.totalReward,
                         lastReward = row.lastReward,
@@ -98,10 +98,10 @@ class LearningMemoryManager(
                 queries.insertLog(
                     timestamp = row.timestamp,
                     contentType = row.contentType,
-                    detectedX = row.detectedX.toLong(),
-                    detectedY = row.detectedY.toLong(),
-                    correctedX = row.correctedX.toLong(),
-                    correctedY = row.correctedY.toLong(),
+                    detectedX = row.detectedX,
+                    detectedY = row.detectedY,
+                    correctedX = row.correctedX,
+                    correctedY = row.correctedY,
                     isRejected = row.isRejected,
                 )
             }
@@ -110,7 +110,7 @@ class LearningMemoryManager(
                 queries.insertParameter(
                     kind = row.kind,
                     contextKey = row.contextKey,
-                    actionIndex = row.actionIndex.toLong(),
+                    actionIndex = row.actionIndex,
                     visits = row.visits,
                     totalReward = row.totalReward,
                     lastReward = row.lastReward,
@@ -123,37 +123,40 @@ class LearningMemoryManager(
     fun exportFsl(): ByteArray {
         val jsonBytes = exportJson()
         val output = ByteArrayOutputAccumulator()
-        output.writeUtf8("FSL1
-")
+        output.writeUtf8("FSL1\n")
         output.writeLengthPrefixed(jsonBytes)
         output.writeLengthPrefixed(ByteArray(0))
         return output.toByteArray()
     }
 
     fun importFsl(bytes: ByteArray) {
-        require(bytes.size >= 5) {
+        require(bytes.size >= FSL_HEADER.size) {
             "FSL bundle is too small."
         }
 
         val reader = ByteArrayReader(bytes)
-        val magic = reader.readUtf8(5)
-        require(magic == "FSL1
-") {
+        val magic = reader.readUtf8(FSL_HEADER.size)
+        require(magic == FSL_HEADER) {
             "Unsupported FSL bundle."
         }
 
         val jsonBytes = reader.readLengthPrefixed()
         reader.readLengthPrefixed()
+
         require(reader.remaining() == 0) {
             "Trailing bytes found in FSL bundle."
         }
 
         importJson(jsonBytes)
     }
+
+    private companion object {
+        const val FSL_HEADER = "FSL1\n"
+    }
 }
 
 private class ByteArrayOutputAccumulator {
-    private var buffer = ByteArray(1024)
+    private var buffer = ByteArray(INITIAL_CAPACITY)
     private var size = 0
 
     fun writeUtf8(value: String) {
@@ -161,21 +164,17 @@ private class ByteArrayOutputAccumulator {
     }
 
     fun writeLengthPrefixed(value: ByteArray) {
-        require(value.size.toLong() <= Int.MAX_VALUE.toLong()) {
-            "Payload is too large."
-        }
-
         val length = value.size
-        writeByte((length ushr 24) and 0xFF)
-        writeByte((length ushr 16) and 0xFF)
-        writeByte((length ushr 8) and 0xFF)
-        writeByte(length and 0xFF)
+        writeByte(length ushr 24)
+        writeByte(length ushr 16)
+        writeByte(length ushr 8)
+        writeByte(length)
         write(value)
     }
 
     private fun writeByte(value: Int) {
         ensureCapacity(1)
-        buffer[size++] = value.toByte()
+        buffer[size++] = (value and 0xFF).toByte()
     }
 
     private fun write(value: ByteArray) {
@@ -199,17 +198,22 @@ private class ByteArrayOutputAccumulator {
 
         var capacity = buffer.size
         while (capacity < required) {
-            capacity = if (capacity <= Int.MAX_VALUE / 2) {
-                capacity * 2
-            } else {
-                Int.MAX_VALUE
+            val next = capacity shl 1
+            if (next <= capacity) {
+                capacity = required
+                break
             }
+            capacity = next
         }
 
         buffer = buffer.copyOf(capacity)
     }
 
     fun toByteArray(): ByteArray = buffer.copyOf(size)
+
+    private companion object {
+        const val INITIAL_CAPACITY = 1024
+    }
 }
 
 private class ByteArrayReader(
@@ -226,18 +230,22 @@ private class ByteArrayReader(
         val c = readUnsignedByte()
         val d = readUnsignedByte()
         val length = (a shl 24) or (b shl 16) or (c shl 8) or d
+
         require(length >= 0) {
             "Invalid FSL payload length."
         }
+
         return readExact(length)
     }
 
-    fun remaining(): Int = bytes.size - position
+    fun remaining(): Int =
+        bytes.size - position
 
     private fun readUnsignedByte(): Int {
         require(position < bytes.size) {
             "Unexpected end of FSL bundle."
         }
+
         return bytes[position++].toInt() and 0xFF
     }
 
@@ -246,7 +254,10 @@ private class ByteArrayReader(
             "Unexpected end of FSL bundle."
         }
 
-        val result = bytes.copyOfRange(position, position + length)
+        val result = bytes.copyOfRange(
+            position,
+            position + length,
+        )
         position += length
         return result
     }
