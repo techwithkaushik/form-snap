@@ -23,4 +23,5 @@ dependencies {
     add("androidMainImplementation", "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     add("androidMainImplementation", "androidx.core:core-ktx:1.17.0")
     add("androidMainImplementation", "androidx.lifecycle:lifecycle-viewmodel-ktx:2.9.4")
+    add("androidMainImplementation", "org.opencv:opencv:4.13.0")
 }
