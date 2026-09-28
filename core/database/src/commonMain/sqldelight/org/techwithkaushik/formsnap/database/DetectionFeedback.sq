@@ -1,0 +1,109 @@
+CREATE TABLE detection_feedback (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    sample_key TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    source_width INTEGER NOT NULL,
+    source_height INTEGER NOT NULL,
+    estimated_x REAL NOT NULL,
+    estimated_y REAL NOT NULL,
+    estimated_width REAL NOT NULL,
+    estimated_height REAL NOT NULL,
+    corrected_x REAL NOT NULL,
+    corrected_y REAL NOT NULL,
+    corrected_width REAL NOT NULL,
+    corrected_height REAL NOT NULL,
+    delta_x REAL AS corrected_x - estimated_x,
+    delta_y REAL AS corrected_y - estimated_y,
+    delta_width REAL AS corrected_width - estimated_width,
+    delta_height REAL AS corrected_height - estimated_height,
+    threshold_bias REAL NOT NULL,
+    block_size INTEGER NOT NULL,
+    accepted INTEGER NOT NULL,
+    brightness_bucket INTEGER NOT NULL,
+    edge_density_bucket INTEGER NOT NULL,
+    aspect_bucket INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+);
+
+CREATE TABLE policy_stat (
+    kind TEXT NOT NULL,
+    context_key TEXT NOT NULL,
+    action_index INTEGER NOT NULL,
+    visits INTEGER NOT NULL DEFAULT 0,
+    total_reward REAL NOT NULL DEFAULT 0.0,
+    last_reward REAL NOT NULL DEFAULT 0.0,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (kind, context_key, action_index)
+);
+
+CREATE INDEX detection_feedback_kind_created
+ON detection_feedback(kind, created_at DESC);
+
+CREATE INDEX detection_feedback_sample_key
+ON detection_feedback(sample_key);
+
+CREATE INDEX policy_stat_lookup
+ON policy_stat(kind, context_key);
+
+insertFeedback:
+INSERT INTO detection_feedback(
+    sample_key, kind, source_width, source_height,
+    estimated_x, estimated_y, estimated_width, estimated_height,
+    corrected_x, corrected_y, corrected_width, corrected_height,
+    threshold_bias, block_size, accepted,
+    brightness_bucket, edge_density_bucket, aspect_bucket, created_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+replaceFeedback:
+INSERT OR REPLACE INTO detection_feedback(
+    id, sample_key, kind, source_width, source_height,
+    estimated_x, estimated_y, estimated_width, estimated_height,
+    corrected_x, corrected_y, corrected_width, corrected_height,
+    threshold_bias, block_size, accepted,
+    brightness_bucket, edge_density_bucket, aspect_bucket, created_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+meanDrift:
+SELECT kind,
+       AVG(delta_x) AS mean_delta_x,
+       AVG(delta_y) AS mean_delta_y,
+       AVG(delta_width) AS mean_delta_width,
+       AVG(delta_height) AS mean_delta_height,
+       AVG(threshold_bias) AS mean_threshold_bias,
+       COUNT(*) AS sample_count
+FROM detection_feedback
+WHERE kind = ? AND accepted = 1
+GROUP BY kind;
+
+observeMeanDrift:
+SELECT kind,
+       AVG(delta_x) AS mean_delta_x,
+       AVG(delta_y) AS mean_delta_y,
+       AVG(delta_width) AS mean_delta_width,
+       AVG(delta_height) AS mean_delta_height,
+       AVG(threshold_bias) AS mean_threshold_bias,
+       COUNT(*) AS sample_count
+FROM detection_feedback
+WHERE kind = ? AND accepted = 1
+GROUP BY kind;
+
+selectByContext:
+SELECT * FROM policy_stat
+WHERE kind = ? AND context_key = ?
+ORDER BY action_index;
+
+selectByAction:
+SELECT * FROM policy_stat
+WHERE kind = ? AND context_key = ? AND action_index = ?
+LIMIT 1;
+
+upsertPolicy:
+INSERT INTO policy_stat(
+    kind, context_key, action_index, visits, total_reward, last_reward, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(kind, context_key, action_index)
+DO UPDATE SET
+    visits = excluded.visits,
+    total_reward = excluded.total_reward,
+    last_reward = excluded.last_reward,
+    updated_at = excluded.updated_at;
