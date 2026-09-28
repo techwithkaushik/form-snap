@@ -1,4 +1,4 @@
-CREATE TABLE detection_feedback (
+CREATE TABLE UserCorrectionLog (
     id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     sample_key TEXT NOT NULL,
     kind TEXT NOT NULL,
@@ -25,7 +25,7 @@ CREATE TABLE detection_feedback (
     created_at INTEGER NOT NULL
 );
 
-CREATE TABLE policy_stat (
+CREATE TABLE TunedParameters (
     kind TEXT NOT NULL,
     context_key TEXT NOT NULL,
     action_index INTEGER NOT NULL,
@@ -36,31 +36,60 @@ CREATE TABLE policy_stat (
     PRIMARY KEY (kind, context_key, action_index)
 );
 
-CREATE INDEX detection_feedback_kind_created
-ON detection_feedback(kind, created_at DESC);
+CREATE INDEX user_correction_log_kind_created
+ON UserCorrectionLog(kind, created_at DESC);
 
-CREATE INDEX detection_feedback_sample_key
-ON detection_feedback(sample_key);
+CREATE INDEX user_correction_log_sample_key
+ON UserCorrectionLog(sample_key);
 
-CREATE INDEX policy_stat_lookup
-ON policy_stat(kind, context_key);
+CREATE INDEX tuned_parameters_lookup
+ON TunedParameters(kind, context_key);
 
-insertFeedback:
-INSERT INTO detection_feedback(
-    sample_key, kind, source_width, source_height,
-    estimated_x, estimated_y, estimated_width, estimated_height,
-    corrected_x, corrected_y, corrected_width, corrected_height,
-    threshold_bias, block_size, accepted,
-    brightness_bucket, edge_density_bucket, aspect_bucket, created_at
+insertLog:
+INSERT INTO UserCorrectionLog(
+    sample_key,
+    kind,
+    source_width,
+    source_height,
+    estimated_x,
+    estimated_y,
+    estimated_width,
+    estimated_height,
+    corrected_x,
+    corrected_y,
+    corrected_width,
+    corrected_height,
+    threshold_bias,
+    block_size,
+    accepted,
+    brightness_bucket,
+    edge_density_bucket,
+    aspect_bucket,
+    created_at
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
-replaceFeedback:
-INSERT OR REPLACE INTO detection_feedback(
-    id, sample_key, kind, source_width, source_height,
-    estimated_x, estimated_y, estimated_width, estimated_height,
-    corrected_x, corrected_y, corrected_width, corrected_height,
-    threshold_bias, block_size, accepted,
-    brightness_bucket, edge_density_bucket, aspect_bucket, created_at
+replaceLog:
+INSERT OR REPLACE INTO UserCorrectionLog(
+    id,
+    sample_key,
+    kind,
+    source_width,
+    source_height,
+    estimated_x,
+    estimated_y,
+    estimated_width,
+    estimated_height,
+    corrected_x,
+    corrected_y,
+    corrected_width,
+    corrected_height,
+    threshold_bias,
+    block_size,
+    accepted,
+    brightness_bucket,
+    edge_density_bucket,
+    aspect_bucket,
+    created_at
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 meanDrift:
@@ -71,7 +100,7 @@ SELECT kind,
        AVG(delta_height) AS mean_delta_height,
        AVG(threshold_bias) AS mean_threshold_bias,
        COUNT(*) AS sample_count
-FROM detection_feedback
+FROM UserCorrectionLog
 WHERE kind = ? AND accepted = 1
 GROUP BY kind;
 
@@ -83,23 +112,31 @@ SELECT kind,
        AVG(delta_height) AS mean_delta_height,
        AVG(threshold_bias) AS mean_threshold_bias,
        COUNT(*) AS sample_count
-FROM detection_feedback
+FROM UserCorrectionLog
 WHERE kind = ? AND accepted = 1
 GROUP BY kind;
 
 selectByContext:
-SELECT * FROM policy_stat
+SELECT *
+FROM TunedParameters
 WHERE kind = ? AND context_key = ?
 ORDER BY action_index;
 
 selectByAction:
-SELECT * FROM policy_stat
+SELECT *
+FROM TunedParameters
 WHERE kind = ? AND context_key = ? AND action_index = ?
 LIMIT 1;
 
-upsertPolicy:
-INSERT INTO policy_stat(
-    kind, context_key, action_index, visits, total_reward, last_reward, updated_at
+upsertParameter:
+INSERT INTO TunedParameters(
+    kind,
+    context_key,
+    action_index,
+    visits,
+    total_reward,
+    last_reward,
+    updated_at
 ) VALUES (?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(kind, context_key, action_index)
 DO UPDATE SET
@@ -109,15 +146,36 @@ DO UPDATE SET
     updated_at = excluded.updated_at;
 
 selectAllLogs:
-SELECT id, sample_key, kind, source_width, source_height,
-       estimated_x, estimated_y, estimated_width, estimated_height,
-       corrected_x, corrected_y, corrected_width, corrected_height,
-       threshold_bias, block_size, accepted,
-       brightness_bucket, edge_density_bucket, aspect_bucket, created_at
-FROM detection_feedback
+SELECT id,
+       sample_key,
+       kind,
+       source_width,
+       source_height,
+       estimated_x,
+       estimated_y,
+       estimated_width,
+       estimated_height,
+       corrected_x,
+       corrected_y,
+       corrected_width,
+       corrected_height,
+       threshold_bias,
+       block_size,
+       accepted,
+       brightness_bucket,
+       edge_density_bucket,
+       aspect_bucket,
+       created_at
+FROM UserCorrectionLog
 ORDER BY id;
 
 selectAllParameters:
-SELECT kind, context_key, action_index, visits, total_reward, last_reward, updated_at
-FROM policy_stat
+SELECT kind,
+       context_key,
+       action_index,
+       visits,
+       total_reward,
+       last_reward,
+       updated_at
+FROM TunedParameters
 ORDER BY kind, context_key, action_index;
