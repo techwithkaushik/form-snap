@@ -9,10 +9,10 @@ import kotlin.math.min
 class LearningRepository(
     private val database: LearningDatabase,
 ) {
-    private val feedbackQueries = database.detectionFeedbackQueries
+    private val learningQueries = database.learningDatabaseQueries
 
     fun observeProfile(kind: String): Flow<ThresholdProfile?> =
-        feedbackQueries.observeMeanDrift(kind)
+        learningQueries.observeMeanDrift(kind)
             .asFlow()
             .map { query ->
                 query.executeAsOneOrNull()?.let { row ->
@@ -32,7 +32,7 @@ class LearningRepository(
             }
 
     fun profile(kind: String): ThresholdProfile? =
-        feedbackQueries.meanDrift(kind)
+        learningQueries.meanDrift(kind)
             .executeAsOneOrNull()
             ?.let { row ->
                 ThresholdProfile(
@@ -54,7 +54,7 @@ class LearningRepository(
         context: LearningContext,
     ) {
         val bounded = sanitize(sample)
-        feedbackQueries.insertFeedback(
+        learningQueries.insertLog(
             sampleKey = bounded.sampleKey,
             kind = bounded.kind,
             sourceWidth = bounded.sourceWidth.toLong(),
@@ -157,7 +157,7 @@ class LearningRepository(
         val visits = (existing?.visits ?: 0L) + 1L
         val totalReward = (existing?.total_reward ?: 0.0) + reward
 
-        database.detectionFeedbackQueries.upsertPolicy(
+        database.detectionFeedbackQueries.upsertParameter(
             kind = kind,
             contextKey = context.key(),
             actionIndex = actionIndex.toLong(),
