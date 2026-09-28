@@ -1,12 +1,14 @@
 plugins {
     id("com.android.library")
-    id("org.jetbrains.kotlin.android")
 }
 
 android {
     namespace = "org.techwithkaushik.formsnap.feature.capture"
     compileSdk = 37
-    defaultConfig { minSdk = 23 }
+
+    defaultConfig {
+        minSdk = 23
+    }
 }
 
 dependencies {
