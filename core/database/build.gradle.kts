@@ -20,15 +20,9 @@ kotlin {
             implementation(libs.kotlinx.serialization.json)
         }
 
-        sourceSets.all {
-            if (name == "androidMain") {
-                dependencies {
-                    implementation(libs.sqldelight.android.driver)
-                    implementation(libs.kotlinx.coroutines.android)
-                    
-                    compileOnly("com.google.android:android:4.1.1.4")
-                }
-            }
+        androidMain.dependencies {
+            implementation(libs.sqldelight.android.driver)
+            implementation(libs.kotlinx.coroutines.android)
         }
     }
 }
@@ -57,10 +51,6 @@ sqldelight {
             packageName.set("org.techwithkaushik.formsnap.database")
         }
     }
-}
-
-tasks.matching { it.name.contains("compileReleaseKotlinAndroid") || it.name.contains("compileDebugKotlinAndroid") }.all {
-    dependsOn(tasks.matching { it.name.contains("processReleaseManifest") || it.name.contains("processDebugManifest") })
 }
 
 tasks.register("compileKotlinAndroid") {
