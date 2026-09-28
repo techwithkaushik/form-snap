@@ -106,36 +106,48 @@ INSERT INTO UserCorrectionLog(
 
 meanDrift:
 SELECT kind,
-       AVG(delta_x) AS mean_delta_x,
-       AVG(delta_y) AS mean_delta_y,
-       AVG(delta_width) AS mean_delta_width,
-       AVG(delta_height) AS mean_delta_height,
-       AVG(threshold_bias) AS mean_threshold_bias,
-       COUNT(*) AS sample_count
+       AVG(delta_x) AS meanDx,
+       AVG(delta_y) AS meanDy,
+       AVG(delta_width) AS meanDw,
+       AVG(delta_height) AS meanDh,
+       AVG(threshold_bias) AS meanBias,
+       COUNT(*) AS sampleCount
 FROM UserCorrectionLog
 WHERE kind = ? AND accepted = 1
 GROUP BY kind;
 
 observeMeanDrift:
 SELECT kind,
-       AVG(delta_x) AS mean_delta_x,
-       AVG(delta_y) AS mean_delta_y,
-       AVG(delta_width) AS mean_delta_width,
-       AVG(delta_height) AS mean_delta_height,
-       AVG(threshold_bias) AS mean_threshold_bias,
-       COUNT(*) AS sample_count
+       AVG(delta_x) AS meanDx,
+       AVG(delta_y) AS meanDy,
+       AVG(delta_width) AS meanDw,
+       AVG(delta_height) AS meanDh,
+       AVG(threshold_bias) AS meanBias,
+       COUNT(*) AS sampleCount
 FROM UserCorrectionLog
 WHERE kind = ? AND accepted = 1
 GROUP BY kind;
 
 selectByContext:
-SELECT *
+SELECT kind,
+       context_key AS contextKey,
+       action_index AS actionIndex,
+       visits,
+       total_reward AS totalReward,
+       last_reward AS lastReward,
+       updated_at AS updatedAt
 FROM TunedParameters
 WHERE kind = ? AND context_key = ?
 ORDER BY action_index;
 
 selectByAction:
-SELECT *
+SELECT kind,
+       context_key AS contextKey,
+       action_index AS actionIndex,
+       visits,
+       total_reward AS totalReward,
+       last_reward AS lastReward,
+       updated_at AS updatedAt
 FROM TunedParameters
 WHERE kind = ? AND context_key = ? AND action_index = ?
 LIMIT 1;
