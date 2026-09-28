@@ -19,7 +19,7 @@ class LearningRepository(
                 query.executeAsOneOrNull()?.let { row ->
                     ThresholdProfile(
                         kind = row.kind,
-                        bias = safeBias(row.mean_delta_bias ?: DEFAULT_BIAS),
+                        bias = safeBias(row.mean_threshold_bias ?: DEFAULT_BIAS),
                         sampleCount = row.sample_count ?: 0L,
                         meanDx = row.mean_delta_x ?: 0.0,
                         meanDy = row.mean_delta_y ?: 0.0,
