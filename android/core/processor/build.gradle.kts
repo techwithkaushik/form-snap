@@ -1,6 +1,5 @@
 plugins {
     id("com.android.library")
-    id("org.jetbrains.kotlin.android")
 }
 
 android {
@@ -15,6 +14,7 @@ android {
         externalNativeBuild {
             cmake {
                 cppFlags += listOf("-std=c++17", "-fexceptions", "-frtti", "-O3")
+                arguments += "-DOpenCV_DIR=${projectDir}/src/main/cpp/opencv"
             }
         }
     }
