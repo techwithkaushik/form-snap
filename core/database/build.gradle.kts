@@ -49,6 +49,17 @@ android {
     }
 }
 
+dependencies {
+    add(
+        "releaseCompileOnly",
+        files(
+            android.sdkDirectory.resolve(
+                "platforms/android-${libs.versions.androidCompileSdk.get()}/android.jar",
+            ),
+        ),
+    )
+}
+
 sqldelight {
     databases {
         register("LearningDatabase") {
