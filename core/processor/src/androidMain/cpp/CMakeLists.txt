@@ -17,7 +17,7 @@ endif()
 set(FORMSNAP_OPENCV_INCLUDE_DIR
     "${FORMSNAP_OPENCV_ROOT}/${ANDROID_ABI}/include")
 set(FORMSNAP_OPENCV_LIBRARY
-    "${FORMSNAP_OPENCV_ROOT}/${ANDROID_ABI}/lib/libopencv_java4.so")
+    "${FORMSNAP_OPENCV_ROOT}/${ANDROID_ABI}/lib/libopencv_java5.so")
 
 if(NOT EXISTS "${FORMSNAP_OPENCV_INCLUDE_DIR}/opencv2/core.hpp")
     message(FATAL_ERROR
@@ -31,9 +31,9 @@ if(NOT EXISTS "${FORMSNAP_OPENCV_LIBRARY}")
         "${FORMSNAP_OPENCV_LIBRARY}")
 endif()
 
-add_library(formsnap_opencv_java4 SHARED IMPORTED GLOBAL)
+add_library(formsnap_opencv_java5 SHARED IMPORTED GLOBAL)
 
-set_target_properties(formsnap_opencv_java4 PROPERTIES
+set_target_properties(formsnap_opencv_java5 PROPERTIES
     IMPORTED_LOCATION
         "${FORMSNAP_OPENCV_LIBRARY}"
     INTERFACE_INCLUDE_DIRECTORIES
@@ -52,7 +52,7 @@ target_include_directories(formsnap_processor
 
 target_link_libraries(formsnap_processor
     PRIVATE
-        formsnap_opencv_java4
+        formsnap_opencv_java5
         android
         log
 )
