@@ -6,13 +6,15 @@ plugins {
 }
 
 kotlin {
-    androidTarget()
+    android()
+
     sourceSets {
         val commonMain by getting {
             dependencies {
                 implementation("app.cash.sqldelight:runtime:2.3.2")
+                implementation("app.cash.sqldelight:coroutines-extensions:2.3.2")
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
-                implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
+                implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
             }
         }
         val androidMain by getting {
@@ -26,7 +28,8 @@ kotlin {
 android {
     namespace = "org.techwithkaushik.formsnap.core.database"
     compileSdk = 37
-    defaultConfig { minSdk = 23 }
+
+    minSdk = 23
 }
 
 sqldelight {
