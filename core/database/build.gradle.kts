@@ -45,16 +45,6 @@ android {
     }
 }
 
-dependencies {
-    add("androidReleaseCompileOnly", "com.google.android:android:4.1.1.4")
-}
-
-// KMP 2.0.x can omit the Android SDK from the variant Kotlin compiler classpath
-// for release compilations. Keep the Android API explicitly available to this\n// module; SQLDelight remains the runtime/driver dependency in androidMain.
-dependencies {
-    compileOnly("com.google.android:android:4.1.1.4")
-}
-
 sqldelight {
     databases {
         create("LearningDatabase") {
