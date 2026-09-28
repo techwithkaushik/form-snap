@@ -13,17 +13,21 @@ kotlin {
     }
 
     sourceSets {
-        commonMain.dependencies {
-            implementation(libs.sqldelight.runtime)
-            implementation(libs.sqldelight.coroutines)
-            implementation(libs.kotlinx.coroutines.core)
-            implementation(libs.kotlinx.serialization.json)
+        val commonMain by getting {
+            dependencies {
+                implementation(libs.sqldelight.runtime)
+                implementation(libs.sqldelight.coroutines)
+                implementation(libs.kotlinx.coroutines.core)
+                implementation(libs.kotlinx.serialization.json)
+            }
         }
 
-        androidMain.dependencies {
-        implementation(libs.sqldelight.android.driver)
-        implementation(libs.kotlinx.coroutines.android)
-    }
+        val androidMain by getting {
+            dependencies {
+                implementation(libs.sqldelight.android.driver)
+                implementation(libs.kotlinx.coroutines.android)
+            }
+        }
     }
 }
 
@@ -47,7 +51,7 @@ android {
 
 sqldelight {
     databases {
-        create("LearningDatabase") {
+        register("LearningDatabase") {
             packageName.set("org.techwithkaushik.formsnap.database")
         }
     }
