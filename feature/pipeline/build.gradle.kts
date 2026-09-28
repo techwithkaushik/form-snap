@@ -7,9 +7,8 @@ kotlin {
     androidTarget()
 
     sourceSets {
-        val commonMain by getting
-
-        val androidMain by getting {
+        getByName("commonMain")
+        getByName("androidMain") {
             dependencies {
                 implementation(project(":core:database"))
                 implementation(project(":core:processor"))
