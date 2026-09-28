@@ -5,7 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-find_package(OpenCV REQUIRED COMPONENTS OpenCV::opencv_java4)
+find_package(OpenCV CONFIG REQUIRED COMPONENTS opencv_java4)
 
 add_library(formsnap_processor SHARED
     native-lib.cpp
