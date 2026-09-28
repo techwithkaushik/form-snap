@@ -1,18 +1,22 @@
 package org.techwithkaushik.formsnap.feature.pipeline
 
+import android.content.Context
+import android.graphics.BitmapFactory
+import android.graphics.RectF
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
-import android.content.Context
-import android.graphics.BitmapFactory
 import org.opencv.android.Utils
 import org.opencv.core.Mat
 import org.opencv.imgcodecs.Imgcodecs
-import org.techwithkaushik.formsnap.core.database.FeedbackInput
-import org.techwithkaushik.formsnap.core.database.FeedbackRepository
+import org.techwithkaushik.formsnap.core.database.DetectionSample
+import org.techwithkaushik.formsnap.core.database.FormSnapDatabaseProvider
+import org.techwithkaushik.formsnap.core.database.DatabaseDriverFactory
+import org.techwithkaushik.formsnap.core.database.LearningContext
+import org.techwithkaushik.formsnap.core.database.LearningRepository
 import org.techwithkaushik.formsnap.core.processor.NativeDetection
 import org.techwithkaushik.formsnap.core.processor.NativeProcessor
 import java.io.File
@@ -26,17 +30,18 @@ class OfflinePipelineViewModel(
 ) : PipelineEngine {
 
     private val appContext = context.applicationContext
-    private val repository = FeedbackRepository(appContext)
+    private val database = FormSnapDatabaseProvider(DatabaseDriverFactory(appContext)).database
+    private val learning = LearningRepository(database)
     private val processor = NativeProcessor()
-    private val _state = MutableStateFlow(PipelineState())
+    private val stateHolder = MutableStateFlow(PipelineState())
 
-    override val state: StateFlow<PipelineState> = _state.asStateFlow()
+    override val state: StateFlow<PipelineState> = stateHolder.asStateFlow()
 
-    private var dpi: Int = 300
-    private var photoWidthMm: Double = 40.0
-    private var photoHeightMm: Double = 50.0
-    private var signatureWidthMm: Double = 50.0
-    private var signatureHeightMm: Double = 20.0
+    private var dpi = 300
+    private var photoWidthMm = 40.0
+    private var photoHeightMm = 50.0
+    private var signatureWidthMm = 50.0
+    private var signatureHeightMm = 20.0
 
     override suspend fun process(
         input: File,
@@ -46,7 +51,7 @@ class OfflinePipelineViewModel(
         signatureWidthMm: Double,
         signatureHeightMm: Double,
     ) {
-        require(input.isFile) { "Input image does not exist" }
+        require(input.isFile) { "Input image does not exist." }
         this.dpi = dpi.coerceAtLeast(72)
         this.photoWidthMm = photoWidthMm.coerceAtLeast(1.0)
         this.photoHeightMm = photoHeightMm.coerceAtLeast(1.0)
@@ -56,37 +61,24 @@ class OfflinePipelineViewModel(
     }
 
     override suspend fun reprocess() {
-        val input = _state.value.input ?: return
-        runPipeline(input)
+        stateHolder.value.input?.let(::runPipeline)
     }
 
     private suspend fun runPipeline(input: File) {
-        val revision = _state.value.revision + 1L
-        _state.value = PipelineState(
-            input = input,
-            processing = true,
-            revision = revision,
-        )
+        val revision = stateHolder.value.revision + 1L
+        stateHolder.value = PipelineState(input = input, processing = true, revision = revision)
 
         val result = runCatching {
-            withContext(dispatcher) {
-                detectAndRender(input)
-            }
+            withContext(dispatcher) { detectAndRender(input) }
         }
 
-        _state.value = result.fold(
-            onSuccess = { detected ->
-                detected.copy(
-                    input = input,
-                    processing = false,
-                    revision = revision + 1L,
-                )
-            },
+        stateHolder.value = result.fold(
+            onSuccess = { it.copy(input = input, processing = false, revision = revision + 1L) },
             onFailure = { error ->
                 PipelineState(
                     input = input,
                     processing = false,
-                    error = error.message ?: "Processing failed",
+                    error = error.message ?: "Processing failed.",
                     revision = revision + 1L,
                 )
             },
@@ -95,33 +87,26 @@ class OfflinePipelineViewModel(
 
     private fun detectAndRender(input: File): PipelineState {
         val bitmap = BitmapFactory.decodeFile(input.absolutePath)
-            ?: error("Unable to decode input image")
+            ?: error("Unable to decode input image.")
         val source = Mat()
         try {
             Utils.bitmapToMat(bitmap, source)
-            require(!source.empty()) { "Input image is empty" }
+            require(!source.empty()) { "Input image is empty." }
 
             val photo = processor.detect(
-                source = source,
+                source,
                 kind = 0,
-                adaptiveBias = adaptiveBias("PHOTO"),
-                blockSize = adaptiveBlock("PHOTO"),
-                localC = adaptiveC("PHOTO"),
+                adaptiveBias = learning.recommendedBias("PHOTO"),
             )
             val signature = processor.detect(
-                source = source,
+                source,
                 kind = 1,
-                adaptiveBias = adaptiveBias("SIGNATURE"),
-                blockSize = adaptiveBlock("SIGNATURE"),
-                localC = adaptiveC("SIGNATURE"),
+                adaptiveBias = learning.recommendedBias("SIGNATURE"),
             )
 
-            val photoBounds = photo?.toBounds(DetectionKind.PHOTO, source.cols(), source.rows())
-            val signatureBounds = signature?.toBounds(DetectionKind.SIGNATURE, source.cols(), source.rows())
-
             return PipelineState(
-                photo = photoBounds,
-                signature = signatureBounds,
+                photo = photo?.toBounds(DetectionKind.PHOTO, source.cols(), source.rows()),
+                signature = signature?.toBounds(DetectionKind.SIGNATURE, source.cols(), source.rows()),
                 photoOutputPath = photo?.let { renderOutput(source, it, true) },
                 signatureOutputPath = signature?.let { renderOutput(source, it, false) },
             )
@@ -135,106 +120,82 @@ class OfflinePipelineViewModel(
         kind: DetectionKind,
         sourceWidth: Int,
         sourceHeight: Int,
-    ): DetectionBounds = DetectionBounds(
-        kind = kind,
-        estimated = android.graphics.RectF(
-            bounds.left.coerceIn(0f, sourceWidth - 1f),
-            bounds.top.coerceIn(0f, sourceHeight - 1f),
-            bounds.right.coerceIn(1f, sourceWidth.toFloat()),
-            bounds.bottom.coerceIn(1f, sourceHeight.toFloat()),
-        ),
-        confidence = confidence.coerceIn(0f, 1f),
-        sourceWidth = sourceWidth,
-        sourceHeight = sourceHeight,
-        hasPrintedFrame = kind == DetectionKind.PHOTO,
-    )
+    ): DetectionBounds {
+        val left = bounds.left.coerceIn(0f, (sourceWidth - 1).coerceAtLeast(0).toFloat())
+        val top = bounds.top.coerceIn(0f, (sourceHeight - 1).coerceAtLeast(0).toFloat())
+        val right = bounds.right.coerceIn(left + 1f, sourceWidth.toFloat())
+        val bottom = bounds.bottom.coerceIn(top + 1f, sourceHeight.toFloat())
+        return DetectionBounds(
+            kind = kind,
+            estimated = RectF(left, top, right, bottom),
+            confidence = confidence.coerceIn(0f, 1f),
+            sourceWidth = sourceWidth,
+            sourceHeight = sourceHeight,
+            hasPrintedFrame = kind == DetectionKind.PHOTO,
+        )
+    }
 
     private fun renderOutput(
         source: Mat,
         detection: NativeDetection,
         isPhoto: Boolean,
     ): String {
-        val width = source.cols()
-        val height = source.rows()
-        val left = detection.bounds.left.roundToInt().coerceIn(0, width - 1)
-        val top = detection.bounds.top.roundToInt().coerceIn(0, height - 1)
-        val right = detection.bounds.right.roundToInt().coerceIn(left + 1, width)
-        val bottom = detection.bounds.bottom.roundToInt().coerceIn(top + 1, height)
-
+        val left = detection.bounds.left.roundToInt().coerceIn(0, source.cols() - 1)
+        val top = detection.bounds.top.roundToInt().coerceIn(0, source.rows() - 1)
+        val right = detection.bounds.right.roundToInt().coerceIn(left + 1, source.cols())
+        val bottom = detection.bounds.bottom.roundToInt().coerceIn(top + 1, source.rows())
+        val outputDirectory = File(appContext.cacheDir, "formsnap_pipeline").apply { mkdirs() }
+        val outputFile = File(
+            outputDirectory,
+            if (isPhoto) "photo_output.jpg" else "signature_output.jpg",
+        )
         val roi = source.submat(top, bottom, left, right)
-        try {
-            val directory = File(appContext.cacheDir, "formsnap_pipeline").apply { mkdirs() }
-            val file = File(directory, if (isPhoto) "photo_output.jpg" else "signature_output.jpg")
-            require(Imgcodecs.imwrite(file.absolutePath, roi)) { "Unable to write output image" }
-            return file.absolutePath
+        return try {
+            require(Imgcodecs.imwrite(outputFile.absolutePath, roi)) {
+                "Unable to write pipeline output."
+            }
+            outputFile.absolutePath
         } finally {
             roi.release()
         }
     }
 
     override suspend fun reject(kind: DetectionKind) {
-        val current = _state.value
-        _state.value = when (kind) {
-            DetectionKind.PHOTO -> current.copy(
-                photo = null,
-                photoOutputPath = null,
-                revision = current.revision + 1L,
-            )
-            DetectionKind.SIGNATURE -> current.copy(
-                signature = null,
-                signatureOutputPath = null,
-                revision = current.revision + 1L,
-            )
-        }
-    }
-
-    override suspend fun accept(kind: DetectionKind) {
-        val current = _state.value
+        val current = stateHolder.value
         val detection = when (kind) {
             DetectionKind.PHOTO -> current.photo
             DetectionKind.SIGNATURE -> current.signature
         } ?: return
 
-        val bounds = detection.estimated
-        val width = bounds.width().coerceAtLeast(1f)
-        val height = bounds.height().coerceAtLeast(1f)
         val now = System.currentTimeMillis()
-        val kindName = detection.kind.name
-        val sampleKey = sha256(
-            listOf(
-                current.input?.absolutePath.orEmpty(),
-                kindName,
-                detection.sourceWidth,
-                detection.sourceHeight,
-                width,
-                height,
-            ).joinToString("|"),
+        val sample = detection.toSample(
+            sampleKey = sampleKey(current.input, kind, detection),
+            corrected = detection.estimated,
+            accepted = false,
+            now = now,
         )
+        learning.recordRejection(sample, contextFor(detection))
+        stateHolder.value = when (kind) {
+            DetectionKind.PHOTO -> current.copy(photo = null, photoOutputPath = null, revision = current.revision + 1L)
+            DetectionKind.SIGNATURE -> current.copy(signature = null, signatureOutputPath = null, revision = current.revision + 1L)
+        }
+    }
 
-        repository.record(
-            FeedbackInput(
-                sampleKey = sampleKey,
-                kind = kindName,
-                sourceWidth = detection.sourceWidth,
-                sourceHeight = detection.sourceHeight,
-                estimatedLeft = bounds.left.toDouble(),
-                estimatedTop = bounds.top.toDouble(),
-                estimatedRight = bounds.right.toDouble(),
-                estimatedBottom = bounds.bottom.toDouble(),
-                correctedLeft = bounds.left.toDouble(),
-                correctedTop = bounds.top.toDouble(),
-                correctedRight = bounds.right.toDouble(),
-                correctedBottom = bounds.bottom.toDouble(),
-                adaptiveBias = adaptiveBias(kindName),
-                blockSize = adaptiveBlock(kindName),
-                localC = adaptiveC(kindName),
+    override suspend fun accept(kind: DetectionKind) {
+        val current = stateHolder.value
+        val detection = when (kind) {
+            DetectionKind.PHOTO -> current.photo
+            DetectionKind.SIGNATURE -> current.signature
+        } ?: return
+
+        learning.recordAcceptedCorrection(
+            sample = detection.toSample(
+                sampleKey = sampleKey(current.input, kind, detection),
+                corrected = detection.estimated,
                 accepted = true,
-                actionIndex = PipelineAction.ACCEPT.ordinal,
-                contextBrightness = 0.5,
-                contextEdgeDensity = 0.25,
-                contextAspect = width.toDouble() / height.toDouble(),
-                createdAt = now,
+                now = System.currentTimeMillis(),
             ),
+            context = contextFor(detection),
         )
     }
 
@@ -242,7 +203,7 @@ class OfflinePipelineViewModel(
         kind: DetectionKind,
         editedFile: File,
     ) {
-        require(editedFile.isFile) { "Edited file does not exist" }
+        require(editedFile.isFile) { "Edited file does not exist." }
         val directory = File(appContext.cacheDir, "formsnap_pipeline").apply { mkdirs() }
         val target = File(
             directory,
@@ -251,49 +212,68 @@ class OfflinePipelineViewModel(
         editedFile.inputStream().use { input ->
             target.outputStream().use { output -> input.copyTo(output) }
         }
-        _state.value = when (kind) {
-            DetectionKind.PHOTO -> _state.value.copy(
-                photoOutputPath = target.absolutePath,
-                revision = _state.value.revision + 1L,
-            )
-            DetectionKind.SIGNATURE -> _state.value.copy(
-                signatureOutputPath = target.absolutePath,
-                revision = _state.value.revision + 1L,
-            )
+        val current = stateHolder.value
+        stateHolder.value = when (kind) {
+            DetectionKind.PHOTO -> current.copy(photoOutputPath = target.absolutePath, revision = current.revision + 1L)
+            DetectionKind.SIGNATURE -> current.copy(signatureOutputPath = target.absolutePath, revision = current.revision + 1L)
         }
     }
 
-    private fun adaptiveBias(kind: String): Double {
-        val drift = repository.drift(kind) ?: return 0.0
-        if (drift.samples < 4L) return 0.0
-        val average = (drift.left + drift.right + drift.top + drift.bottom) / 4.0
-        val confidence = (drift.samples / 32.0).coerceIn(0.0, 1.0)
-        return (average * 0.01 * confidence).coerceIn(-8.0, 8.0)
-    }
+    private fun DetectionBounds.toSample(
+        sampleKey: String,
+        corrected: RectF,
+        accepted: Boolean,
+        now: Long,
+    ): DetectionSample = DetectionSample(
+        sampleKey = sampleKey,
+        kind = kind.name,
+        sourceWidth = sourceWidth,
+        sourceHeight = sourceHeight,
+        estimatedX = estimated.left.toDouble(),
+        estimatedY = estimated.top.toDouble(),
+        estimatedWidth = estimated.width().toDouble(),
+        estimatedHeight = estimated.height().toDouble(),
+        correctedX = corrected.left.toDouble(),
+        correctedY = corrected.top.toDouble(),
+        correctedWidth = corrected.width().toDouble(),
+        correctedHeight = corrected.height().toDouble(),
+        thresholdBias = learning.recommendedBias(kind.name),
+        blockSize = 31,
+        accepted = accepted,
+        createdAt = now,
+    )
 
-    private fun adaptiveBlock(kind: String): Int {
-        val samples = repository.drift(kind)?.samples ?: 0L
-        return when {
-            samples >= 64L -> 35
-            samples >= 24L -> 33
-            else -> 31
-        }
-    }
+    private fun contextFor(detection: DetectionBounds): LearningContext =
+        LearningContext(
+            brightnessBucket = 0,
+            edgeDensityBucket = 0,
+            aspectBucket = ((detection.estimated.width() / detection.estimated.height()) * 10f)
+                .roundToInt()
+                .coerceIn(0, 100),
+        )
 
-    private fun adaptiveC(kind: String): Double {
-        val drift = repository.drift(kind) ?: return 8.0
-        if (drift.samples < 4L) return 8.0
-        val magnitude = abs(drift.left) + abs(drift.top) + abs(drift.right) + abs(drift.bottom)
-        return (8.0 + magnitude * 0.003).coerceIn(4.0, 14.0)
-    }
-
-    private fun sha256(input: String): String {
-        val digest = MessageDigest.getInstance("SHA-256").digest(input.toByteArray())
-        return digest.joinToString("") { byte -> "%02x".format(byte) }
+    private fun sampleKey(
+        input: File?,
+        kind: DetectionKind,
+        detection: DetectionBounds,
+    ): String {
+        val raw = listOf(
+            input?.absolutePath.orEmpty(),
+            kind.name,
+            detection.sourceWidth,
+            detection.sourceHeight,
+            detection.estimated.left,
+            detection.estimated.top,
+            detection.estimated.width(),
+            detection.estimated.height(),
+        ).joinToString("|")
+        return MessageDigest.getInstance("SHA-256")
+            .digest(raw.toByteArray())
+            .joinToString("") { "%02x".format(it) }
     }
 
     override fun close() {
         File(appContext.cacheDir, "formsnap_pipeline").deleteRecursively()
-        _state.value = PipelineState()
+        stateHolder.value = PipelineState()
     }
 }
