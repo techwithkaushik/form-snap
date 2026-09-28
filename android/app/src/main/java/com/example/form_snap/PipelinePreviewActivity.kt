@@ -44,7 +44,7 @@ class PipelinePreviewActivity : ComponentActivity() {
     private val cameraLauncher: ActivityResultLauncher<Uri> =
         registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
             if (!ok) return@registerForActivityResult
-            val uri = cameraUri ?: return@registerActivityResult
+            val uri = cameraUri ?: return@registerForActivityResult
             val file = File(cacheDir, "recapture_" + System.nanoTime() + ".jpg")
             contentResolver.openInputStream(uri)?.use { input ->
                 file.outputStream().use { output -> input.copyTo(output) }
