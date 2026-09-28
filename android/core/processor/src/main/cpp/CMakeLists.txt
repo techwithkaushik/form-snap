@@ -4,16 +4,14 @@ project(formsnap_processor LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_BUILD_TYPE Release)
 
-find_package(OpenCV REQUIRED)
+find_package(OpenCV REQUIRED COMPONENTS OpenCV::opencv_java4)
 
 add_library(formsnap_processor SHARED
     native-lib.cpp
 )
 
-target_include_directories(formsnap_processor PRIVATE ${OpenCV_INCLUDE_DIRS})
 target_link_libraries(formsnap_processor
-    ${OpenCV_LIBS}
+    OpenCV::opencv_java4
     log
 )
