@@ -14,15 +14,11 @@ class CaptureLifecycle(
     private val janitor = CacheJanitor(context)
 
     fun onSaveCompleted() {
-        scope.launch {
-            janitor.clearTemporaryAssets()
-        }
+        scope.launch { janitor.clearTemporaryAssets() }
     }
 
     fun onCaptureCancelled() {
-        scope.launch {
-            janitor.clearTemporaryAssets()
-        }
+        scope.launch { janitor.clearTemporaryAssets() }
     }
 
     override fun close() {
