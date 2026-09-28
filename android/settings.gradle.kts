@@ -19,6 +19,7 @@ dependencyResolutionManagement {
 
 rootProject.name = "FormSnap"
 include(":app")
-include(":core:processor")
 include(":core:database")
+include(":core:processor")
 include(":feature:capture")
+include(":feature:pipeline")
