@@ -7,12 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(FORMSNAP_NATIVE_ROOT "${CMAKE_CURRENT_LIST_DIR}")
-set(FORMSNAP_INCLUDE_DIR "${FORMSNAP_NATIVE_ROOT}/include")
 set(FORMSNAP_OPENCV_ROOT "${FORMSNAP_NATIVE_ROOT}/jniLibs")
-
-if(NOT EXISTS "${FORMSNAP_INCLUDE_DIR}")
-    message(FATAL_ERROR "Missing native include directory: ${FORMSNAP_INCLUDE_DIR}")
-endif()
 
 set(FORMSNAP_OPENCV_INCLUDE_DIR "${FORMSNAP_OPENCV_ROOT}/${ANDROID_ABI}/include")
 set(FORMSNAP_OPENCV_LIBRARY "${FORMSNAP_OPENCV_ROOT}/${ANDROID_ABI}/libopencv_java5.so")
@@ -35,7 +30,7 @@ add_library(formsnap_processor SHARED native-lib.cpp)
 
 target_include_directories(formsnap_processor
     PRIVATE
-        "${FORMSNAP_INCLUDE_DIR}"
+        "${FORMSNAP_NATIVE_ROOT}"
         "${FORMSNAP_OPENCV_INCLUDE_DIR}"
 )
 
