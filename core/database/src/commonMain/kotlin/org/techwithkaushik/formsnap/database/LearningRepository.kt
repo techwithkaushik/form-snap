@@ -8,25 +8,28 @@ class LearningRepository(
     fun record(
         timestamp: Long,
         contentType: String,
-        detectedX: Int,
-        detectedY: Int,
-        correctedX: Int,
-        correctedY: Int,
-        isRejected: Boolean,
+        detectedX: Long,
+        detectedY: Long,
+        correctedX: Long,
+        correctedY: Long,
+        isRejected: Long,
     ) {
-        queries.insertLog(
+        queries.insertCorrection(
             timestamp = timestamp,
             contentType = contentType,
-            detectedX = detectedX.toLong(),
-            detectedY = detectedY.toLong(),
-            correctedX = correctedX.toLong(),
-            correctedY = correctedY.toLong(),
+            detectedX = detectedX,
+            detectedY = detectedY,
+            correctedX = correctedX,
+            correctedY = correctedY,
             isRejected = isRejected,
         )
     }
 
     fun allLogs(): List<UserCorrectionLog> =
         queries.selectAllLogs().executeAsList()
+
+    fun getParameter(parameterKey: String): Double? =
+        queries.getParameter(parameterKey).executeAsOneOrNull()
 
     fun allParameters(): List<TunedParameters> =
         queries.selectAllParameters().executeAsList()

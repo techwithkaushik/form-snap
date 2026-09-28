@@ -9,20 +9,16 @@ kotlin {
     androidTarget()
 
     sourceSets {
-        getByName("commonMain") {
-            dependencies {
-                implementation(libs.sqldelight.runtime)
-                implementation(libs.sqldelight.coroutines)
-                implementation(libs.kotlinx.coroutines.core)
-                implementation(libs.kotlinx.serialization.json)
-            }
+        commonMain.dependencies {
+            implementation(libs.sqldelight.runtime)
+            implementation(libs.sqldelight.coroutines)
+            implementation(libs.kotlinx.coroutines.core)
+            implementation(libs.kotlinx.serialization.json)
         }
 
-        getByName("androidMain") {
-            dependencies {
-                implementation(libs.sqldelight.android.driver)
-                implementation(libs.kotlinx.coroutines.android)
-            }
+        androidMain.dependencies {
+            implementation(libs.sqldelight.android)
+            implementation(libs.kotlinx.coroutines.android)
         }
     }
 }

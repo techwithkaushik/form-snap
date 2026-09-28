@@ -10,57 +10,18 @@ CREATE TABLE UserCorrectionLog (
 );
 
 CREATE TABLE TunedParameters (
-    kind TEXT NOT NULL,
-    contextKey TEXT NOT NULL,
-    actionIndex INTEGER NOT NULL,
-    visits INTEGER NOT NULL DEFAULT 0,
-    totalReward REAL NOT NULL DEFAULT 0.0,
-    lastReward REAL NOT NULL DEFAULT 0.0,
-    updatedAt INTEGER NOT NULL,
-    PRIMARY KEY (kind, contextKey, actionIndex)
-);
-
-insertLog:
-INSERT INTO UserCorrectionLog (
-    timestamp,
-    contentType,
-    detectedX,
-    detectedY,
-    correctedX,
-    correctedY,
-    isRejected
-) VALUES (
-    :timestamp,
-    :contentType,
-    :detectedX,
-    :detectedY,
-    :correctedX,
-    :correctedY,
-    :isRejected
-);
-
-insertParameter:
-INSERT OR REPLACE INTO TunedParameters (
-    kind,
-    contextKey,
-    actionIndex,
-    visits,
-    totalReward,
-    lastReward,
-    updatedAt
-) VALUES (
-    :kind,
-    :contextKey,
-    :actionIndex,
-    :visits,
-    :totalReward,
-    :lastReward,
-    :updatedAt
+    parameterKey TEXT NOT NULL PRIMARY KEY,
+    parameterValue REAL NOT NULL
 );
 
 selectAllLogs:
-SELECT
-    id,
+SELECT * FROM UserCorrectionLog;
+
+selectAllParameters:
+SELECT * FROM TunedParameters;
+
+insertCorrection:
+INSERT INTO UserCorrectionLog(
     timestamp,
     contentType,
     detectedX,
@@ -68,17 +29,14 @@ SELECT
     correctedX,
     correctedY,
     isRejected
-FROM UserCorrectionLog
-ORDER BY id;
+)
+VALUES (?, ?, ?, ?, ?, ?, ?);
 
-selectAllParameters:
-SELECT
-    kind,
-    contextKey,
-    actionIndex,
-    visits,
-    totalReward,
-    lastReward,
-    updatedAt
+updateParameter:
+INSERT OR REPLACE INTO TunedParameters(parameterKey, parameterValue)
+VALUES (?, ?);
+
+getParameter:
+SELECT parameterValue
 FROM TunedParameters
-ORDER BY kind, contextKey, actionIndex;
+WHERE parameterKey = ?;
