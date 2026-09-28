@@ -1,22 +1,25 @@
 plugins {
-    id("com.android.application")
-    id("org.jetbrains.kotlin.android")
-    id("org.jetbrains.kotlin.plugin.compose")
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.compose)
 }
 
 android {
-    namespace = "org.techwithkaushik.formSnap"
-    compileSdk = 37
+    namespace = "org.techwithkaushik.formsnap"
+    compileSdk = libs.versions.androidCompileSdk.get().toInt()
 
     defaultConfig {
-        applicationId = "org.techwithkaushik.formSnap"
-        minSdk = 23
-        targetSdk = 37
+        applicationId = "org.techwithkaushik.formsnap"
+        minSdk = libs.versions.androidMinSdk.get().toInt()
+        targetSdk = libs.versions.androidTargetSdk.get().toInt()
         versionCode = 3
         versionName = "0.2.0"
 
         ndk {
-            abiFilters.addAll(setOf("arm64-v8a", "armeabi-v7a"))
+            abiFilters += setOf(
+                "arm64-v8a",
+                "armeabi-v7a",
+            )
         }
     }
 
@@ -44,17 +47,25 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                file("proguard-rules.pro"),
+            )
+
             val store = System.getenv("SIGN_KEY_STORE")
             val storePassword = System.getenv("SIGNING_STORE_PASSWORD")
             val alias = System.getenv("SIGNING_KEY_ALIAS")
             val keyPassword = System.getenv("SIGNING_KEY_PASSWORD")
 
-            if (!store.isNullOrBlank() &&
+            if (
+                !store.isNullOrBlank() &&
                 !storePassword.isNullOrBlank() &&
                 !alias.isNullOrBlank() &&
                 !keyPassword.isNullOrBlank()
             ) {
-                signingConfig = signingConfigs.create("releaseSigning") {
+                signingConfig = signingConfigs.create(
+                    "releaseSigning",
+                ) {
                     storeFile = file(store)
                     this.storePassword = storePassword
                     keyAlias = alias
@@ -66,19 +77,11 @@ android {
 }
 
 dependencies {
-    implementation(platform("androidx.compose:compose-bom:2026.09.00"))
-    implementation("androidx.activity:activity-compose:1.13.0")
-    implementation("androidx.activity:activity-ktx:1.13.0")
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.foundation:foundation")
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.core:core-ktx:1.17.0")
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.core)
     implementation(project(":core:processor"))
     implementation(project(":core:database"))
     implementation(project(":feature:capture"))
     implementation(project(":feature:pipeline"))
-    implementation("org.opencv:opencv:4.13.0")
-    implementation("com.github.jens-muenker:uCrop-n-Edit:4.1.1-non-native")
-    debugImplementation("androidx.compose.ui:ui-tooling")
+    debugImplementation(libs.androidx.lifecycle.runtime)
 }
