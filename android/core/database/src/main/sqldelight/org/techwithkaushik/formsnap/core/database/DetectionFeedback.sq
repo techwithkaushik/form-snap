@@ -1,0 +1,57 @@
+CREATE TABLE detection_feedback (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    sample_key TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    source_width INTEGER NOT NULL,
+    source_height INTEGER NOT NULL,
+    estimated_left REAL NOT NULL,
+    estimated_top REAL NOT NULL,
+    estimated_right REAL NOT NULL,
+    estimated_bottom REAL NOT NULL,
+    corrected_left REAL NOT NULL,
+    corrected_top REAL NOT NULL,
+    corrected_right REAL NOT NULL,
+    corrected_bottom REAL NOT NULL,
+    delta_left REAL AS corrected_left - estimated_left,
+    delta_top REAL AS corrected_top - estimated_top,
+    delta_right REAL AS corrected_right - estimated_right,
+    delta_bottom REAL AS corrected_bottom - estimated_bottom,
+    adaptive_bias REAL NOT NULL,
+    block_size INTEGER NOT NULL,
+    local_c REAL NOT NULL,
+    accepted INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX detection_feedback_kind_index
+ON detection_feedback(kind);
+
+CREATE INDEX detection_feedback_sample_index
+ON detection_feedback(sample_key);
+
+insertFeedback:
+INSERT INTO detection_feedback(
+    sample_key, kind, source_width, source_height,
+    estimated_left, estimated_top, estimated_right, estimated_bottom,
+    corrected_left, corrected_top, corrected_right, corrected_bottom,
+    adaptive_bias, block_size, local_c, accepted, created_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+recentByKind:
+SELECT * FROM detection_feedback
+WHERE kind = ?
+ORDER BY created_at DESC
+LIMIT ?;
+
+meanDriftByKind:
+SELECT
+    kind,
+    AVG(delta_left) AS mean_delta_left,
+    AVG(delta_top) AS mean_delta_top,
+    AVG(delta_right) AS mean_delta_right,
+    AVG(delta_bottom) AS mean_delta_bottom,
+    COUNT(*) AS sample_count
+FROM detection_feedback
+WHERE kind = ?
+  AND accepted = 1
+GROUP BY kind;
