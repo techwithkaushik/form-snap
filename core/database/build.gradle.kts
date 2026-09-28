@@ -9,7 +9,7 @@ kotlin {
     androidTarget()
 
     sourceSets {
-        val commonMain by getting {
+        getByName("commonMain") {
             dependencies {
                 implementation(libs.sqldelight.runtime)
                 implementation(libs.sqldelight.coroutines)
@@ -18,7 +18,7 @@ kotlin {
             }
         }
 
-        val androidMain by getting {
+        getByName("androidMain") {
             dependencies {
                 implementation(libs.sqldelight.android)
                 implementation(libs.kotlinx.coroutines.android)
