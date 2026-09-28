@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
+import android.os.Environment
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.ActivityResultLauncher
@@ -74,7 +75,11 @@ class PipelinePreviewActivity : ComponentActivity() {
 
     private fun launchRecapture() {
         val file = File(cacheDir, "recapture_source_" + System.nanoTime() + ".jpg")
-        cameraUri = Uri.fromFile(file)
+        cameraUri = androidx.core.content.FileProvider.getUriForFile(
+            this,
+            BuildConfig.APPLICATION_ID + ".fileprovider",
+            file,
+        )
         cameraLauncher.launch(cameraUri)
     }
 
