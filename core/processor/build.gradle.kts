@@ -7,13 +7,13 @@ kotlin {
     androidTarget()
 
     sourceSets {
-        val commonMain by getting {
+        getByName("commonMain") {
             dependencies {
                 implementation(libs.androidx.lifecycle.viewmodel)
             }
         }
 
-        val androidMain by getting {
+        getByName("androidMain") {
             dependencies {
                 implementation(libs.opencv.android)
             }
