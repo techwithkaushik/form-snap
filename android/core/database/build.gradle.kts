@@ -7,7 +7,6 @@ plugins {
 android {
     namespace = "org.techwithkaushik.formsnap.core.database"
     compileSdk = 37
-
     defaultConfig { minSdk = 23 }
 }
 
