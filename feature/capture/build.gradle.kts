@@ -8,16 +8,16 @@ kotlin {
     androidTarget()
 
     sourceSets {
-        val commonMain by getting {
+        val commonMain = getByName("commonMain") {
             dependencies {
-                implementation(libs.compose.runtime)
-                implementation(libs.compose.foundation)
-                implementation(libs.compose.material3)
+                implementation(libs.androidx.compose.runtime)
+                implementation(libs.androidx.compose.foundation)
+                implementation(libs.androidx.compose.material3)
                 implementation(libs.kotlinx.coroutines.core)
             }
         }
 
-        val androidMain by getting {
+        val androidMain = getByName("androidMain") {
             dependencies {
                 implementation(libs.androidx.activity.compose)
                 implementation(libs.camerax.camera2)
