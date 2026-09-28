@@ -1,4 +1,3 @@
 package org.techwithkaushik.formsnap.database
 
-actual fun expectEpochMillis(): Long =
-    System.currentTimeMillis()
+actual fun expectEpochMillis(): Long = System.currentTimeMillis()
