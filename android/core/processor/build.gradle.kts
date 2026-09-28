@@ -30,6 +30,10 @@ android {
         }
     }
 
+    repositories {
+        mavenCentral()
+    }
+
     packaging {
         jniLibs {
             excludes += "lib/arm64-v8a/**"
