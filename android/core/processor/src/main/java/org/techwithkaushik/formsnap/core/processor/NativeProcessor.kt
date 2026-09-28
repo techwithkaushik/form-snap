@@ -22,16 +22,18 @@ class NativeProcessor {
         localC: Double = 8.0
     ): NativeDetection? {
         require(!source.empty()) { "Source image is empty" }
+        val safeBlock = if (blockSize >= 3) blockSize or 1 else 3
         val handle = nativeDetect(
             source.nativeObjAddr,
             kind,
             adaptiveBias.coerceIn(-8.0, 8.0),
-            if (blockSize >= 3) blockSize or 1 else 3,
+            safeBlock,
             localC.coerceIn(-32.0, 32.0)
         )
         if (handle == 0L) return null
         return try {
-            val values = nativeReadResult(handle)
+            val values = nativeReadResult(handle) ?: return null
+            require(values.size >= 5) { "Native result buffer is invalid" }
             NativeDetection(
                 bounds = RectF(values[0], values[1], values[2], values[3]),
                 confidence = values[4].coerceIn(0f, 1f),
@@ -42,7 +44,6 @@ class NativeProcessor {
         }
     }
 
-    private external fun nativeReadResult(resultAddr: Long): FloatArray
     private external fun nativeDetect(
         bgrMatAddr: Long,
         kind: Int,
@@ -50,5 +51,8 @@ class NativeProcessor {
         blockSize: Int,
         localC: Double
     ): Long
+
+    private external fun nativeReadResult(resultAddr: Long): FloatArray?
+
     private external fun nativeReleaseResult(resultAddr: Long): Long
 }
