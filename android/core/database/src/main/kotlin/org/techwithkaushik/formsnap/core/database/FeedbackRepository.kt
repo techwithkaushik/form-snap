@@ -30,6 +30,10 @@ class FeedbackRepository(context: Context) {
             blockSize = input.blockSize.toLong(),
             localC = input.localC,
             accepted = if (input.accepted) 1L else 0L,
+            actionIndex = input.actionIndex.toLong(),
+            contextBrightness = input.contextBrightness,
+            contextEdgeDensity = input.contextEdgeDensity,
+            contextAspect = input.contextAspect,
             createdAt = input.createdAt
         )
     }
@@ -47,4 +51,31 @@ class FeedbackRepository(context: Context) {
                     samples = it.sample_count ?: 0L
                 )
             }
+
+    fun policyStats(kind: String, contextKey: String): List<PolicyStat> =
+        database.detectionFeedbackQueries.policyStats(kind, contextKey)
+            .executeAsList()
+            .map {
+                PolicyStat(
+                    kind = it.kind,
+                    contextKey = it.context_key,
+                    actionIndex = it.action_index.toInt(),
+                    visits = it.visits,
+                    totalReward = it.total_reward,
+                    lastReward = it.last_reward,
+                    updatedAt = it.updated_at
+                )
+            }
+
+    fun upsertPolicyStat(stat: PolicyStat) {
+        database.detectionFeedbackQueries.upsertPolicyStat(
+            kind = stat.kind,
+            contextKey = stat.contextKey,
+            actionIndex = stat.actionIndex.toLong(),
+            visits = stat.visits,
+            totalReward = stat.totalReward,
+            lastReward = stat.lastReward,
+            updatedAt = stat.updatedAt
+        )
+    }
 }
