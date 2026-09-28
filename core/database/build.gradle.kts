@@ -21,9 +21,9 @@ kotlin {
         }
 
         androidMain.dependencies {
-            implementation(libs.sqldelight.android.driver)
-            implementation(libs.kotlinx.coroutines.android)
-        }
+        implementation(libs.sqldelight.android.driver)
+        implementation(libs.kotlinx.coroutines.android)
+    }
     }
 }
 
