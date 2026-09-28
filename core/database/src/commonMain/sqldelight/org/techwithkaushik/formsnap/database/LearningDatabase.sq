@@ -70,11 +70,11 @@ INSERT INTO UserCorrectionLog(
     edge_density_bucket,
     aspect_bucket,
     created_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (:sampleKey, :kind, :sourceWidth, :sourceHeight, :estimatedX, :estimatedY, :estimatedWidth, :estimatedHeight, :correctedX, :correctedY, :correctedWidth, :correctedHeight, :deltaX, :deltaY, :deltaWidth, :deltaHeight, :thresholdBias, :blockSize, :accepted, :brightnessBucket, :edgeDensityBucket, :aspectBucket, :createdAt);
 
 replaceLog:
 DELETE FROM UserCorrectionLog
-WHERE id = ?;
+WHERE id = :id;
 
 insertReplacementLog:
 INSERT INTO UserCorrectionLog(
@@ -102,7 +102,7 @@ INSERT INTO UserCorrectionLog(
     edge_density_bucket,
     aspect_bucket,
     created_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (:id, :sampleKey, :kind, :sourceWidth, :sourceHeight, :estimatedX, :estimatedY, :estimatedWidth, :estimatedHeight, :correctedX, :correctedY, :correctedWidth, :correctedHeight, :deltaX, :deltaY, :deltaWidth, :deltaHeight, :thresholdBias, :blockSize, :accepted, :brightnessBucket, :edgeDensityBucket, :aspectBucket, :createdAt);
 
 meanDrift:
 SELECT kind,
@@ -113,7 +113,7 @@ SELECT kind,
        AVG(threshold_bias) AS meanBias,
        COUNT(*) AS sampleCount
 FROM UserCorrectionLog
-WHERE kind = ? AND accepted = 1
+WHERE kind = :kind AND accepted = 1
 GROUP BY kind;
 
 observeMeanDrift:
@@ -137,7 +137,7 @@ SELECT kind,
        last_reward AS lastReward,
        updated_at AS updatedAt
 FROM TunedParameters
-WHERE kind = ? AND context_key = ?
+WHERE kind = :kind AND context_key = :contextKey
 ORDER BY action_index;
 
 selectByAction:
@@ -149,7 +149,7 @@ SELECT kind,
        last_reward AS lastReward,
        updated_at AS updatedAt
 FROM TunedParameters
-WHERE kind = ? AND context_key = ? AND action_index = ?
+WHERE kind = :kind AND context_key = :contextKey AND action_index = :actionIndex
 LIMIT 1;
 
 upsertParameter:
@@ -161,7 +161,7 @@ INSERT OR REPLACE INTO TunedParameters(
     total_reward,
     last_reward,
     updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?);
+) VALUES (:kind, :contextKey, :actionIndex, :visits, :totalReward, :lastReward, :updatedAt);
 
 selectAllLogs:
 SELECT id,
