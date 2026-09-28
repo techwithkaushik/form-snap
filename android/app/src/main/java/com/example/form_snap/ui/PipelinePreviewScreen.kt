@@ -29,6 +29,8 @@ fun PipelinePreviewScreen(
     processing: Boolean,
     message: String?,
     onProcess: () -> Unit,
+    onRecapture: () -> Unit,
+    onReimport: () -> Unit,
     onEditPhoto: () -> Unit,
     onAcceptPhoto: () -> Unit,
     onRejectPhoto: () -> Unit,
@@ -54,6 +56,24 @@ fun PipelinePreviewScreen(
                         contentScale = ContentScale.Fit,
                     )
                 }
+            }
+        }
+
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(
+                    onClick = onRecapture,
+                    enabled = !processing,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Recapture") }
+                OutlinedButton(
+                    onClick = onReimport,
+                    enabled = !processing,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Reimport") }
             }
         }
 
