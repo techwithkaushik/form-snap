@@ -1,26 +1,43 @@
 package org.techwithkaushik.formsnap.database
 
-import android.content.Context
-import app.cash.sqldelight.db.SqlDriver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
-import java.io.InputStream
-import java.io.OutputStream
+import java.io.DataInputStream
+import java.io.DataOutputStream
+import java.security.SecureRandom
 import java.util.zip.Deflater
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
+import javax.crypto.Cipher
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.PBEKeySpec
+import javax.crypto.spec.SecretKeySpec
+import kotlin.math.min
 
 actual class LearningMemoryManager(
-    private val context: Context,
+    private val database: LearningDatabase,
+    private val appVersion: String,
 ) {
     companion object {
         private const val CURRENT_SCHEMA_VERSION = 1
+        private const val ARCHIVE_VERSION = 2
         private const val ENTRY_NAME = "learning-memory.json"
+        private const val MAGIC = "FSL2"
+        private const val SALT_SIZE_BYTES = 16
+        private const val NONCE_SIZE_BYTES = 12
+        private const val KEY_SIZE_BITS = 256
+        private const val PBKDF2_ITERATIONS = 150_000
+        private const val GCM_TAG_BITS = 128
         private const val MAX_JSON_BYTES = 25L * 1024L * 1024L
-        private const val MAX_ROWS = 100_000L
+        private const val MAX_ARCHIVE_BYTES = 30L * 1024L * 1024L
+        private const val MAX_ROWS = 100_000
+
+        private val secureRandom = SecureRandom()
 
         private val json = Json {
             encodeDefaults = true
@@ -29,121 +46,156 @@ actual class LearningMemoryManager(
         }
     }
 
-    private val appContext = context.applicationContext
+    actual suspend fun exportToFsl(
+        password: CharArray,
+        sink: suspend (ByteArray) -> Unit,
+    ) = withContext(Dispatchers.IO) {
+        require(password.isNotEmpty()) {
+            "Archive password must not be empty."
+        }
 
-    private val database by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        LearningDatabase(
-            DatabaseDriverFactory(appContext).createDriver(),
+        val zipPayload = createZipPayload(readArchive())
+        require(zipPayload.size <= MAX_ARCHIVE_BYTES) {
+            "Learning archive is too large."
+        }
+
+        val salt = ByteArray(SALT_SIZE_BYTES)
+        val nonce = ByteArray(NONCE_SIZE_BYTES)
+        secureRandom.nextBytes(salt)
+        secureRandom.nextBytes(nonce)
+
+        val encrypted = encrypt(
+            plaintext = zipPayload,
+            password = password,
+            salt = salt,
+            nonce = nonce,
         )
+
+        val output = ByteArrayOutputStream(
+            MAGIC.length + 3 + salt.size + nonce.size + encrypted.size,
+        )
+        DataOutputStream(output).use { stream ->
+            stream.write(MAGIC.toByteArray(Charsets.US_ASCII))
+            stream.writeByte(ARCHIVE_VERSION)
+            stream.writeByte(salt.size)
+            stream.writeByte(nonce.size)
+            stream.write(salt)
+            stream.write(nonce)
+            stream.write(encrypted)
+        }
+
+        sink(output.toByteArray())
     }
 
-    suspend fun exportToFsl(output: OutputStream) =
-        withContext(Dispatchers.IO) {
-            val archive = readArchive()
-            val payload = json.encodeToString(
-                LearningMemoryArchiveDto.serializer(),
-                archive,
-            ).encodeToByteArray()
-
-            require(payload.size.toLong() <= MAX_JSON_BYTES) {
-                "Learning archive payload exceeds the maximum allowed size."
-            }
-
-            ZipOutputStream(output.buffered()).use { zip ->
-                zip.setLevel(Deflater.BEST_COMPRESSION)
-                zip.putNextEntry(ZipEntry(ENTRY_NAME))
-                zip.write(payload)
-                zip.closeEntry()
-            }
+    actual suspend fun importFromFsl(
+        password: CharArray,
+        source: suspend () -> ByteArray,
+    ) = withContext(Dispatchers.IO) {
+        require(password.isNotEmpty()) {
+            "Archive password must not be empty."
         }
 
-    suspend fun importFromFsl(input: InputStream) =
-        withContext(Dispatchers.IO) {
-            val archive = readArchive(input)
-            validateArchive(archive)
-
-            database.transaction {
-                archive.userCorrectionLogs.forEach { row ->
-                    database.detectionFeedbackQueries.replaceFeedback(
-                        id = row.id,
-                        sampleKey = row.sampleKey,
-                        kind = row.kind,
-                        sourceWidth = row.sourceWidth.toLong(),
-                        sourceHeight = row.sourceHeight.toLong(),
-                        estimatedX = row.estimatedX,
-                        estimatedY = row.estimatedY,
-                        estimatedWidth = row.estimatedWidth,
-                        estimatedHeight = row.estimatedHeight,
-                        correctedX = row.correctedX,
-                        correctedY = row.correctedY,
-                        correctedWidth = row.correctedWidth,
-                        correctedHeight = row.correctedHeight,
-                        thresholdBias = row.thresholdBias,
-                        blockSize = row.blockSize.toLong(),
-                        accepted = if (row.accepted) 1L else 0L,
-                        brightnessBucket = 0L,
-                        edgeDensityBucket = 0L,
-                        aspectBucket = 0L,
-                        createdAt = row.createdAt,
-                    )
-                }
-
-                archive.tunedParameters.forEach { row ->
-                    database.detectionFeedbackQueries.upsertPolicy(
-                        kind = row.kind,
-                        contextKey = row.contextKey,
-                        actionIndex = row.actionIndex.toLong(),
-                        visits = row.visits,
-                        totalReward = row.totalReward,
-                        lastReward = row.lastReward,
-                        updatedAt = row.updatedAt,
-                    )
-                }
-            }
+        val container = source()
+        require(container.isNotEmpty()) {
+            "Learning archive is empty."
+        }
+        require(container.size <= MAX_ARCHIVE_BYTES + 1024) {
+            "Learning archive is too large."
         }
 
-    suspend fun exportToFslBytes(): ByteArray =
-        withContext(Dispatchers.IO) {
-            ByteArrayOutputStream().use { output ->
-                exportToFsl(output)
-                output.toByteArray()
-            }
+        val parsed = parseContainer(container)
+        val zipPayload = decrypt(
+            ciphertext = parsed.encryptedPayload,
+            password = password,
+            salt = parsed.salt,
+            nonce = parsed.nonce,
+        )
+        require(zipPayload.size <= MAX_ARCHIVE_BYTES) {
+            "Decrypted learning archive is too large."
         }
 
-    suspend fun importFromFslBytes(bytes: ByteArray) {
+        val archive = parseZipPayload(zipPayload)
+        validateArchive(archive)
+
+        database.transaction {
+            archive.userCorrectionLogs.forEach { row ->
+                database.detectionFeedbackQueries.replaceFeedback(
+                    id = row.id,
+                    sampleKey = row.sampleKey,
+                    kind = row.kind,
+                    sourceWidth = row.sourceWidth.toLong(),
+                    sourceHeight = row.sourceHeight.toLong(),
+                    estimatedX = row.estimatedX,
+                    estimatedY = row.estimatedY,
+                    estimatedWidth = row.estimatedWidth,
+                    estimatedHeight = row.estimatedHeight,
+                    correctedX = row.correctedX,
+                    correctedY = row.correctedY,
+                    correctedWidth = row.correctedWidth,
+                    correctedHeight = row.correctedHeight,
+                    thresholdBias = row.thresholdBias,
+                    blockSize = row.blockSize.toLong(),
+                    accepted = if (row.accepted) 1L else 0L,
+                    brightnessBucket = row.brightnessBucket.toLong(),
+                    edgeDensityBucket = row.edgeDensityBucket.toLong(),
+                    aspectBucket = row.aspectBucket.toLong(),
+                    createdAt = row.createdAt,
+                )
+            }
+
+            archive.tunedParameters.forEach { row ->
+                database.detectionFeedbackQueries.upsertPolicy(
+                    kind = row.kind,
+                    contextKey = row.contextKey,
+                    actionIndex = row.actionIndex.toLong(),
+                    visits = row.visits,
+                    totalReward = row.totalReward,
+                    lastReward = row.lastReward,
+                    updatedAt = row.updatedAt,
+                )
+            }
+        }
+    }
+
+    actual suspend fun exportToFslBytes(
+        password: CharArray,
+    ): ByteArray {
+        var result = ByteArray(0)
+        exportToFsl(password) { bytes ->
+            result = bytes
+        }
+        return result
+    }
+
+    actual suspend fun importFromFslBytes(
+        password: CharArray,
+        bytes: ByteArray,
+    ) {
         require(bytes.isNotEmpty()) {
             "Learning archive is empty."
         }
-
-        bytes.inputStream().use(::importFromFsl)
+        importFromFsl(password) { bytes }
     }
 
     private fun readArchive(): LearningMemoryArchiveDto {
-        val correctionRows = database.detectionFeedbackQueries
+        val feedbackRows = database.learningExportQueries
             .selectAllUserCorrectionLogs()
             .executeAsList()
-
-        val tunedRows = database.detectionFeedbackQueries
+        val policyRows = database.learningExportQueries
             .selectAllTunedParameters()
             .executeAsList()
 
-        require(correctionRows.size.toLong() <= MAX_ROWS) {
+        require(feedbackRows.size <= MAX_ROWS) {
             "Too many correction rows."
         }
-
-        require(tunedRows.size.toLong() <= MAX_ROWS) {
+        require(policyRows.size <= MAX_ROWS) {
             "Too many tuned-parameter rows."
         }
 
-        val packageInfo = appContext.packageManager.getPackageInfo(
-            appContext.packageName,
-            0,
-        )
-
         return LearningMemoryArchiveDto(
             schemaVersion = CURRENT_SCHEMA_VERSION,
-            appVersion = packageInfo.versionName.orEmpty().ifBlank { "unknown" },
-            userCorrectionLogs = correctionRows.map { row ->
+            appVersion = appVersion.ifBlank { "unknown" },
+            userCorrectionLogs = feedbackRows.map { row ->
                 UserCorrectionLogDto(
                     id = row.id,
                     sampleKey = row.sample_key,
@@ -161,10 +213,13 @@ actual class LearningMemoryManager(
                     thresholdBias = row.threshold_bias,
                     blockSize = row.block_size.toInt(),
                     accepted = row.accepted != 0L,
+                    brightnessBucket = row.brightness_bucket.toInt(),
+                    edgeDensityBucket = row.edge_density_bucket.toInt(),
+                    aspectBucket = row.aspect_bucket.toInt(),
                     createdAt = row.created_at,
                 )
             },
-            tunedParameters = tunedRows.map { row ->
+            tunedParameters = policyRows.map { row ->
                 TunedParameterDto(
                     kind = row.kind,
                     contextKey = row.context_key,
@@ -178,47 +233,68 @@ actual class LearningMemoryManager(
         )
     }
 
-    private fun readArchive(
-        input: InputStream,
+    private fun createZipPayload(
+        archive: LearningMemoryArchiveDto,
+    ): ByteArray {
+        val jsonBytes = json.encodeToString(
+            LearningMemoryArchiveDto.serializer(),
+            archive,
+        ).encodeToByteArray()
+
+        require(jsonBytes.size.toLong() <= MAX_JSON_BYTES) {
+            "Learning archive JSON is too large."
+        }
+
+        val output = ByteArrayOutputStream(
+            min(jsonBytes.size + 128, MAX_ARCHIVE_BYTES.toInt()),
+        )
+        ZipOutputStream(output).use { zip ->
+            zip.setLevel(Deflater.BEST_COMPRESSION)
+            zip.putNextEntry(ZipEntry(ENTRY_NAME))
+            zip.write(jsonBytes)
+            zip.closeEntry()
+        }
+        return output.toByteArray()
+    }
+
+    private fun parseZipPayload(
+        zipPayload: ByteArray,
     ): LearningMemoryArchiveDto {
-        val payload = ZipInputStream(input.buffered()).use { zip ->
+        val jsonBytes = ZipInputStream(
+            ByteArrayInputStream(zipPayload),
+        ).use { zip ->
             var entryCount = 0
-            var payloadBytes: ByteArray? = null
+            var payload: ByteArray? = null
 
             while (true) {
                 val entry = zip.nextEntry ?: break
                 entryCount += 1
-
                 require(entryCount == 1) {
                     "Learning archive must contain exactly one entry."
                 }
-
                 require(!entry.isDirectory && entry.name == ENTRY_NAME) {
                     "Invalid learning archive entry."
                 }
 
+                val bytes = ByteArrayOutputStream()
                 val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                val output = ByteArrayOutputStream()
                 var total = 0L
 
                 while (true) {
                     val read = zip.read(buffer)
                     if (read < 0) break
-
                     total += read
-
                     require(total <= MAX_JSON_BYTES) {
-                        "Learning archive is too large."
+                        "Learning archive JSON is too large."
                     }
-
-                    output.write(buffer, 0, read)
+                    bytes.write(buffer, 0, read)
                 }
 
-                payloadBytes = output.toByteArray()
+                payload = bytes.toByteArray()
                 zip.closeEntry()
             }
 
-            requireNotNull(payloadBytes) {
+            requireNotNull(payload) {
                 "Learning archive payload is missing."
             }
         }
@@ -226,7 +302,7 @@ actual class LearningMemoryManager(
         return runCatching {
             json.decodeFromString(
                 LearningMemoryArchiveDto.serializer(),
-                payload.decodeToString(),
+                jsonBytes.decodeToString(),
             )
         }.getOrElse { error ->
             throw IllegalArgumentException(
@@ -240,18 +316,15 @@ actual class LearningMemoryManager(
         archive: LearningMemoryArchiveDto,
     ) {
         require(archive.schemaVersion == CURRENT_SCHEMA_VERSION) {
-            "Unsupported learning archive schema: " + archive.schemaVersion
+            "Unsupported learning archive schema: ${archive.schemaVersion}"
         }
-
         require(archive.appVersion.isNotBlank()) {
             "Learning archive application version is missing."
         }
-
-        require(archive.userCorrectionLogs.size.toLong() <= MAX_ROWS) {
+        require(archive.userCorrectionLogs.size <= MAX_ROWS) {
             "Too many correction rows."
         }
-
-        require(archive.tunedParameters.size.toLong() <= MAX_ROWS) {
+        require(archive.tunedParameters.size <= MAX_ROWS) {
             "Too many tuned-parameter rows."
         }
 
@@ -259,31 +332,153 @@ actual class LearningMemoryManager(
             require(row.id > 0L)
             require(row.sampleKey.isNotBlank())
             require(row.kind.isNotBlank())
-            require(row.sourceWidth > 0 && row.sourceHeight > 0)
-
-            require(row.estimatedX.isFinite())
-            require(row.estimatedY.isFinite())
+            require(row.sourceWidth in 1..100_000)
+            require(row.sourceHeight in 1..100_000)
+            require(row.estimatedX.isFinite() && row.estimatedY.isFinite())
             require(row.estimatedWidth.isFinite() && row.estimatedWidth > 0.0)
             require(row.estimatedHeight.isFinite() && row.estimatedHeight > 0.0)
-
-            require(row.correctedX.isFinite())
-            require(row.correctedY.isFinite())
+            require(row.correctedX.isFinite() && row.correctedY.isFinite())
             require(row.correctedWidth.isFinite() && row.correctedWidth > 0.0)
             require(row.correctedHeight.isFinite() && row.correctedHeight > 0.0)
-
             require(row.thresholdBias.isFinite())
             require(row.blockSize in 3..999 && row.blockSize % 2 == 1)
+            require(row.brightnessBucket in 0..31)
+            require(row.edgeDensityBucket in 0..31)
+            require(row.aspectBucket in 0..31)
             require(row.createdAt >= 0L)
         }
 
         archive.tunedParameters.forEach { row ->
             require(row.kind.isNotBlank())
             require(row.contextKey.isNotBlank())
-            require(row.actionIndex >= 0)
+            require(row.actionIndex in 0..32)
             require(row.visits >= 0L)
             require(row.totalReward.isFinite())
             require(row.lastReward.isFinite())
             require(row.updatedAt >= 0L)
         }
     }
+
+    private fun deriveKey(
+        password: CharArray,
+        salt: ByteArray,
+    ): ByteArray {
+        val spec = PBEKeySpec(
+            password,
+            salt,
+            PBKDF2_ITERATIONS,
+            KEY_SIZE_BITS,
+        )
+        return try {
+            SecretKeyFactory
+                .getInstance("PBKDF2WithHmacSHA256")
+                .generateSecret(spec)
+                .encoded
+        } finally {
+            spec.clearPassword()
+        }
+    }
+
+    private fun encrypt(
+        plaintext: ByteArray,
+        password: CharArray,
+        salt: ByteArray,
+        nonce: ByteArray,
+    ): ByteArray {
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        val key = deriveKey(password, salt)
+        return try {
+            cipher.init(
+                Cipher.ENCRYPT_MODE,
+                SecretKeySpec(key, "AES"),
+                GCMParameterSpec(GCM_TAG_BITS, nonce),
+            )
+            cipher.doFinal(plaintext)
+        } finally {
+            key.fill(0)
+        }
+    }
+
+    private fun decrypt(
+        ciphertext: ByteArray,
+        password: CharArray,
+        salt: ByteArray,
+        nonce: ByteArray,
+    ): ByteArray {
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        val key = deriveKey(password, salt)
+        return try {
+            cipher.init(
+                Cipher.DECRYPT_MODE,
+                SecretKeySpec(key, "AES"),
+                GCMParameterSpec(GCM_TAG_BITS, nonce),
+            )
+            runCatching {
+                cipher.doFinal(ciphertext)
+            }.getOrElse { error ->
+                throw IllegalArgumentException(
+                    "Learning archive password is incorrect or archive is corrupted.",
+                    error,
+                )
+            }
+        } finally {
+            key.fill(0)
+        }
+    }
+
+    private fun parseContainer(
+        bytes: ByteArray,
+    ): ParsedContainer =
+        DataInputStream(
+            ByteArrayInputStream(bytes),
+        ).use { input ->
+            val magic = ByteArray(MAGIC.length)
+            input.readFully(magic)
+            require(magic.decodeToString() == MAGIC) {
+                "Invalid learning archive signature."
+            }
+
+            val version = input.readUnsignedByte()
+            require(version == ARCHIVE_VERSION) {
+                "Unsupported learning archive format version: $version"
+            }
+
+            val saltSize = input.readUnsignedByte()
+            val nonceSize = input.readUnsignedByte()
+
+            require(saltSize == SALT_SIZE_BYTES) {
+                "Invalid learning archive salt size."
+            }
+            require(nonceSize == NONCE_SIZE_BYTES) {
+                "Invalid learning archive nonce size."
+            }
+
+            val salt = ByteArray(saltSize)
+            val nonce = ByteArray(nonceSize)
+            input.readFully(salt)
+            input.readFully(nonce)
+
+            val payloadOffset =
+                MAGIC.length + 3 + salt.size + nonce.size
+            val encryptedSize = bytes.size - payloadOffset
+
+            require(encryptedSize > GCM_TAG_BITS / 8) {
+                "Learning archive ciphertext is missing."
+            }
+
+            val ciphertext = ByteArray(encryptedSize)
+            input.readFully(ciphertext)
+
+            ParsedContainer(
+                salt = salt,
+                nonce = nonce,
+                encryptedPayload = ciphertext,
+            )
+        }
+
+    private data class ParsedContainer(
+        val salt: ByteArray,
+        val nonce: ByteArray,
+        val encryptedPayload: ByteArray,
+    )
 }
