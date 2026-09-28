@@ -11,7 +11,7 @@ kotlin {
             jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
         }
     }
-
+    
     sourceSets {
         commonMain.dependencies {
             implementation(libs.sqldelight.runtime)
@@ -20,11 +20,9 @@ kotlin {
             implementation(libs.kotlinx.serialization.json)
         }
 
-        named("androidMain") {
-            dependencies {
-                implementation(libs.sqldelight.android.driver)
-                implementation(libs.kotlinx.coroutines.android)
-            }
+        androidMain.dependencies {
+            implementation(libs.sqldelight.android.driver)
+            implementation(libs.kotlinx.coroutines.android)
         }
     }
 }
