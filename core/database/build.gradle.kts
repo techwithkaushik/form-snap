@@ -21,6 +21,7 @@ kotlin {
         getByName("androidMain") {
             dependencies {
                 implementation(libs.sqldelight.android)
+                implementation("app.cash.sqldelight:android-driver:2.0.2")
                 implementation(libs.kotlinx.coroutines.android)
             }
         }
