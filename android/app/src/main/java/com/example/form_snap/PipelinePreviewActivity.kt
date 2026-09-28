@@ -40,6 +40,7 @@ class PipelinePreviewActivity : ComponentActivity() {
     private var onExternalCorrection: ((DetectionKind, File) -> Unit)? = null
 
     private var correctionKindForResult: DetectionKind? = null
+    private var cameraUri: Uri? = null
 
     private val cameraLauncher: ActivityResultLauncher<Uri> =
         registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
