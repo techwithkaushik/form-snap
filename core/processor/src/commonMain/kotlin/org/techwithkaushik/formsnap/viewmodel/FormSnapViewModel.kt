@@ -1,14 +1,15 @@
 package org.techwithkaushik.formsnap.viewmodel
 
 import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import org.techwithkaushik.formsnap.processor.ImageProcessor
 
 data class FormSnapUiState(
@@ -19,12 +20,9 @@ data class FormSnapUiState(
 
 class FormSnapViewModel(
     private val processor: ImageProcessor = ImageProcessor(),
-) {
-    private val supervisorJob = SupervisorJob()
-    private val processingJob = supervisorJob
+) : AutoCloseable {
 
-    private val _state = MutableStateFlow(FormSnapUiState())
-    val state: StateFlow<FormSnapUiState> = _state.asStateFlow()
+    private val supervisorJob = SupervisorJob()
 
     private val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
         _state.value = _state.value.copy(
@@ -33,25 +31,43 @@ class FormSnapViewModel(
         )
     }
 
+    private val scope = CoroutineScope(
+        supervisorJob +
+            Dispatchers.Default +
+            exceptionHandler,
+    )
+
+    private var processingJob: Job? = null
+
+    private val _state = MutableStateFlow(FormSnapUiState())
+    val state: StateFlow<FormSnapUiState> = _state.asStateFlow()
+
     fun processForm(
         imageData: ByteArray,
         adaptiveBlockSize: Int = 31,
         adaptiveConstant: Double = 8.0,
     ) {
-        processingJob.cancelChildren()
-        _state.value = FormSnapUiState(processing = true)
+        require(imageData.isNotEmpty()) {
+            "Image data is empty."
+        }
 
-        kotlinx.coroutines.CoroutineScope(
-            supervisorJob + Dispatchers.Default + exceptionHandler,
-        ).launch {
-            val input = imageData.copyOf()
-            val result = withContext(Dispatchers.Default) {
-                processor.processForm(
-                    imageData = input,
-                    adaptiveBlockSize = adaptiveBlockSize,
-                    adaptiveConstant = adaptiveConstant,
-                )
-            }
+        processingJob?.cancel()
+
+        val input = imageData.copyOf()
+
+        _state.value = FormSnapUiState(
+            processing = true,
+            result = null,
+            error = null,
+        )
+
+        processingJob = scope.launch {
+            val result = processor.processForm(
+                imageData = input,
+                adaptiveBlockSize = adaptiveBlockSize,
+                adaptiveConstant = adaptiveConstant,
+            )
+
             _state.value = FormSnapUiState(
                 processing = false,
                 result = result,
@@ -60,12 +76,23 @@ class FormSnapViewModel(
         }
     }
 
+    fun cancelProcessing() {
+        processingJob?.cancel()
+        processingJob = null
+        _state.value = _state.value.copy(
+            processing = false,
+        )
+    }
+
     fun clearResult() {
-        processingJob.cancelChildren()
+        processingJob?.cancel()
+        processingJob = null
         _state.value = FormSnapUiState()
     }
 
-    fun close() {
-        supervisorJob.cancel()
+    override fun close() {
+        processingJob?.cancel()
+        processingJob = null
+        scope.cancel()
     }
 }
