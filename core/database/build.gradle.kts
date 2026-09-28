@@ -7,6 +7,13 @@ plugins {
 
 kotlin {
     androidTarget {
+        compilations.all {
+            compileTaskProvider.configure {
+                libraries.from(
+                    project.configurations.named("androidReleaseCompileClasspath"),
+                )
+            }
+        }
         compilerOptions {
             jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
         }
