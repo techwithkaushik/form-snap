@@ -36,14 +36,9 @@ CREATE TABLE policy_stat (
     PRIMARY KEY (kind, context_key, action_index)
 );
 
-CREATE INDEX detection_feedback_kind_created
-ON detection_feedback(kind, created_at DESC);
-
-CREATE INDEX detection_feedback_sample_key
-ON detection_feedback(sample_key);
-
-CREATE INDEX policy_stat_lookup
-ON policy_stat(kind, context_key);
+CREATE INDEX detection_feedback_kind_created ON detection_feedback(kind, created_at DESC);
+CREATE INDEX detection_feedback_sample_key ON detection_feedback(sample_key);
+CREATE INDEX policy_stat_lookup ON policy_stat(kind, context_key);
 
 insertFeedback:
 INSERT INTO detection_feedback(
@@ -52,53 +47,54 @@ INSERT INTO detection_feedback(
     corrected_x, corrected_y, corrected_width, corrected_height,
     threshold_bias, block_size, accepted,
     brightness_bucket, edge_density_bucket, aspect_bucket, created_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+replaceFeedback:
+INSERT OR REPLACE INTO detection_feedback(
+    id, sample_key, kind, source_width, source_height,
+    estimated_x, estimated_y, estimated_width, estimated_height,
+    corrected_x, corrected_y, corrected_width, corrected_height,
+    threshold_bias, block_size, accepted,
+    brightness_bucket, edge_density_bucket, aspect_bucket, created_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 meanDrift:
-SELECT
-    kind,
-    AVG(delta_x) AS mean_delta_x,
-    AVG(delta_y) AS mean_delta_y,
-    AVG(delta_width) AS mean_delta_width,
-    AVG(delta_height) AS mean_delta_height,
-    AVG(threshold_bias) AS mean_threshold_bias,
-    COUNT(*) AS sample_count
+SELECT kind,
+       AVG(delta_x) AS mean_delta_x,
+       AVG(delta_y) AS mean_delta_y,
+       AVG(delta_width) AS mean_delta_width,
+       AVG(delta_height) AS mean_delta_height,
+       AVG(threshold_bias) AS mean_threshold_bias,
+       COUNT(*) AS sample_count
 FROM detection_feedback
 WHERE kind = ? AND accepted = 1
 GROUP BY kind;
 
 observeMeanDrift:
-SELECT
-    kind,
-    AVG(delta_x) AS mean_delta_x,
-    AVG(delta_y) AS mean_delta_y,
-    AVG(delta_width) AS mean_delta_width,
-    AVG(delta_height) AS mean_delta_height,
-    AVG(threshold_bias) AS mean_threshold_bias,
-    COUNT(*) AS sample_count
+SELECT kind,
+       AVG(delta_x) AS mean_delta_x,
+       AVG(delta_y) AS mean_delta_y,
+       AVG(delta_width) AS mean_delta_width,
+       AVG(delta_height) AS mean_delta_height,
+       AVG(threshold_bias) AS mean_threshold_bias,
+       COUNT(*) AS sample_count
 FROM detection_feedback
 WHERE kind = ? AND accepted = 1
 GROUP BY kind;
 
 selectByContext:
-SELECT *
-FROM policy_stat
-WHERE kind = ?
-  AND context_key = ?
+SELECT * FROM policy_stat
+WHERE kind = ? AND context_key = ?
 ORDER BY action_index;
 
 selectByAction:
-SELECT *
-FROM policy_stat
-WHERE kind = ?
-  AND context_key = ?
-  AND action_index = ?
+SELECT * FROM policy_stat
+WHERE kind = ? AND context_key = ? AND action_index = ?
 LIMIT 1;
 
 upsertPolicy:
 INSERT INTO policy_stat(
-    kind, context_key, action_index, visits,
-    total_reward, last_reward, updated_at
+    kind, context_key, action_index, visits, total_reward, last_reward, updated_at
 ) VALUES (?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(kind, context_key, action_index)
 DO UPDATE SET
