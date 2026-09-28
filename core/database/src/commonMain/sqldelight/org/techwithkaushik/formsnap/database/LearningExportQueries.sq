@@ -1,0 +1,13 @@
+selectAllUserCorrectionLogs:
+SELECT id, sample_key, kind, source_width, source_height,
+       estimated_x, estimated_y, estimated_width, estimated_height,
+       corrected_x, corrected_y, corrected_width, corrected_height,
+       threshold_bias, block_size, accepted,
+       brightness_bucket, edge_density_bucket, aspect_bucket, created_at
+FROM detection_feedback
+ORDER BY id;
+
+selectAllTunedParameters:
+SELECT kind, context_key, action_index, visits, total_reward, last_reward, updated_at
+FROM policy_stat
+ORDER BY kind, context_key, action_index;
