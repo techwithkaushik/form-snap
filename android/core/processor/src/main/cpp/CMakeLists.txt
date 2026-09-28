@@ -5,20 +5,35 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,max-page-size=16384")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvisibility=hidden")
+if(NOT DEFINED OPENCV_ANDROID_SDK OR OPENCV_ANDROID_SDK STREQUAL "")
+    message(FATAL_ERROR "OPENCV_ANDROID_SDK must point to the OpenCV Android SDK root.")
+endif()
 
-find_package(OpenCV REQUIRED)
+set(OpenCV_DIR "${OPENCV_ANDROID_SDK}/sdk/native/jni")
+find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
 
-add_library(formsnap_processor SHARED
+add_library(
+    formsnap_processor
+    SHARED
     native-lib.cpp
 )
 
-target_include_directories(formsnap_processor PRIVATE
-    ${OpenCV_INCLUDE_DIRS}
+target_include_directories(
+    formsnap_processor
+    PRIVATE
+    "${OpenCV_INCLUDE_DIRS}"
 )
 
-target_link_libraries(formsnap_processor
+target_link_libraries(
+    formsnap_processor
+    PRIVATE
     ${OpenCV_LIBS}
+    android
     log
+)
+
+set_target_properties(
+    formsnap_processor
+    PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
 )
