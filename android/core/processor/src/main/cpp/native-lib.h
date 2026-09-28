@@ -14,6 +14,12 @@ Java_org_techwithkaushik_formsnap_core_processor_NativeProcessor_nativeDetect(
     jint blockSize,
     jdouble localC);
 
+JNIEXPORT jfloatArray JNICALL
+Java_org_techwithkaushik_formsnap_core_processor_NativeProcessor_nativeReadResult(
+    JNIEnv* env,
+    jobject thiz,
+    jlong resultAddr);
+
 JNIEXPORT jlong JNICALL
 Java_org_techwithkaushik_formsnap_core_processor_NativeProcessor_nativeReleaseResult(
     JNIEnv* env,
