@@ -26,5 +26,19 @@ data class FeedbackInput(
     val blockSize: Int,
     val localC: Double,
     val accepted: Boolean,
+    val actionIndex: Int,
+    val contextBrightness: Double,
+    val contextEdgeDensity: Double,
+    val contextAspect: Double,
     val createdAt: Long
+)
+
+data class PolicyStat(
+    val kind: String,
+    val contextKey: String,
+    val actionIndex: Int,
+    val visits: Long,
+    val totalReward: Double,
+    val lastReward: Double,
+    val updatedAt: Long
 )
