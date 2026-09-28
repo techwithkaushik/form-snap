@@ -216,6 +216,33 @@ object UniversalDetectionEngine {
             }
     }
 
+    private fun isRejected(
+        rect: Rect,
+        rejectedBounds: Set<android.graphics.RectF>,
+    ): Boolean {
+        if (rejectedBounds.isEmpty()) return false
+        val candidate = android.graphics.RectF(
+            rect.x.toFloat(),
+            rect.y.toFloat(),
+            (rect.x + rect.width).toFloat(),
+            (rect.y + rect.height).toFloat(),
+        )
+        return rejectedBounds.any { rejected ->
+            val overlapLeft = max(candidate.left, rejected.left)
+            val overlapTop = max(candidate.top, rejected.top)
+            val overlapRight = min(candidate.right, rejected.right)
+            val overlapBottom = min(candidate.bottom, rejected.bottom)
+            if (overlapRight <= overlapLeft || overlapBottom <= overlapTop) {
+                false
+            } else {
+                val intersection = (overlapRight - overlapLeft) * (overlapBottom - overlapTop)
+                val candidateArea = max(1f, candidate.width() * candidate.height())
+                val rejectedArea = max(1f, rejected.width() * rejected.height())
+                intersection / min(candidateArea, rejectedArea) >= 0.55f
+            }
+        }
+    }
+
     private fun ShapeCandidate.toDetection(
         kind: DetectionKind,
         invScale: Double,
