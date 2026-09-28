@@ -16,9 +16,11 @@ kotlin {
             implementation(libs.kotlinx.serialization.json)
         }
 
-        androidMain.dependencies {
-            implementation(libs.sqldelight.android)
-            implementation(libs.kotlinx.coroutines.android)
+        val androidMain by getting {
+            dependencies {
+                implementation(libs.sqldelight.android.driver)
+                implementation(libs.kotlinx.coroutines.android)
+            }
         }
     }
 }
