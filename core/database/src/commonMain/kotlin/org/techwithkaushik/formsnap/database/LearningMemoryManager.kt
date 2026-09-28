@@ -50,21 +50,16 @@ expect class LearningMemoryManager(
     appVersion: String,
 ) {
     suspend fun exportToFsl(
-        password: CharArray,
         sink: suspend (ByteArray) -> Unit,
     )
 
     suspend fun importFromFsl(
-        password: CharArray,
         source: suspend () -> ByteArray,
     )
 
-    suspend fun exportToFslBytes(
-        password: CharArray,
-    ): ByteArray
+    suspend fun exportToFslBytes(): ByteArray
 
     suspend fun importFromFslBytes(
-        password: CharArray,
         bytes: ByteArray,
     )
 }
