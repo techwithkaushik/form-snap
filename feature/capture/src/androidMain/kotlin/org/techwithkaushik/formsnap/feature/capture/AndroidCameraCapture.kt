@@ -110,7 +110,7 @@ class AndroidCameraCapture(
             val preview = Preview.Builder()
                 .setTargetRotation(rotation)
                 .build()
-                .also { it.surfaceProvider = previewView.surfaceProvider }
+                .also { it.setSurfaceProvider(previewView.surfaceProvider) }
             val capture = ImageCapture.Builder()
                 .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
                 .setJpegQuality(92)
