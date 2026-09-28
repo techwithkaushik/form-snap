@@ -1,9 +1,9 @@
 [versions]
-kotlin = "2.0.20"
+kotlin = "2.0.21"
 agp = "8.5.0"
 compose = "1.7.0"
 material3 = "1.3.0"
-composeCompiler = "2.0.20"
+composeCompiler = "2.0.21"
 androidCompileSdk = "35"
 androidMinSdk = "23"
 androidTargetSdk = "35"
