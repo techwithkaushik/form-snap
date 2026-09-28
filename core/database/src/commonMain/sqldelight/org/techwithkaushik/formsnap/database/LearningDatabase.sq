@@ -137,7 +137,7 @@ WHERE kind = ? AND context_key = ? AND action_index = ?
 LIMIT 1;
 
 upsertParameter:
-INSERT INTO TunedParameters(
+INSERT OR REPLACE INTO TunedParameters(
     kind,
     context_key,
     action_index,
@@ -145,8 +145,7 @@ INSERT INTO TunedParameters(
     total_reward,
     last_reward,
     updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?)
-
+) VALUES (?, ?, ?, ?, ?, ?, ?);
 
 selectAllLogs:
 SELECT id,
