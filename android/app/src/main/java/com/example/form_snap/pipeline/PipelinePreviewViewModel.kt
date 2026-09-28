@@ -43,6 +43,19 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
     private val rejectedPhotoBounds = mutableSetOf<android.graphics.RectF>()
     private val rejectedSignatureBounds = mutableSetOf<android.graphics.RectF>()
 
+    private fun clearCurrentResults() {
+        _state.value = PreviewProcessingState(
+            source = _state.value.source,
+            processing = true,
+            error = null,
+        )
+    }
+
+    private fun clearRejectedCandidates() {
+        rejectedPhotoBounds.clear()
+        rejectedSignatureBounds.clear()
+    }
+
     suspend fun load(
         input: File,
         dpi: Int = 300,
@@ -58,6 +71,8 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
         this.signatureHeightMm = signatureHeightMm.coerceAtLeast(1.0)
 
         previewJob?.cancel()
+        clearCurrentResults()
+        clearRejectedCandidates()
         _state.value = PreviewProcessingState(source = input, processing = true)
 
         try {
@@ -107,6 +122,8 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
 
     suspend fun redetect() {
         val input = _state.value.source ?: return
+        clearCurrentResults()
+        clearRejectedCandidates()
         load(
             input = input,
             dpi = dpi,
