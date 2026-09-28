@@ -33,29 +33,29 @@ class LearningRepository(
     ) {
         val bounded = sanitize(sample)
         learningQueries.insertLog(
-            sample_key = bounded.sampleKey,
+            sampleKey = bounded.sampleKey,
             kind = bounded.kind,
-            source_width = bounded.sourceWidth.toLong(),
-            source_height = bounded.sourceHeight.toLong(),
-            estimated_x = bounded.estimatedX,
-            estimated_y = bounded.estimatedY,
-            estimated_width = bounded.estimatedWidth,
-            estimated_height = bounded.estimatedHeight,
-            corrected_x = bounded.correctedX,
-            corrected_y = bounded.correctedY,
-            corrected_width = bounded.correctedWidth,
-            corrected_height = bounded.correctedHeight,
-            delta_x = bounded.correctedX - bounded.estimatedX,
-            delta_y = bounded.correctedY - bounded.estimatedY,
-            delta_width = bounded.correctedWidth - bounded.estimatedWidth,
-            delta_height = bounded.correctedHeight - bounded.estimatedHeight,
-            threshold_bias = bounded.thresholdBias,
-            block_size = bounded.blockSize.toLong(),
+            sourceWidth = bounded.sourceWidth.toLong(),
+            sourceHeight = bounded.sourceHeight.toLong(),
+            estimatedX = bounded.estimatedX,
+            estimatedY = bounded.estimatedY,
+            estimatedWidth = bounded.estimatedWidth,
+            estimatedHeight = bounded.estimatedHeight,
+            correctedX = bounded.correctedX,
+            correctedY = bounded.correctedY,
+            correctedWidth = bounded.correctedWidth,
+            correctedHeight = bounded.correctedHeight,
+            deltaX = bounded.correctedX - bounded.estimatedX,
+            deltaY = bounded.correctedY - bounded.estimatedY,
+            deltaWidth = bounded.correctedWidth - bounded.estimatedWidth,
+            deltaHeight = bounded.correctedHeight - bounded.estimatedHeight,
+            thresholdBias = bounded.thresholdBias,
+            blockSize = bounded.blockSize.toLong(),
             accepted = if (bounded.accepted) 1L else 0L,
-            brightness_bucket = bounded.brightnessBucket.toLong(),
-            edge_density_bucket = bounded.edgeDensityBucket.toLong(),
-            aspect_bucket = bounded.aspectBucket.toLong(),
-            created_at = bounded.createdAt,
+            brightnessBucket = bounded.brightnessBucket.toLong(),
+            edgeDensityBucket = bounded.edgeDensityBucket.toLong(),
+            aspectBucket = bounded.aspectBucket.toLong(),
+            createdAt = bounded.createdAt,
         )
         updatePolicy(
             kind = bounded.kind,
@@ -92,7 +92,7 @@ class LearningRepository(
         learningQueries
             .selectByContext(
                 kind = kind,
-                context_key = context.key(),
+                contextKey = context.key(),
             )
             .executeAsList()
             .map { row ->
@@ -131,8 +131,8 @@ class LearningRepository(
         val existing = learningQueries
             .selectByAction(
                 kind = kind,
-                context_key = context.key(),
-                action_index = actionIndex.toLong(),
+                contextKey = context.key(),
+                actionIndex = actionIndex.toLong(),
             )
             .executeAsOneOrNull()
 
@@ -141,12 +141,12 @@ class LearningRepository(
 
         learningQueries.upsertParameter(
             kind = kind,
-            context_key = context.key(),
-            action_index = actionIndex.toLong(),
+            contextKey = context.key(),
+            actionIndex = actionIndex.toLong(),
             visits = visits,
-            total_reward = totalReward,
-            last_reward = reward,
-            updated_at = expectEpochMillis(),
+            totalReward = totalReward,
+            lastReward = reward,
+            updatedAt = expectEpochMillis(),
         )
     }
 
