@@ -25,7 +25,7 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
         with:
-          gradle-version: '9.6.0'
+          gradle-version: '8.8'
           cache-provider: enhanced
 
       - name: Decode Keystore
@@ -44,7 +44,7 @@ jobs:
         run: |
           set -e
           if [ -x "./gradlew" ]; then
-            ./gradlew :core:database:compileKotlinAndroid :core:database:assembleRelease :feature:capture:compileReleaseKotlin :feature:capture:assembleRelease --no-daemon --build-cache
+            ./gradlew :core:database:compileReleaseKotlinAndroid :core:database:assembleRelease :feature:capture:compileReleaseKotlinAndroid :feature:capture:assembleRelease --no-daemon --build-cache
           else
-            gradle :core:database:compileKotlinAndroid :core:database:assembleRelease :feature:capture:compileReleaseKotlin :feature:capture:assembleRelease --no-daemon --build-cache
+            gradle :core:database:compileReleaseKotlinAndroid :core:database:assembleRelease :feature:capture:compileReleaseKotlinAndroid :feature:capture:assembleRelease --no-daemon --build-cache
           fi
