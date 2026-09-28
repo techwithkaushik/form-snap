@@ -1,59 +1,44 @@
 plugins {
-    id("org.jetbrains.kotlin.multiplatform")
-    id("com.android.kotlin.multiplatform.library")
+    alias(libs.plugins.kotlin.multiplatform)
+    alias(libs.plugins.android.library)
 }
 
 kotlin {
-    android()
+    androidTarget()
+
+    sourceSets {
+        val commonMain by getting
+        val androidMain by getting {
+            dependencies {
+                implementation(libs.opencv.android)
+            }
+        }
+    }
 }
 
 android {
-    namespace = "org.techwithkaushik.formsnap.core.processor"
-    compileSdk = 37
-    minSdk = 23
+    namespace = "org.techwithkaushik.formsnap.processor"
+    compileSdk = libs.versions.androidCompileSdk.get().toInt()
 
-    buildFeatures {
-        buildConfig = false
-    }
+    defaultConfig {
+        minSdk = libs.versions.androidMinSdk.get().toInt()
+        ndk {
+            abiFilters += setOf("arm64-v8a", "armeabi-v7a")
+        }
 
-    ndk {
-        abiFilters.addAll(setOf("arm64-v8a", "armeabi-v7a"))
+        externalNativeBuild {
+            cmake {
+                arguments(
+                    "-DANDROID_STL=c++_shared",
+                )
+            }
+        }
     }
 
     externalNativeBuild {
         cmake {
             path = file("src/androidMain/cpp/CMakeLists.txt")
             version = "3.22.1"
-        }
-    }
-
-    defaultConfig {
-        externalNativeBuild {
-            cmake {
-                val sdk = providers.gradleProperty("opencv.sdk.dir")
-                    .orElse(providers.environmentVariable("OPENCV_ANDROID_SDK"))
-                    .orElse(
-                        providers.fileContents(
-                            rootProject.layout.projectDirectory.file("local.properties"),
-                        ).asText.map { textValue ->
-                            textValue.lineSequence()
-                                .map(String::trim)
-                                .firstOrNull { it.startsWith("opencv.sdk.dir=") }
-                                ?.substringAfter('=')
-                                ?.trim()
-                                .orEmpty()
-                        },
-                    )
-                    .getOrElse("")
-                require(sdk.isNotBlank()) {
-                    "OpenCV Android SDK path is required. Set -Popencv.sdk.dir=/path/to/OpenCV-android-sdk or OPENCV_ANDROID_SDK."
-                }
-                arguments(
-                    "-DOPENCV_ANDROID_SDK=$sdk",
-                    "-DOpenCV_DIR=$sdk/sdk/native/jni",
-                    "-DANDROID_STL=c++_shared",
-                )
-            }
         }
     }
 
@@ -65,8 +50,13 @@ android {
             )
         }
     }
-}
 
-dependencies {
-    add("androidMainImplementation", "org.opencv:opencv:4.13.0")
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        buildConfig = false
+    }
 }
