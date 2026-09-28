@@ -5,9 +5,6 @@ plugins {
 
 kotlin {
     android()
-    sourceSets {
-        val androidMain by getting
-    }
 }
 
 android {
@@ -35,9 +32,21 @@ android {
             cmake {
                 val sdk = providers.gradleProperty("opencv.sdk.dir")
                     .orElse(providers.environmentVariable("OPENCV_ANDROID_SDK"))
+                    .orElse(
+                        providers.fileContents(
+                            rootProject.layout.projectDirectory.file("local.properties"),
+                        ).asText.map { textValue ->
+                            textValue.lineSequence()
+                                .map(String::trim)
+                                .firstOrNull { it.startsWith("opencv.sdk.dir=") }
+                                ?.substringAfter('=')
+                                ?.trim()
+                                .orEmpty()
+                        },
+                    )
                     .getOrElse("")
                 require(sdk.isNotBlank()) {
-                    "OpenCV Android SDK path is required. Set -Popencv.sdk.dir or OPENCV_ANDROID_SDK."
+                    "OpenCV Android SDK path is required. Set -Popencv.sdk.dir=/path/to/OpenCV-android-sdk or OPENCV_ANDROID_SDK."
                 }
                 arguments(
                     "-DOPENCV_ANDROID_SDK=$sdk",
@@ -47,8 +56,17 @@ android {
             }
         }
     }
+
+    packaging {
+        jniLibs {
+            pickFirsts += setOf(
+                "lib/arm64-v8a/libc++_shared.so",
+                "lib/armeabi-v7a/libc++_shared.so",
+            )
+        }
+    }
 }
 
 dependencies {
-    implementation("org.opencv:opencv:4.13.0")
+    add("androidMainImplementation", "org.opencv:opencv:4.13.0")
 }
