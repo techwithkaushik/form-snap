@@ -1,7 +1,5 @@
 package org.techwithkaushik.formSnap
 
-import android.Manifest
-import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
@@ -41,7 +39,6 @@ class PipelinePreviewActivity : ComponentActivity() {
     private var onExternalCorrection: ((DetectionKind, File) -> Unit)? = null
 
     private var correctionKindForResult: DetectionKind? = null
-    private var cameraUri: Uri? = null
 
     private val cameraLauncher: ActivityResultLauncher<Uri> =
         registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
@@ -51,14 +48,7 @@ class PipelinePreviewActivity : ComponentActivity() {
             contentResolver.openInputStream(uri)?.use { input ->
                 file.outputStream().use { output -> input.copyTo(output) }
             }
-            if (file.exists()) {
-                recreatePipelineWithInput(file)
-            }
-        }
-
-    private val cameraPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) launchRecapture()
+            if (file.exists()) recreatePipelineWithInput(file)
         }
 
     private val importLauncher =
@@ -68,10 +58,10 @@ class PipelinePreviewActivity : ComponentActivity() {
             contentResolver.openInputStream(uri)?.use { input ->
                 file.outputStream().use { output -> input.copyTo(output) }
             }
-            if (file.exists()) {
-                recreatePipelineWithInput(file)
-            }
+            if (file.exists()) recreatePipelineWithInput(file)
         }
+
+    private var cameraUri: Uri? = null
 
     private fun launchRecapture() {
         val file = File(cacheDir, "recapture_source_" + System.nanoTime() + ".jpg")
@@ -80,7 +70,7 @@ class PipelinePreviewActivity : ComponentActivity() {
             BuildConfig.APPLICATION_ID + ".fileprovider",
             file,
         )
-        cameraLauncher.launch(cameraUri)
+        cameraLauncher.launch(cameraUri!!)
     }
 
     private fun launchImport() {
@@ -183,16 +173,8 @@ class PipelinePreviewActivity : ComponentActivity() {
                         viewModel.redetect()
                     }
                 },
-                onRecapture = {
-                    if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                        launchRecapture()
-                    } else {
-                        cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-                    }
-                },
-                onReimport = {
-                    launchImport()
-                },
+                onRecapture = { launchRecapture() },
+                onReimport = { launchImport() },
                 onEditPhoto = {
                     val file = state.photoPreviewPath?.let(::File)
                     if (state.photoState != null && file?.exists() == true) {
