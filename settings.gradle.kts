@@ -17,4 +17,10 @@ dependencyResolutionManagement {
 
 rootProject.name = "FormSnap"
 
-include(":core:database")
+include(":core:database", ":core:processor", ":feature:capture", ":feature:pipeline", ":app")
+
+project(":core:database").projectDir = file("core/database")
+project(":core:processor").projectDir = file("core/processor")
+project(":feature:capture").projectDir = file("feature/capture")
+project(":feature:pipeline").projectDir = file("feature/pipeline")
+project(":app").projectDir = file("app")
