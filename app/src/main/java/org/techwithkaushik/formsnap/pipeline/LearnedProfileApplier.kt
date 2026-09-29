@@ -39,11 +39,17 @@ object LearnedProfileApplier {
         }
 
         val b = candidate.bounds
+        // v3 stores normalized edge deltas; v1/v2 profiles remain readable as
+        // legacy pixel offsets and are never blended with normalized profiles.
+        val deltaLeft = if (learned.version >= 3) learned.boundsDeltaLeft * b.width() else learned.boundsDeltaLeft
+        val deltaRight = if (learned.version >= 3) learned.boundsDeltaRight * b.width() else learned.boundsDeltaRight
+        val deltaTop = if (learned.version >= 3) learned.boundsDeltaTop * b.height() else learned.boundsDeltaTop
+        val deltaBottom = if (learned.version >= 3) learned.boundsDeltaBottom * b.height() else learned.boundsDeltaBottom
         val learnedBounds = RectF(
-            b.left + learned.boundsDeltaLeft,
-            b.top + learned.boundsDeltaTop,
-            b.right + learned.boundsDeltaRight,
-            b.bottom + learned.boundsDeltaBottom,
+            b.left + deltaLeft,
+            b.top + deltaTop,
+            b.right + deltaRight,
+            b.bottom + deltaBottom,
         )
         // Validate the final blend too: a finite correction can still invert or
         // collapse a rectangle after it is applied to a small candidate.
@@ -110,16 +116,25 @@ object LearnedProfileApplier {
         // from moving a crop far away from the detector's actual candidate.
         val maxHorizontalDelta = bounds.width() * MAX_EDGE_DELTA_RATIO
         val maxVerticalDelta = bounds.height() * MAX_EDGE_DELTA_RATIO
-        if (abs(learned.boundsDeltaLeft) > maxHorizontalDelta ||
-            abs(learned.boundsDeltaRight) > maxHorizontalDelta ||
-            abs(learned.boundsDeltaTop) > maxVerticalDelta ||
-            abs(learned.boundsDeltaBottom) > maxVerticalDelta
+        val leftDelta = if (learned.version >= 3) learned.boundsDeltaLeft * bounds.width() else learned.boundsDeltaLeft
+        val rightDelta = if (learned.version >= 3) learned.boundsDeltaRight * bounds.width() else learned.boundsDeltaRight
+        val topDelta = if (learned.version >= 3) learned.boundsDeltaTop * bounds.height() else learned.boundsDeltaTop
+        val bottomDelta = if (learned.version >= 3) learned.boundsDeltaBottom * bounds.height() else learned.boundsDeltaBottom
+        if (if (learned.version >= 3) {
+                abs(learned.boundsDeltaLeft) > MAX_EDGE_DELTA_RATIO ||
+                    abs(learned.boundsDeltaRight) > MAX_EDGE_DELTA_RATIO ||
+                    abs(learned.boundsDeltaTop) > MAX_EDGE_DELTA_RATIO ||
+                    abs(learned.boundsDeltaBottom) > MAX_EDGE_DELTA_RATIO
+            } else {
+                abs(leftDelta) > maxHorizontalDelta ||
+                    abs(rightDelta) > maxHorizontalDelta ||
+                    abs(topDelta) > maxVerticalDelta ||
+                    abs(bottomDelta) > maxVerticalDelta
+            }
         ) return false
 
-        val adjustedWidth = bounds.width() +
-            learned.boundsDeltaRight - learned.boundsDeltaLeft
-        val adjustedHeight = bounds.height() +
-            learned.boundsDeltaBottom - learned.boundsDeltaTop
+        val adjustedWidth = bounds.width() + rightDelta - leftDelta
+        val adjustedHeight = bounds.height() + bottomDelta - topDelta
         return adjustedWidth >= bounds.width() * MIN_SIZE_RATIO &&
             adjustedWidth <= bounds.width() * MAX_SIZE_RATIO &&
             adjustedHeight >= bounds.height() * MIN_SIZE_RATIO &&
