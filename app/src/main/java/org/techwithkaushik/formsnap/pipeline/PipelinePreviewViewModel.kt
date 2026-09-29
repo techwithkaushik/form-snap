@@ -134,21 +134,10 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
                                 if (corrected != null) return corrected
                             }
                         }
-                        val features = ImageConditionFeatures.measure(source, candidate.bounds)
-                        val aspect = candidate.bounds.height() /
-                            candidate.bounds.width().coerceAtLeast(1f)
-                        val learned = LearningStore.best(
-                            context = context,
-                            kind = candidate.kind,
-                            conditionBrightness = features?.brightness,
-                            conditionContrast = features?.contrast,
-                            conditionSaturation = features?.saturation,
-                            conditionEdgeDensity = features?.edgeDensity,
-                            aspectRatio = features?.aspectRatio ?: aspect,
-                        )
-                        return android.graphics.RectF(
-                            LearnedProfileApplier.apply(candidate, learned, features).bounds,
-                        )
+                        // Do not reuse a geometry-only profile based on lighting
+                        // or crop aspect alone: unrelated forms can share those features.
+                        // Without a topology match, retain the baseline candidate.
+                        return android.graphics.RectF(candidate.bounds)
                     }
 
                     PreviewDetectionBundle(
