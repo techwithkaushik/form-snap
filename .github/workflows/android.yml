@@ -28,19 +28,25 @@ jobs:
           gradle-version: '9.6.0'
           cache-provider: enhanced
 
-      - name: Build OpenCV Android SDK
+      - name: Build OpenCV 4.10.0 Android SDK
         working-directory: opencv2
         run: |
           set -e
-          chmod +x platforms/android/build_sdk.py
+          rm -rf ../opencv-build
           python3 platforms/android/build_sdk.py \
+            ../opencv-build \
+            "$GITHUB_WORKSPACE/opencv2" \
             --ndk_path "$ANDROID_NDK_ROOT" \
             --sdk_path "$ANDROID_HOME" \
-            --extra_modules_path "modules" \
-            --config Release \
-            --build_doc false \
+            --config platforms/android/ndk-25.config.py \
             --no_samples
-
+          test -f ../opencv-build/OpenCV-android-sdk/sdk/native/jni/include/opencv2/core.hpp
+          test -f ../opencv-build/OpenCV-android-sdk/sdk/native/libs/arm64-v8a/libopencv_java4.so
+          test -f ../opencv-build/OpenCV-android-sdk/sdk/native/libs/armeabi-v7a/libopencv_java4.so
+          rm -rf ../opencv2/android-sdk
+          mkdir -p ../opencv2/android-sdk
+          mv ../opencv-build/OpenCV-android-sdk ../opencv2/android-sdk/sdk
+          rm -rf ../opencv-build
       - name: Decode Keystore
         id: keystore
         uses: timheuer/base64-to-file@v2.0
