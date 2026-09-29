@@ -140,9 +140,24 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
         val correction = stateFor(kind) ?: return
         val automatic = candidateFor(kind) ?: return
 
+        val sourceFile = _state.value.source
+        val features = sourceFile?.takeIf { it.isFile }?.let { file ->
+            withContext(Dispatchers.Default) {
+                val source = org.opencv.imgcodecs.Imgcodecs.imread(file.absolutePath)
+                try {
+                    if (source.empty()) null
+                    else ImageConditionFeatures.measure(source, automatic.bounds)
+                } finally {
+                    source.release()
+                }
+            }
+        }
         FeedbackRecorder.record(
             context,
-            correction.correction(automatic).copy(accepted = true),
+            correction.correction(automatic).copy(
+                accepted = true,
+                conditionFeatures = features,
+            ),
         )
         updateCorrectionState(kind, correction.accept())
     }

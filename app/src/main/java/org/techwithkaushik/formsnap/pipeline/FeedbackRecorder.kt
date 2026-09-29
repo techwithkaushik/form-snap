@@ -10,6 +10,7 @@ data class CorrectionFeedback(
     val correctedBounds: RectF,
     val appearance: AppearanceAdjustments,
     val accepted: Boolean = true,
+    val conditionFeatures: ImageConditionFeatures? = null,
 )
 
 object FeedbackRecorder {
@@ -20,6 +21,10 @@ object FeedbackRecorder {
             automatic = feedback.automatic,
             correctedBounds = feedback.correctedBounds,
             appearance = AppearanceTuning.clamp(feedback.appearance),
+            sourceBrightness = feedback.conditionFeatures?.brightness ?: 0f,
+            sourceContrast = feedback.conditionFeatures?.contrast ?: 1f,
+            sourceSaturation = feedback.conditionFeatures?.saturation ?: 1f,
+            sourceEdgeDensity = feedback.conditionFeatures?.edgeDensity ?: 0f,
         )
         LearningStore.record(context, learned)
     }

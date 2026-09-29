@@ -65,14 +65,19 @@ object UniversalPipelineBatch {
     ): PipelineStageOutput {
         val candidate = if (kind == DetectionKind.PHOTO) detection.photo!! else detection.signature!!
         val aspectRatio = candidate.bounds.height() / candidate.bounds.width().coerceAtLeast(1f)
+        val features = ImageConditionFeatures.measure(source, candidate.bounds)
         val learned = context?.let {
             LearningStore.best(
                 context = it,
                 kind = kind,
-                aspectRatio = aspectRatio,
+                conditionBrightness = features?.brightness,
+                conditionContrast = features?.contrast,
+                conditionSaturation = features?.saturation,
+                conditionEdgeDensity = features?.edgeDensity,
+                aspectRatio = features?.aspectRatio ?: aspectRatio,
             )
         }
-        val application = LearnedProfileApplier.apply(candidate, learned)
+        val application = LearnedProfileApplier.apply(candidate, learned, features)
         val adjusted = candidate.copy(bounds = application.bounds)
         val normalized = OutputNormalizer.normalize(source, adjusted, kind, dpi)
         val appearance = try {

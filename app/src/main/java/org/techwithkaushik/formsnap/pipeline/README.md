@@ -37,3 +37,15 @@ because they occur above the photograph or outside a fixed lower-page band; vert
 position contributes only a weak ranking cue. This is important for forms with different
 layouts. The detector still needs a labelled real-image corpus before accuracy can be
 claimed or thresholds can be tuned safely.
+
+
+## Condition-aware learning
+
+The pipeline measures brightness, contrast, saturation, edge density, and aspect ratio
+from the detected region in the original image before enhancement. A learned correction
+is selected and revalidated using the features actually measured for that candidate;
+unknown measurements are omitted instead of being compared with fabricated defaults.
+Accepted preview corrections also record the source-region features. Feature extraction
+releases every temporary OpenCV Mat in a `finally` block and returns no profile features
+for invalid or unsupported image regions. Accuracy still needs evaluation against labelled
+real images from varied forms, lighting, rotations, and capture distances.

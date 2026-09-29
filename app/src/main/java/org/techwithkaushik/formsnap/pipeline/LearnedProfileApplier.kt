@@ -13,15 +13,20 @@ object LearnedProfileApplier {
     fun apply(
         candidate: DetectionCandidate,
         learned: LearnedCorrection?,
+        conditionFeatures: ImageConditionFeatures? = null,
     ): LearnedApplication {
-        if (learned == null || !isSafeToApply(candidate, learned)) {
+        if (learned == null || !isSafeToApply(candidate, learned, conditionFeatures)) {
             return LearnedApplication(candidate.bounds, AppearanceAdjustments(), 0f)
         }
 
         val aspect = candidate.bounds.height() / candidate.bounds.width().coerceAtLeast(1f)
         val conditionMatch = CorrectionLearning.conditionSimilarity(
             profile = learned,
-            aspectRatio = aspect,
+            conditionBrightness = conditionFeatures?.brightness,
+            conditionContrast = conditionFeatures?.contrast,
+            conditionSaturation = conditionFeatures?.saturation,
+            conditionEdgeDensity = conditionFeatures?.edgeDensity,
+            aspectRatio = conditionFeatures?.aspectRatio ?: aspect,
         )
         val strength = (
             learned.confidence *
@@ -62,6 +67,7 @@ object LearnedProfileApplier {
     private fun isSafeToApply(
         candidate: DetectionCandidate,
         learned: LearnedCorrection,
+        conditionFeatures: ImageConditionFeatures?,
     ): Boolean {
         val bounds = candidate.bounds
         if (!isValidBounds(bounds)) return false
@@ -69,7 +75,11 @@ object LearnedProfileApplier {
         val candidateAspectRatio = bounds.height() / bounds.width().coerceAtLeast(1f)
         if (!CorrectionLearning.isCompatibleForApplication(
                 profile = learned,
-                aspectRatio = candidateAspectRatio,
+                conditionBrightness = conditionFeatures?.brightness,
+                conditionContrast = conditionFeatures?.contrast,
+                conditionSaturation = conditionFeatures?.saturation,
+                conditionEdgeDensity = conditionFeatures?.edgeDensity,
+                aspectRatio = conditionFeatures?.aspectRatio ?: candidateAspectRatio,
             )
         ) return false
 

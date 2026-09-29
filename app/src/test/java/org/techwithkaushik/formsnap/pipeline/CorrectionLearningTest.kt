@@ -209,4 +209,55 @@ class CorrectionLearningTest {
         assertEquals(100, blended.sampleCount)
         assertEquals((1f * 100f + 11f) / 101f, blended.boundsDeltaLeft, 0.0001f)
     }
+
+    @Test
+    fun conditionSimilarityUsesMeasuredLightingAndTextureAlongsideAspectRatio() {
+        val profile = LearnedCorrection(
+            kind = DetectionKind.PHOTO,
+            conditionBrightness = 0.5f,
+            conditionContrast = 1.5f,
+            conditionSaturation = 1.0f,
+            conditionEdgeDensity = 0.2f,
+            conditionAspectRatio = 0.75f,
+        )
+
+        val sameConditions = CorrectionLearning.conditionSimilarity(
+            profile = profile,
+            conditionBrightness = 0.5f,
+            conditionContrast = 1.5f,
+            conditionSaturation = 1.0f,
+            conditionEdgeDensity = 0.2f,
+            aspectRatio = 0.75f,
+        )
+        val differentConditions = CorrectionLearning.conditionSimilarity(
+            profile = profile,
+            conditionBrightness = -0.5f,
+            conditionContrast = 3.5f,
+            conditionSaturation = 3.0f,
+            conditionEdgeDensity = 0.9f,
+            aspectRatio = 0.75f,
+        )
+
+        assertEquals(1f, sameConditions, 0.0001f)
+        assertTrue(differentConditions < sameConditions)
+    }
+
+    @Test
+    fun missingMeasuredFeaturesDoNotPenalizeLegacyProfiles() {
+        val legacy = LearnedCorrection(
+            kind = DetectionKind.SIGNATURE,
+            conditionBrightness = 0f,
+            conditionContrast = 1f,
+            conditionSaturation = 1f,
+            conditionEdgeDensity = 0f,
+            conditionAspectRatio = 2.5f,
+        )
+
+        assertEquals(
+            1f,
+            CorrectionLearning.conditionSimilarity(legacy, aspectRatio = 2.5f),
+            0.0001f,
+        )
+    }
+
 }

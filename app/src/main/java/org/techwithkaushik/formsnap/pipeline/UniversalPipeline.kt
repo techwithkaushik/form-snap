@@ -30,14 +30,19 @@ object UniversalPipeline {
 
         val candidateAspectRatio =
             candidate.bounds.height() / candidate.bounds.width().coerceAtLeast(1f)
+        val features = ImageConditionFeatures.measure(source, candidate.bounds)
         val learned = context?.let {
             LearningStore.best(
                 context = it,
                 kind = kind,
-                aspectRatio = candidateAspectRatio,
+                conditionBrightness = features?.brightness,
+                conditionContrast = features?.contrast,
+                conditionSaturation = features?.saturation,
+                conditionEdgeDensity = features?.edgeDensity,
+                aspectRatio = features?.aspectRatio ?: candidateAspectRatio,
             )
         }
-        val application = LearnedProfileApplier.apply(candidate, learned)
+        val application = LearnedProfileApplier.apply(candidate, learned, features)
         val adjustedCandidate = candidate.copy(bounds = application.bounds)
 
         val output = OutputNormalizer.normalize(source, adjustedCandidate, kind, dpi)
