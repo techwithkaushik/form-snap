@@ -10,7 +10,7 @@ import kotlin.math.max
 
 object LearningStore {
     private const val FILE_NAME = "correction_learning.json"
-    private const val SCHEMA = 2
+    private const val SCHEMA = 3
     private const val MAX_PROFILES = 64
     private const val MIN_PROFILE_SIMILARITY = 0.35f
     private const val MAX_IMPORT_BYTES = 1_048_576
