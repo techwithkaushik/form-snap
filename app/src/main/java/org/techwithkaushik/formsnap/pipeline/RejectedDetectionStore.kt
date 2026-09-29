@@ -58,6 +58,13 @@ internal object RejectedDetectionStore {
         prefs.edit().putString(key, root.toString()).apply()
     }
 
+    fun clear(context: Context) {
+        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .apply()
+    }
+
     fun load(
         context: Context,
         source: File,
