@@ -59,8 +59,8 @@ object OpenCvGeometry {
             destination.fromArray(*points)
             return
         }
-        val simplified = if (!closed) {
-            simplifyOpen(points, epsilon)
+        val simplified: Array<Point> = if (!closed) {
+            simplifyOpen(points, epsilon).toTypedArray()
         } else {
             val first = points.first()
             var farthest = 1
