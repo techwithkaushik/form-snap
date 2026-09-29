@@ -53,7 +53,7 @@ class UcropCorrectionActivity : ComponentActivity() {
             setShowCropFrame(true)
         }
 
-        UCrop.of(
+        val cropIntent = UCrop.of(
             Uri.fromFile(File(sourcePath)),
             Uri.fromFile(outputFile),
         )
@@ -62,7 +62,8 @@ class UcropCorrectionActivity : ComponentActivity() {
                 intent.getIntExtra(EXTRA_MAX_WIDTH, 4000),
                 intent.getIntExtra(EXTRA_MAX_HEIGHT, 4000),
             )
-            .start(this, cropLauncher)
+            .getIntent(this)
+        cropLauncher.launch(cropIntent)
     }
 
     companion object {
