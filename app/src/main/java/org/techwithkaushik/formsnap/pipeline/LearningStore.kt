@@ -1,6 +1,8 @@
 package org.techwithkaushik.formSnap.pipeline
 
 import android.content.Context
+import android.util.AtomicFile
+import java.io.FileOutputStream
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -70,8 +72,9 @@ object LearningStore {
             ?.takeIf { it.sampleCount >= 2 || it.confidence >= 0.70f }
     }
 
+    @Synchronized
     fun clear(context: Context) {
-        file(context).delete()
+        AtomicFile(file(context)).delete()
     }
 
     private fun close(a: Float, b: Float, tolerance: Float): Boolean =
@@ -163,6 +166,18 @@ object LearningStore {
         root.put("profiles", array)
         val target = file(context)
         target.parentFile?.mkdirs()
-        target.writeText(root.toString())
+
+        // AtomicFile preserves the previous valid learning store if the app is
+        // killed or storage fails while a correction profile is being written.
+        val atomic = AtomicFile(target)
+        var stream: FileOutputStream? = null
+        try {
+            stream = atomic.startWrite()
+            stream.write(root.toString().toByteArray(Charsets.UTF_8))
+            atomic.finishWrite(stream)
+        } catch (t: Throwable) {
+            stream?.let(atomic::failWrite)
+            throw t
+        }
     }
 }
