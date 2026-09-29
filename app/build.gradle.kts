@@ -70,5 +70,6 @@ dependencies {
     implementation(project(":core:database"))
     implementation(project(":feature:capture"))
     implementation(project(":feature:pipeline"))
+    implementation(project(":opencv"))
     debugImplementation(libs.androidx.lifecycle.runtime)
 }
