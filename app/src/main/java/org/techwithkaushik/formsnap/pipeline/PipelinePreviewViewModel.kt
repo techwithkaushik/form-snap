@@ -16,6 +16,12 @@ import kotlinx.coroutines.withContext
 import org.techwithkaushik.formSnap.foundation.ProcessingPaths
 import java.io.File
 
+private data class PreviewDetectionBundle(
+    val detection: DetectionResult,
+    val learnedPhotoBounds: android.graphics.RectF?,
+    val learnedSignatureBounds: android.graphics.RectF?,
+)
+
 data class PreviewProcessingState(
     val source: File? = null,
     val photoState: PreviewCorrectionState? = null,
@@ -81,11 +87,11 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
         _state.value = PreviewProcessingState(source = input, processing = true)
 
         try {
-            val detection = withContext(Dispatchers.Default) {
+            val loaded = withContext(Dispatchers.Default) {
                 val source = org.opencv.imgcodecs.Imgcodecs.imread(input.absolutePath)
                 require(!source.empty()) { "Unable to decode input image" }
                 try {
-                    UniversalDetectionEngine.detect(
+                    val detection = UniversalDetectionEngine.detect(
                         source = source,
                         rejectedPhotoBounds = rejectedPhotoBounds + RejectedDetectionStore.load(
                             context,
@@ -102,25 +108,62 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
                             source.rows(),
                         ),
                     )
+
+                    // Apply only validated, condition-compatible learning before the
+                    // first preview is rendered. The baseline detector bounds remain
+                    // in automaticBounds so subsequent feedback measures the correction.
+                    fun learnedBounds(candidate: DetectionCandidate?): android.graphics.RectF? {
+                        candidate ?: return null
+                        val features = ImageConditionFeatures.measure(source, candidate.bounds)
+                        val aspect = candidate.bounds.height() /
+                            candidate.bounds.width().coerceAtLeast(1f)
+                        val learned = LearningStore.best(
+                            context = context,
+                            kind = candidate.kind,
+                            conditionBrightness = features?.brightness,
+                            conditionContrast = features?.contrast,
+                            conditionSaturation = features?.saturation,
+                            conditionEdgeDensity = features?.edgeDensity,
+                            aspectRatio = features?.aspectRatio ?: aspect,
+                        )
+                        return android.graphics.RectF(
+                            LearnedProfileApplier.apply(candidate, learned, features).bounds,
+                        )
+                    }
+
+                    PreviewDetectionBundle(
+                        detection = detection,
+                        learnedPhotoBounds = learnedBounds(detection.photo),
+                        learnedSignatureBounds = learnedBounds(detection.signature),
+                    )
                 } finally {
                     source.release()
                 }
             }
+            val detection = loaded.detection
 
             _state.value = PreviewProcessingState(
                 source = input,
-                photoState = detection.photo?.let {
+                photoState = detection.photo?.let { candidate ->
                     PreviewCorrectionStateFactory.fromCandidate(
-                        it,
+                        candidate,
                         detection.sourceWidth,
                         detection.sourceHeight,
+                    ).copy(
+                        currentBounds = android.graphics.RectF(
+                            loaded.learnedPhotoBounds ?: candidate.bounds,
+                        ),
                     )
                 },
-                signatureState = detection.signature?.let {
+                signatureState = detection.signature?.let { candidate ->
                     PreviewCorrectionStateFactory.fromCandidate(
-                        it,
+                        candidate,
                         detection.sourceWidth,
                         detection.sourceHeight,
+                    ).copy(
+                        currentBounds = android.graphics.RectF(
+                            loaded.learnedSignatureBounds ?: candidate.bounds,
+                        ),
                     )
                 },
                 photoConfidence = detection.photo?.confidence,
