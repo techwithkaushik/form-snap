@@ -13,11 +13,7 @@ kotlin {
             }
         }
 
-        getByName("androidMain") {
-            dependencies {
-                implementation(libs.opencv.android)
-            }
-        }
+        getByName("androidMain")
     }
 }
 
