@@ -313,6 +313,9 @@ class MainActivity : ComponentActivity() {
                                     org.techwithkaushik.formSnap.pipeline.LayoutTopologyStore.clear(
                                         this@MainActivity,
                                     )
+                                    org.techwithkaushik.formSnap.pipeline.RejectedDetectionStore.clear(
+                                        this@MainActivity,
+                                    )
                                     withContext(Dispatchers.Main) {
                                         saveMessage = "Learning memory reset. Built-in detection is unchanged."
                                     }
