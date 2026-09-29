@@ -56,6 +56,7 @@ jobs:
         with:
           gradle-version: '9.6.0'
           cache-provider: enhanced
+          validate-wrappers: false
 
       - name: Build OpenCV 5.0.0 Android SDK
         working-directory: opencv2
