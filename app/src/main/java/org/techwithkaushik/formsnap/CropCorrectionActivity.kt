@@ -240,7 +240,8 @@ private fun CropEditorContent(
                             else -> Unit
                         }
                         if (dragMode != DragMode.NONE) crop = next
-                    },
+                    }
+                },
             ) {
                 val g = calculateGeometry(
                     size.width, size.height, bitmap.width, bitmap.height, sourceWidth, sourceHeight,
