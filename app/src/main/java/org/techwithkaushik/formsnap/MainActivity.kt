@@ -67,7 +67,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
         // Remove stale intermediate files left by a killed or previously crashed run.
-        org.techwithkaushik.formSnap.foundation.ProcessingPaths.cleanup(this)
+        org.techwithkaushik.formSnap.foundation.ProcessingPaths.cleanupStale(this)
         OpenCVLoader.initLocal()
         setContent { FormSnapTheme { FormSnapApp() } }
     }
