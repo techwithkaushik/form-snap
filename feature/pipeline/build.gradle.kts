@@ -15,7 +15,6 @@ kotlin {
                 implementation(libs.kotlinx.coroutines.android)
                 implementation(libs.androidx.core)
                 implementation(libs.androidx.lifecycle.viewmodel)
-                implementation(libs.opencv.android)
             }
         }
     }
