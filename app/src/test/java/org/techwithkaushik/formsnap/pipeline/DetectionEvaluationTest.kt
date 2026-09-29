@@ -100,6 +100,22 @@ class DetectionEvaluationTest {
     }
 
     @Test
+    fun cropRetentionReportsClippedContent() {
+        val content = box(0.0, 0.0, 100.0, 100.0)
+        val crop = box(0.0, 0.0, 75.0, 100.0)
+
+        assertEquals(0.75, DetectionEvaluation.contentRetention(content, crop), 0.000001)
+    }
+
+    @Test
+    fun cropRetentionIsZeroWhenContentIsOutsideCrop() {
+        val content = box(200.0, 200.0, 300.0, 300.0)
+        val crop = box(0.0, 0.0, 100.0, 100.0)
+
+        assertEquals(0.0, DetectionEvaluation.contentRetention(content, crop), 0.000001)
+    }
+
+    @Test
     fun identicalBoxesHaveFullOverlap() {
         val same = box(5.0, 7.0, 25.0, 37.0)
         assertEquals(1.0, DetectionEvaluation.intersectionOverUnion(same, same), 0.000001)
