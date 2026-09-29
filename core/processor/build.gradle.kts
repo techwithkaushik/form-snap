@@ -13,7 +13,11 @@ kotlin {
             }
         }
 
-        getByName("androidMain")
+        getByName("androidMain") {
+            dependencies {
+                implementation(project(":opencv"))
+            }
+        }
     }
 }
 
@@ -23,28 +27,13 @@ android {
 
     defaultConfig {
         minSdk = libs.versions.androidMinSdk.get().toInt()
-
-        ndk {
-            abiFilters += setOf(
-                "arm64-v8a",
-                "armeabi-v7a",
-            )
-        }
-    }
-
-    externalNativeBuild {
-        cmake {
-            path = file("src/androidMain/cpp/CMakeLists.txt")
-            version = "3.22.1"
-        }
     }
 
     packaging {
         jniLibs {
-            pickFirsts += setOf(
-                "lib/arm64-v8a/libc++_shared.so",
-                "lib/armeabi-v7a/libc++_shared.so",
-            )
+            excludes += "lib/arm64-v8a/**"
+            excludes += "lib/x86/**"
+            excludes += "lib/x86_64/**"
         }
     }
 
