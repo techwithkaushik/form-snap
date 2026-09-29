@@ -59,8 +59,8 @@ jobs:
             --no_ccache \
             --no_samples_build
           test -f ../opencv-build/OpenCV-android-sdk/sdk/native/jni/include/opencv2/core.hpp
-          test -f ../opencv-build/OpenCV-android-sdk/sdk/native/libs/arm64-v8a/libopencv_java4.so
-          test -f ../opencv-build/OpenCV-android-sdk/sdk/native/libs/armeabi-v7a/libopencv_java4.so
+          test -f ../opencv-build/OpenCV-android-sdk/sdk/native/libs/arm64-v8a/libopencv_java5.so
+          test -f ../opencv-build/OpenCV-android-sdk/sdk/native/libs/armeabi-v7a/libopencv_java5.so
           rm -rf ../opencv2/android-sdk
           mkdir -p ../opencv2/android-sdk
           mv ../opencv-build/OpenCV-android-sdk ../opencv2/android-sdk/sdk
