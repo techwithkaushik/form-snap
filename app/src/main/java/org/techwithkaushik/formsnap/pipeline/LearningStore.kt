@@ -13,6 +13,8 @@ object LearningStore {
     private const val SCHEMA = 2
     private const val MAX_PROFILES = 64
     private const val MIN_PROFILE_SIMILARITY = 0.35f
+    private const val MAX_IMPORT_BYTES = 1_048_576
+    private const val MAX_IMPORT_RECORDS = 256
 
     private fun file(context: Context): File = File(context.filesDir, FILE_NAME)
 
@@ -86,6 +88,56 @@ object LearningStore {
         AtomicFile(file(context)).delete()
     }
 
+    /** Compact export includes only validated learning metadata, never original images. */
+    @Synchronized
+    fun exportJson(context: Context): String =
+        encode(read(context).filter(CorrectionLearning::isSafe).take(MAX_PROFILES))
+
+    /** Validates and merges profiles imported from a portable learning bundle. */
+    @Synchronized
+    fun importJson(context: Context, payload: String): LearningImportSummary {
+        require(payload.toByteArray(Charsets.UTF_8).size <= MAX_IMPORT_BYTES) {
+            "Learning payload is too large"
+        }
+        val root = JSONObject(payload)
+        val schema = root.optInt("schema", -1)
+        require(schema in 1..SCHEMA) { "Unsupported learning schema: $schema" }
+        val array = root.optJSONArray("profiles")
+            ?: throw IllegalArgumentException("Learning profiles are missing")
+        require(array.length() <= MAX_IMPORT_RECORDS) { "Too many learning profiles" }
+
+        val imported = ArrayList<LearnedCorrection>()
+        var rejected = 0
+        for (i in 0 until array.length()) {
+            val profile = parse(array.optJSONObject(i), schema)
+            if (profile != null && CorrectionLearning.isSafe(profile)) imported += profile
+            else rejected++
+        }
+        require(imported.isNotEmpty()) { "No valid learning profiles found" }
+
+        val merged = read(context).filter(CorrectionLearning::isSafe).toMutableList()
+        var mergedCount = 0
+        for (incoming in imported) {
+            val index = merged.indexOfFirst {
+                CorrectionLearning.sameConditionProfile(it, incoming)
+            }
+            if (index >= 0) {
+                merged[index] = CorrectionLearning.mergeWeighted(merged[index], incoming)
+                mergedCount++
+            } else {
+                merged += incoming
+            }
+        }
+        write(
+            context,
+            merged.sortedWith(
+                compareByDescending<LearnedCorrection> { it.sampleCount }
+                    .thenByDescending { it.confidence },
+            ).take(MAX_PROFILES),
+        )
+        return LearningImportSummary(imported.size, mergedCount, rejected)
+    }
+
     private fun read(context: Context): List<LearnedCorrection> {
         val target = file(context)
         if (!target.exists()) return emptyList()
@@ -135,10 +187,9 @@ object LearningStore {
         )
     }
 
-    private fun write(context: Context, profiles: List<LearnedCorrection>) {
+    private fun encode(profiles: List<LearnedCorrection>): String {
         val root = JSONObject().put("schema", SCHEMA)
         val array = JSONArray()
-
         profiles.forEach { profile ->
             array.put(
                 JSONObject()
@@ -168,18 +219,17 @@ object LearningStore {
                     ),
             )
         }
+        return root.put("profiles", array).toString()
+    }
 
-        root.put("profiles", array)
+    private fun write(context: Context, profiles: List<LearnedCorrection>) {
         val target = file(context)
         target.parentFile?.mkdirs()
-
-        // AtomicFile preserves the previous valid learning store if the app is
-        // killed or storage fails while a correction profile is being written.
         val atomic = AtomicFile(target)
         var stream: FileOutputStream? = null
         try {
             stream = atomic.startWrite()
-            stream.write(root.toString().toByteArray(Charsets.UTF_8))
+            stream.write(encode(profiles).toByteArray(Charsets.UTF_8))
             atomic.finishWrite(stream)
         } catch (t: Throwable) {
             stream?.let(atomic::failWrite)
@@ -187,3 +237,9 @@ object LearningStore {
         }
     }
 }
+
+data class LearningImportSummary(
+    val importedProfiles: Int,
+    val mergedProfiles: Int,
+    val rejectedProfiles: Int,
+)

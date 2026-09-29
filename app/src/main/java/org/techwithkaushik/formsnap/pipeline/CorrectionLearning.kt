@@ -212,4 +212,41 @@ object CorrectionLearning {
             version = 2,
         )
     }
+    /**
+     * Merges aggregate profiles using both source sample counts, as needed when
+     * learning bundles are imported from another installation.
+     */
+    fun mergeWeighted(previous: LearnedCorrection, incoming: LearnedCorrection): LearnedCorrection {
+        val oldWeight = previous.sampleCount.coerceAtLeast(1).toDouble()
+        val newWeight = incoming.sampleCount.coerceAtLeast(1).toDouble()
+        val total = oldWeight + newWeight
+        fun avg(a: Float, b: Float): Float =
+            ((a.toDouble() * oldWeight + b.toDouble() * newWeight) / total).toFloat()
+        fun avgInt(a: Int, b: Int): Int = avg(a.toFloat(), b.toFloat()).toInt()
+
+        return previous.copy(
+            boundsDeltaLeft = avg(previous.boundsDeltaLeft, incoming.boundsDeltaLeft),
+            boundsDeltaTop = avg(previous.boundsDeltaTop, incoming.boundsDeltaTop),
+            boundsDeltaRight = avg(previous.boundsDeltaRight, incoming.boundsDeltaRight),
+            boundsDeltaBottom = avg(previous.boundsDeltaBottom, incoming.boundsDeltaBottom),
+            appearance = AppearanceAdjustments(
+                brightness = avg(previous.appearance.brightness, incoming.appearance.brightness),
+                contrast = avg(previous.appearance.contrast, incoming.appearance.contrast),
+                saturation = avg(previous.appearance.saturation, incoming.appearance.saturation),
+                sharpness = avg(previous.appearance.sharpness, incoming.appearance.sharpness),
+                denoise = avg(previous.appearance.denoise, incoming.appearance.denoise),
+                inkThreshold = avgInt(previous.appearance.inkThreshold, incoming.appearance.inkThreshold),
+                backgroundCleanup = avg(previous.appearance.backgroundCleanup, incoming.appearance.backgroundCleanup),
+            ),
+            conditionBrightness = avg(previous.conditionBrightness, incoming.conditionBrightness),
+            conditionContrast = avg(previous.conditionContrast, incoming.conditionContrast),
+            conditionSaturation = avg(previous.conditionSaturation, incoming.conditionSaturation),
+            conditionEdgeDensity = avg(previous.conditionEdgeDensity, incoming.conditionEdgeDensity),
+            conditionAspectRatio = avg(previous.conditionAspectRatio, incoming.conditionAspectRatio),
+            sampleCount = (previous.sampleCount.toLong() + incoming.sampleCount)
+                .coerceAtMost(100L).toInt(),
+            confidence = avg(previous.confidence, incoming.confidence).coerceIn(0f, 1f),
+            version = maxOf(previous.version, incoming.version, 2),
+        )
+    }
 }

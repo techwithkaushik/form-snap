@@ -159,6 +159,28 @@ class CorrectionLearningTest {
     }
 
     @Test
+    fun weightedImportMergeUsesBothProfileSampleCounts() {
+        val previous = LearnedCorrection(
+            kind = DetectionKind.PHOTO,
+            boundsDeltaLeft = 2f,
+            sampleCount = 3,
+            confidence = 0.6f,
+        )
+        val incoming = LearnedCorrection(
+            kind = DetectionKind.PHOTO,
+            boundsDeltaLeft = 10f,
+            sampleCount = 1,
+            confidence = 1f,
+        )
+
+        val merged = CorrectionLearning.mergeWeighted(previous, incoming)
+
+        assertEquals(4f, merged.boundsDeltaLeft, 0.0001f)
+        assertEquals(4, merged.sampleCount)
+        assertEquals(0.7f, merged.confidence, 0.0001f)
+    }
+
+    @Test
     fun blendKeepsConfidenceWithinValidRange() {
         val previous = LearnedCorrection(
             kind = DetectionKind.SIGNATURE,
