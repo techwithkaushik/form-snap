@@ -45,12 +45,10 @@ jobs:
           set -e
           if [ -x "./gradlew" ]; then
             ./gradlew :core:database:dependencies --configuration androidReleaseCompileClasspath --no-daemon --build-cache
-            ./gradlew :core:database:dependencies --configuration androidMainCompileClasspath --no-daemon --build-cache || true
             ./gradlew :core:database:tasks --all --no-daemon --build-cache | grep -E "compile.*KotlinAndroid|android.*CompileClasspath|androidTarget" || true
             ./gradlew :core:database:compileReleaseKotlinAndroid :core:database:assembleRelease :feature:capture:compileReleaseKotlinAndroid :feature:capture:assembleRelease --no-daemon --build-cache
           else
             gradle :core:database:dependencies --configuration androidReleaseCompileClasspath --no-daemon --build-cache
-            gradle :core:database:dependencies --configuration androidMainCompileClasspath --no-daemon --build-cache || true
             gradle :core:database:tasks --all --no-daemon --build-cache | grep -E "compile.*KotlinAndroid|android.*CompileClasspath|androidTarget" || true
             gradle :core:database:compileReleaseKotlinAndroid :core:database:assembleRelease :feature:capture:compileReleaseKotlinAndroid :feature:capture:assembleRelease --no-daemon --build-cache
           fi
