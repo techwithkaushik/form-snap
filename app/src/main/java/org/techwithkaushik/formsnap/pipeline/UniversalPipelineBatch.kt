@@ -57,7 +57,14 @@ object UniversalPipelineBatch {
         context: android.content.Context?,
     ): PipelineStageOutput {
         val candidate = if (kind == DetectionKind.PHOTO) detection.photo!! else detection.signature!!
-        val learned = context?.let { LearningStore.best(it, kind) }
+        val aspectRatio = candidate.bounds.height() / candidate.bounds.width().coerceAtLeast(1f)
+        val learned = context?.let {
+            LearningStore.best(
+                context = it,
+                kind = kind,
+                aspectRatio = aspectRatio,
+            )
+        }
         val application = LearnedProfileApplier.apply(candidate, learned)
         val adjusted = candidate.copy(bounds = application.bounds)
         val normalized = OutputNormalizer.normalize(source, adjusted, kind, dpi)
