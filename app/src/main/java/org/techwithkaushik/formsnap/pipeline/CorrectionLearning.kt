@@ -137,6 +137,7 @@ object CorrectionLearning {
         if (numericValues.any { !it.isFinite() }) return false
         if (correction.conditionAspectRatio <= 0f) return false
         if (correction.sampleCount !in 1..100) return false
+        if (correction.version !in 1..3) return false
         if (correction.confidence !in 0f..1f) return false
         if (correction.conditionAspectRatio !in 0.05f..20f) return false
         val deltaLimit = if (correction.version >= 3) 0.35f else 1_000_000f
