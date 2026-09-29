@@ -51,6 +51,45 @@ internal object SavedImageEncoder {
         )
     }
 
+    /**
+     * PNG is the default signature format to preserve binary/anti-aliased ink
+     * without JPEG ringing. If the size budget is exceeded, only dimensions
+     * are reduced; PNG encoding itself remains lossless.
+     */
+    fun encodePngWithinLimit(file: File, maxKb: Int): ByteArray {
+        require(file.isFile && file.length() > 0L) { "Processed image is missing or empty." }
+        require(maxKb in 5..2048) { "Output size limit must be between 5 and 2048 KB." }
+        val limit = maxKb * 1024
+        val decoded = BitmapFactory.decodeFile(file.absolutePath)
+            ?: throw IOException("Unable to decode the processed signature.")
+        var current = decoded
+        try {
+            for (scaleStep in 0..MAX_SCALE_STEPS) {
+                val bytes = ByteArrayOutputStream()
+                if (!current.compress(Bitmap.CompressFormat.PNG, 100, bytes)) {
+                    throw IOException("PNG encoder could not encode the signature.")
+                }
+                val encoded = bytes.toByteArray()
+                if (encoded.size <= limit) return encoded
+                if (scaleStep == MAX_SCALE_STEPS) break
+                val nextWidth = (current.width * SCALE_FACTOR).roundToInt().coerceAtLeast(1)
+                val nextHeight = (current.height * SCALE_FACTOR).roundToInt().coerceAtLeast(1)
+                if (nextWidth < MIN_DIMENSION || nextHeight < MIN_DIMENSION ||
+                    (nextWidth == current.width && nextHeight == current.height)
+                ) break
+                val resized = Bitmap.createScaledBitmap(current, nextWidth, nextHeight, true)
+                if (current !== decoded) current.recycle()
+                current = resized
+            }
+        } finally {
+            if (current !== decoded) current.recycle()
+            decoded.recycle()
+        }
+        throw IOException(
+            "Could not fit the signature within ${maxKb} KB without reducing it below the safe minimum size.",
+        )
+    }
+
     private val JPEG_QUALITIES = intArrayOf(95, 90, 85, 80, 75, 70, 65, 60)
     private const val SCALE_FACTOR = 0.90
     private const val MAX_SCALE_STEPS = 12
