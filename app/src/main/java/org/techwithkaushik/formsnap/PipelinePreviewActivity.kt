@@ -3,6 +3,7 @@ package org.techwithkaushik.formSnap
 import org.techwithkaushik.formsnap.BuildConfig
 
 import android.graphics.BitmapFactory
+import android.graphics.RectF
 import android.net.Uri
 import android.os.Bundle
 import android.content.Intent
@@ -20,7 +21,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.produceState
-import com.yalantis.ucrop.UCrop
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -38,13 +38,20 @@ class PipelinePreviewActivity : ComponentActivity() {
         correctionKindForResult = null
         if (result.resultCode != RESULT_OK) return@registerForActivityResult
 
-        val resultUri = result.data?.let { UCrop.getOutput(it) } ?: return@registerForActivityResult
-        val resultPath = resultUri.path ?: return@registerForActivityResult
-        onExternalCorrection?.invoke(kind, File(resultPath))
+        val data = result.data ?: return@registerForActivityResult
+        val left = data.getFloatExtra(CropCorrectionActivity.EXTRA_LEFT, Float.NaN)
+        val top = data.getFloatExtra(CropCorrectionActivity.EXTRA_TOP, Float.NaN)
+        val right = data.getFloatExtra(CropCorrectionActivity.EXTRA_RIGHT, Float.NaN)
+        val bottom = data.getFloatExtra(CropCorrectionActivity.EXTRA_BOTTOM, Float.NaN)
+        if (listOf(left, top, right, bottom).all { it.isFinite() } &&
+            right > left && bottom > top
+        ) {
+            onExternalCorrection?.invoke(kind, RectF(left, top, right, bottom))
+        }
     }
 
     private var activePipelineViewModel: PipelinePreviewViewModel? = null
-    private var onExternalCorrection: ((DetectionKind, File) -> Unit)? = null
+    private var onExternalCorrection: ((DetectionKind, RectF) -> Unit)? = null
 
     private var correctionKindForResult: DetectionKind? = null
     private var pendingFolderKind: DetectionKind? = null
@@ -202,23 +209,8 @@ class PipelinePreviewActivity : ComponentActivity() {
                     folderPicker.launch(null)
                 }
             }
-            val editedPhotoPath = remember { mutableStateOf<String?>(null) }
-            val editedSignaturePath = remember { mutableStateOf<String?>(null) }
-            val editedPhotoVersion = remember { mutableStateOf(0L) }
-            val editedSignatureVersion = remember { mutableStateOf(0L) }
-
-            onExternalCorrection = { kind, file ->
-                when (kind) {
-                    DetectionKind.PHOTO -> {
-                        editedPhotoPath.value = file.absolutePath
-                        editedPhotoVersion.value += 1L
-                    }
-                    DetectionKind.SIGNATURE -> {
-                        editedSignaturePath.value = file.absolutePath
-                        editedSignatureVersion.value += 1L
-                    }
-                }
-                editKind.value = kind
+            onExternalCorrection = { kind, bounds ->
+                scope.launch { viewModel.applyExternalCorrection(kind, bounds) }
             }
 
             LaunchedEffect(path) {
@@ -247,13 +239,10 @@ class PipelinePreviewActivity : ComponentActivity() {
                 key1 = listOf(
                     state.photoPreviewPath,
                     state.photoPreviewVersion,
-                    editedPhotoPath.value,
-                    editedPhotoVersion.value,
                 ),
             ) {
-                val previewPath = editedPhotoPath.value ?: state.photoPreviewPath
                 value = withContext(Dispatchers.IO) {
-                    previewPath?.let { decodePreviewBitmap(it, maxDimension = 900) }
+                    state.photoPreviewPath?.let { decodePreviewBitmap(it, maxDimension = 900) }
                 }
             }
             val signatureBitmap by produceState<android.graphics.Bitmap?>(
@@ -261,13 +250,10 @@ class PipelinePreviewActivity : ComponentActivity() {
                 key1 = listOf(
                     state.signaturePreviewPath,
                     state.signaturePreviewVersion,
-                    editedSignaturePath.value,
-                    editedSignatureVersion.value,
                 ),
             ) {
-                val previewPath = editedSignaturePath.value ?: state.signaturePreviewPath
                 value = withContext(Dispatchers.IO) {
-                    previewPath?.let { decodePreviewBitmap(it, maxDimension = 900) }
+                    state.signaturePreviewPath?.let { decodePreviewBitmap(it, maxDimension = 900) }
                 }
             }
 
@@ -301,45 +287,29 @@ class PipelinePreviewActivity : ComponentActivity() {
                 onRecapture = { launchRecapture() },
                 onReimport = { launchImport() },
                 onEditPhoto = {
-                    val currentPath = editedPhotoPath.value ?: state.photoPreviewPath
-                    val file = currentPath?.let(::File)
-                    if (state.photoState != null && file?.exists() == true) {
+                    val source = state.source
+                    val bounds = state.photoState?.currentBounds
+                    if (source?.isFile == true && bounds != null) {
                         correctionKindForResult = DetectionKind.PHOTO
-                        openDetectedEditor(file, DetectionKind.PHOTO)
+                        openDetectedEditor(source, DetectionKind.PHOTO, bounds)
                     }
                 },
                 onAcceptPhoto = {
-                    scope.launch {
-                        if (editedPhotoPath.value != null) {
-                            viewModel.accept(DetectionKind.PHOTO, recordFeedback = false)
-                            saveMessage.value =
-                                "Edited photo accepted. Automatic learning was skipped because the editor does not provide source-image crop coordinates."
-                        } else {
-                            viewModel.accept(DetectionKind.PHOTO)
-                        }
-                    }
+                    scope.launch { viewModel.accept(DetectionKind.PHOTO) }
                 },
                 onRejectPhoto = {
                     viewModel.reject(DetectionKind.PHOTO)
                 },
                 onEditSignature = {
-                    val currentPath = editedSignaturePath.value ?: state.signaturePreviewPath
-                    val file = currentPath?.let(::File)
-                    if (state.signatureState != null && file?.exists() == true) {
+                    val source = state.source
+                    val bounds = state.signatureState?.currentBounds
+                    if (source?.isFile == true && bounds != null) {
                         correctionKindForResult = DetectionKind.SIGNATURE
-                        openDetectedEditor(file, DetectionKind.SIGNATURE)
+                        openDetectedEditor(source, DetectionKind.SIGNATURE, bounds)
                     }
                 },
                 onAcceptSignature = {
-                    scope.launch {
-                        if (editedSignaturePath.value != null) {
-                            viewModel.accept(DetectionKind.SIGNATURE, recordFeedback = false)
-                            saveMessage.value =
-                                "Edited signature accepted. Automatic learning was skipped because the editor does not provide source-image crop coordinates."
-                        } else {
-                            viewModel.accept(DetectionKind.SIGNATURE)
-                        }
-                    }
+                    scope.launch { viewModel.accept(DetectionKind.SIGNATURE) }
                 },
                 onRejectSignature = {
                     viewModel.reject(DetectionKind.SIGNATURE)
@@ -347,7 +317,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                 onSavePhoto = {
                     saveOrChooseFolder(
                         DetectionKind.PHOTO,
-                        editedPhotoPath.value ?: state.photoPreviewPath,
+                        state.photoPreviewPath,
                     )
                 },
                 onChoosePhotoFolder = {
@@ -358,7 +328,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                 onSaveSignature = {
                     saveOrChooseFolder(
                         DetectionKind.SIGNATURE,
-                        editedSignaturePath.value ?: state.signaturePreviewPath,
+                        state.signaturePreviewPath,
                     )
                 },
                 onChooseSignatureFolder = {
@@ -417,26 +387,15 @@ class PipelinePreviewActivity : ComponentActivity() {
     private fun DetectionKind.label(): String =
         if (this == DetectionKind.PHOTO) "Photo" else "Signature"
 
-    private fun openDetectedEditor(source: File, kind: DetectionKind) {
-        val destination = File(
-            org.techwithkaushik.formSnap.foundation.ProcessingPaths.root(this),
-            "ucrop_" + System.nanoTime() + "_" + kind.name.lowercase() + ".jpg",
-        )
-
-        val options = UCrop.Options().apply {
-            setFreeStyleCropEnabled(true)
-            setCompressionQuality(95)
-            setShowCropGrid(true)
-            setShowCropFrame(true)
+    private fun openDetectedEditor(source: File, kind: DetectionKind, bounds: RectF) {
+        val cropIntent = Intent(this, CropCorrectionActivity::class.java).apply {
+            putExtra(CropCorrectionActivity.EXTRA_SOURCE_PATH, source.absolutePath)
+            putExtra(CropCorrectionActivity.EXTRA_KIND, kind.name)
+            putExtra(CropCorrectionActivity.EXTRA_LEFT, bounds.left)
+            putExtra(CropCorrectionActivity.EXTRA_TOP, bounds.top)
+            putExtra(CropCorrectionActivity.EXTRA_RIGHT, bounds.right)
+            putExtra(CropCorrectionActivity.EXTRA_BOTTOM, bounds.bottom)
         }
-
-        val cropIntent = UCrop.of(
-            Uri.fromFile(source),
-            Uri.fromFile(destination),
-        )
-            .withOptions(options)
-            .withMaxResultSize(1600, 1600)
-            .getIntent(this)
         correctionLauncher.launch(cropIntent)
     }
 
