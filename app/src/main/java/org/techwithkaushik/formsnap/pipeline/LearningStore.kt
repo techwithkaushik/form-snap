@@ -6,7 +6,6 @@ import java.io.FileOutputStream
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
-import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
@@ -23,12 +22,7 @@ object LearningStore {
         val safeCorrection = correction.copy(appearance = AppearanceTuning.clamp(correction.appearance))
         val profiles = read(context).filter(CorrectionLearning::isSafe).toMutableList()
         val index = profiles.indexOfFirst {
-            it.kind == safeCorrection.kind &&
-                close(it.conditionAspectRatio, safeCorrection.conditionAspectRatio, 0.15f) &&
-                close(it.conditionBrightness, safeCorrection.conditionBrightness, 0.15f) &&
-                close(it.conditionContrast, safeCorrection.conditionContrast, 0.20f) &&
-                close(it.conditionSaturation, safeCorrection.conditionSaturation, 0.20f) &&
-                close(it.conditionEdgeDensity, safeCorrection.conditionEdgeDensity, 0.15f)
+            CorrectionLearning.sameConditionProfile(it, safeCorrection)
         }
 
         if (index >= 0) {
@@ -63,11 +57,11 @@ object LearningStore {
         return candidates
             .maxByOrNull {
                 val conditionDistance =
-                    abs(it.conditionBrightness - conditionBrightness) +
-                        abs(it.conditionContrast - conditionContrast) +
-                        abs(it.conditionSaturation - conditionSaturation) +
-                        abs(it.conditionEdgeDensity - conditionEdgeDensity) +
-                        abs(it.conditionAspectRatio - aspectRatio)
+                    kotlin.math.abs(it.conditionBrightness - conditionBrightness) +
+                        kotlin.math.abs(it.conditionContrast - conditionContrast) +
+                        kotlin.math.abs(it.conditionSaturation - conditionSaturation) +
+                        kotlin.math.abs(it.conditionEdgeDensity - conditionEdgeDensity) +
+                        kotlin.math.abs(it.conditionAspectRatio - aspectRatio)
 
                 val similarity = (1f - conditionDistance / 4f).coerceIn(0f, 1f)
                 val usage = min(100, it.sampleCount) / 100f
@@ -80,9 +74,6 @@ object LearningStore {
     fun clear(context: Context) {
         AtomicFile(file(context)).delete()
     }
-
-    private fun close(a: Float, b: Float, tolerance: Float): Boolean =
-        abs(a - b) <= tolerance
 
     private fun read(context: Context): List<LearnedCorrection> {
         val target = file(context)
