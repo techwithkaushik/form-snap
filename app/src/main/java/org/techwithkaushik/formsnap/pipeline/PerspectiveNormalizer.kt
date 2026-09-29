@@ -82,19 +82,19 @@ object PerspectiveNormalizer {
                 val approx = MatOfPoint2f()
                 var polygon: MatOfPoint? = null
                 try {
-                    val perimeter = Imgproc.arcLength(contour2f, true)
+                    val perimeter = OpenCvGeometry.arcLength(contour2f, true)
                     if (perimeter < 1.0) continue
-                    Imgproc.approxPolyDP(contour2f, approx, perimeter * 0.02, true)
+                    OpenCvGeometry.approxPolyDP(contour2f, approx, perimeter * 0.02, true)
                     val points = approx.toArray()
                     if (points.size != 4) continue
 
                     polygon = MatOfPoint(*points)
-                    if (!Imgproc.isContourConvex(polygon)) continue
-                    val area = abs(Imgproc.contourArea(polygon))
+                    if (!OpenCvGeometry.isContourConvex(polygon)) continue
+                    val area = abs(OpenCvGeometry.contourArea(polygon))
                     val areaRatio = area / max(1.0, imageArea)
                     if (areaRatio !in 0.40..0.97) continue
 
-                    val bounds = Imgproc.boundingRect(polygon)
+                    val bounds = OpenCvGeometry.boundingRect(polygon)
                     if (bounds.width < source.cols() * 0.35 ||
                         bounds.height < source.rows() * 0.35
                     ) continue
