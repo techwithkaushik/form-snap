@@ -21,7 +21,7 @@ jobs:
 
       - name: Checkout OpenCV 4.10.0
         env:
-          OPENCV_COMMIT: 40738fb
+          OPENCV_COMMIT: 40738fb16ceddb5fb3fea747585f7ce6abb0605b
         run: |
           set -e
           git -c protocol.version=2 clone --filter=blob:none --no-checkout https://github.com/opencv/opencv.git opencv2
