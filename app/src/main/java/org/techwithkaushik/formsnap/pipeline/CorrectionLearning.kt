@@ -73,7 +73,7 @@ object CorrectionLearning {
                 add(normalizedDistance(profile.conditionEdgeDensity, it, 1f))
             }
             aspectRatio?.takeIf { it.isFinite() && it > 0f }?.let {
-                val ratioDistance = abs(ln(profile.conditionAspectRatio / it)) / ln(2f)
+                val ratioDistance = abs(ln(profile.conditionAspectRatio.toDouble() / it.toDouble())) / ln(2.0)
                 add(ratioDistance.coerceIn(0f, 1f))
             }
         }

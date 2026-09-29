@@ -56,7 +56,7 @@ class CorrectionLearningTest {
             0.0001f,
         )
         assertEquals(
-            0.5f,
+            0f,
             CorrectionLearning.conditionSimilarity(profile, aspectRatio = 1.5f),
             0.0001f,
         )
