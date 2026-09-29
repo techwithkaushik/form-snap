@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -30,6 +31,8 @@ fun PipelinePreviewScreen(
     signatureConfidence: Float? = null,
     processing: Boolean,
     message: String?,
+    personName: String,
+    onPersonNameChange: (String) -> Unit,
     saving: Boolean = false,
     onProcess: () -> Unit,
     onRecapture: () -> Unit,
@@ -99,6 +102,17 @@ fun PipelinePreviewScreen(
         }
 
         message?.let { text -> item { Text(text) } }
+
+        item {
+            OutlinedTextField(
+                value = personName,
+                onValueChange = onPersonNameChange,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Name for saved files (optional)") },
+                supportingText = { Text("Photo: name-photo.jpg • Signature: name-sign.png") },
+                singleLine = true,
+            )
+        }
 
         if (photoDetected) {
             item {
