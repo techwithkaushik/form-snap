@@ -56,11 +56,12 @@ object OutputNormalizer {
                         "Unsupported image channel count: ${crop.image.channels()}",
                     )
                 }
-                rectified = PerspectiveNormalizer.rectifyCrop(bgrCrop, kind)
+                val rectifiedCrop = PerspectiveNormalizer.rectifyCrop(bgrCrop, kind)
+                rectified = rectifiedCrop
+                cleaned = BorderCleaner.clean(rectifiedCrop, kind)
             } finally {
                 bgrCrop.release()
             }
-            cleaned = BorderCleaner.clean(rectified, kind)
             val output = Mat()
             resized = output
             Imgproc.resize(
