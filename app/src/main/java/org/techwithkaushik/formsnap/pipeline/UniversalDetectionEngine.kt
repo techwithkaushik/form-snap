@@ -72,7 +72,7 @@ object UniversalDetectionEngine {
                 kernel.release()
             }
 
-            val candidates = collectCandidates(morph, gray)
+            val candidates = collectCandidates(morph, gray, edges)
             // Rejection bounds are stored in original-image coordinates, while
             // candidates are measured on the downscaled working image.
             val scaledRejectedPhotos = scaleBounds(rejectedPhotoBounds, scale)
@@ -80,7 +80,7 @@ object UniversalDetectionEngine {
 
             // Add ink-derived candidates so handwritten signatures can be found
             // even when the form has no printed signature box.
-            val signatureCandidates = candidates + collectInkCandidates(gray)
+            val signatureCandidates = candidates + collectInkCandidates(gray, edges)
 
             val photo = selectPhoto(
                 candidates,
@@ -111,7 +111,7 @@ object UniversalDetectionEngine {
         }
     }
 
-    private fun collectCandidates(mask: Mat, gray: Mat): List<ShapeCandidate> {
+    private fun collectCandidates(mask: Mat, gray: Mat, edgeMap: Mat): List<ShapeCandidate> {
         val contours = ArrayList<MatOfPoint>()
         val hierarchy = Mat()
         Imgproc.findContours(
@@ -140,7 +140,7 @@ object UniversalDetectionEngine {
                 }
 
                 val ratio = rect.width.toDouble() / max(1, rect.height).toDouble()
-                val edgeDensity = edgeDensity(gray, rect)
+                val edgeDensity = edgeDensity(edgeMap, rect)
                 val frameLike = isFrameLike(gray, rect)
 
                 val score = shapeScore(
@@ -175,7 +175,7 @@ object UniversalDetectionEngine {
      * The lower-page bias is a weak filter only; selection still checks aspect
      * ratio, ink density, rejected regions, and position relative to a photo.
      */
-    private fun collectInkCandidates(gray: Mat): List<ShapeCandidate> {
+    private fun collectInkCandidates(gray: Mat, edgeMap: Mat): List<ShapeCandidate> {
         val binary = Mat()
         val grouped = Mat()
         val hierarchy = Mat()
@@ -221,7 +221,7 @@ object UniversalDetectionEngine {
                 val ratioFit = 1.0 - min(1.0, abs(ratio - 2.6) / 3.4)
                 val widthScore = min(1.0, rect.width / max(1.0, gray.cols() * 0.35))
                 val lowerPageScore = (rect.y.toDouble() / max(1, gray.rows())).coerceIn(0.0, 1.0)
-                val edgeScore = min(1.0, edgeDensity(gray, rect) / 0.28)
+                val edgeScore = min(1.0, edgeDensity(edgeMap, rect) / 0.28)
                 val score = (
                     ratioFit * 0.30 +
                         min(1.0, ink * 4.0) * 0.30 +
@@ -396,18 +396,19 @@ object UniversalDetectionEngine {
         )
     }
 
-    private fun edgeDensity(gray: Mat, rect: Rect): Double {
-        val clipped = clip(rect, gray)
+    /**
+     * Measures edge density from the full-image Canny map computed once per
+     * detection. Re-running Canny for every contour was expensive on large forms.
+     */
+    private fun edgeDensity(edgeMap: Mat, rect: Rect): Double {
+        val clipped = clip(rect, edgeMap)
         if (clipped.width <= 2 || clipped.height <= 2) return 0.0
 
-        val roi = gray.submat(clipped)
-        val edges = Mat()
+        val roi = edgeMap.submat(clipped)
         return try {
-            Imgproc.Canny(roi, edges, 50.0, 150.0)
-            Core.countNonZero(edges).toDouble() /
+            Core.countNonZero(roi).toDouble() /
                 max(1.0, clipped.width.toDouble() * clipped.height.toDouble())
         } finally {
-            edges.release()
             roi.release()
         }
     }

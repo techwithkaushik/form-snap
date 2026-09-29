@@ -19,11 +19,10 @@ object LearnedProfileApplier {
         }
 
         val aspect = candidate.bounds.height() / candidate.bounds.width().coerceAtLeast(1f)
-        val conditionDistance =
-            abs(learned.conditionAspectRatio - aspect) +
-                abs(learned.conditionEdgeDensity)
-
-        val conditionMatch = (1f - conditionDistance / 2f).coerceIn(0f, 1f)
+        val conditionMatch = CorrectionLearning.conditionSimilarity(
+            profile = learned,
+            aspectRatio = aspect,
+        )
         val strength = (
             learned.confidence *
                 (learned.sampleCount.coerceIn(2, 20) / 20f) *
@@ -67,6 +66,12 @@ object LearnedProfileApplier {
         val bounds = candidate.bounds
         if (!isValidBounds(bounds)) return false
         if (learned.kind != candidate.kind) return false
+        val candidateAspectRatio = bounds.height() / bounds.width().coerceAtLeast(1f)
+        if (!CorrectionLearning.isCompatibleForApplication(
+                profile = learned,
+                aspectRatio = candidateAspectRatio,
+            )
+        ) return false
 
         // A single correction is not enough to change future results unless
         // the detector itself reported very high confidence in that correction.
