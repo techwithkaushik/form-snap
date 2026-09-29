@@ -33,8 +33,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.techwithkaushik.formSnap.pipeline.LearningBundleService
 import org.opencv.android.OpenCVLoader
 import java.io.File
 import java.io.FileOutputStream
@@ -119,6 +122,54 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        val exportLearning = rememberLauncherForActivityResult(
+            ActivityResultContracts.CreateDocument("application/zip"),
+        ) { uri ->
+            if (uri == null) {
+                saveMessage = "Learning export cancelled."
+            } else {
+                lifecycleScope.launch(Dispatchers.IO) {
+                    try {
+                        val output = contentResolver.openOutputStream(uri)
+                            ?: error("Cannot open export destination")
+                        output.use { LearningBundleService.export(this@MainActivity, it) }
+                        withContext(Dispatchers.Main) {
+                            saveMessage = "Learning backup exported successfully."
+                        }
+                    } catch (t: Throwable) {
+                        withContext(Dispatchers.Main) {
+                            saveMessage = t.message ?: "Learning export failed."
+                        }
+                    }
+                }
+            }
+        }
+
+        val importLearning = rememberLauncherForActivityResult(
+            ActivityResultContracts.OpenDocument(),
+        ) { uri ->
+            if (uri == null) {
+                saveMessage = "Learning import cancelled."
+            } else {
+                lifecycleScope.launch(Dispatchers.IO) {
+                    try {
+                        val input = contentResolver.openInputStream(uri)
+                            ?: error("Cannot open learning backup")
+                        val summary = input.use {
+                            LearningBundleService.import(this@MainActivity, it)
+                        }
+                        withContext(Dispatchers.Main) {
+                            saveMessage = "Learning imported: ${summary.importedProfiles}, merged: ${summary.mergedProfiles}, rejected: ${summary.rejectedProfiles}."
+                        }
+                    } catch (t: Throwable) {
+                        withContext(Dispatchers.Main) {
+                            saveMessage = t.message ?: "Learning import failed."
+                        }
+                    }
+                }
+            }
+        }
+
         val pipelineLauncher = rememberLauncherForActivityResult(
             ActivityResultContracts.StartActivityForResult(),
         ) {
@@ -164,6 +215,8 @@ class MainActivity : ComponentActivity() {
             HomeScreen(
                 settings = settings,
                 onSettings = { settingsOpen = true },
+                onExportLearning = { exportLearning.launch("FormSnap-Learning.fsl") },
+                onImportLearning = { importLearning.launch(arrayOf("*/*")) },
                 onCamera = { selected ->
                     mode = selected
                     if (ContextCompat.checkSelfPermission(
@@ -378,6 +431,8 @@ class MainActivity : ComponentActivity() {
     private fun HomeScreen(
         settings: OutputSettings,
         onSettings: () -> Unit,
+        onExportLearning: () -> Unit,
+        onImportLearning: () -> Unit,
         onCamera: (CaptureMode) -> Unit,
         onImport: () -> Unit,
     ) {
@@ -434,6 +489,24 @@ class MainActivity : ComponentActivity() {
                         }
                         ActionCard("Signature", "Close capture", "✎", Modifier.weight(1f)) {
                             onCamera(CaptureMode.SIGNATURE)
+                        }
+                    }
+                }
+                item {
+                    Card(shape = RoundedCornerShape(18.dp)) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Learning memory", fontWeight = FontWeight.Bold)
+                            Text("Back up validated corrections to a .fsl file, or restore them on another installation.")
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                OutlinedButton(
+                                    onClick = onExportLearning,
+                                    modifier = Modifier.weight(1f),
+                                ) { Text("Export") }
+                                OutlinedButton(
+                                    onClick = onImportLearning,
+                                    modifier = Modifier.weight(1f),
+                                ) { Text("Import") }
+                            }
                         }
                     }
                 }

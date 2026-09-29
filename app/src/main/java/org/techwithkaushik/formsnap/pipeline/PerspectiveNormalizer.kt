@@ -66,11 +66,12 @@ object PerspectiveNormalizer {
         val output = Mat()
         var keepOutput = false
         try {
-            matrix = OpenCvGeometry.getPerspectiveTransform(src, dst)
+            val transform = OpenCvGeometry.getPerspectiveTransform(src, dst)
+            matrix = transform
             Imgproc.warpPerspective(
                 source,
                 output,
-                matrix,
+                transform,
                 org.opencv.core.Size(width.toDouble(), height.toDouble()),
             )
             keepOutput = true

@@ -24,6 +24,9 @@ object LearningBundleService {
 
     fun export(context: Context, output: OutputStream) {
         val payload = LearningStore.exportJson(context).toByteArray(Charsets.UTF_8)
+        require(
+            JSONObject(String(payload, Charsets.UTF_8)).optJSONArray("profiles")?.length()?.let { it > 0 } == true,
+        ) { "There are no validated learning profiles to export yet" }
         require(payload.size <= MAX_ENTRY_BYTES) { "Learning data is too large to export" }
         val manifest = JSONObject()
             .put("format", FORMAT)
