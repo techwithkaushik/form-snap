@@ -23,12 +23,14 @@ jobs:
         env:
           OPENCV_COMMIT: 40738fb16ceddb5fb3fea747585f7ce6abb0605b
         run: |
-          set -e
-          git -c protocol.version=2 clone --filter=blob:none --no-checkout https://github.com/opencv/opencv.git opencv2
-          git -C opencv2 fetch --depth 1 origin "$OPENCV_COMMIT"
+          set -euo pipefail
+          git -c protocol.version=2 clone --filter=blob:none --no-checkout --depth 1 --branch 5.0.0 https://github.com/opencv/opencv.git opencv2
           git -C opencv2 checkout --detach "$OPENCV_COMMIT"
           test -f opencv2/modules/core/include/opencv2/core/version.hpp
-          grep -Eq '^#define[[:space:]]+CV_VERSION_MAJOR[[:space:]]+5
+          echo "OpenCV checkout:"
+          git -C opencv2 rev-parse HEAD
+          sed -n '/CV_VERSION_MAJOR/,+3p' opencv2/modules/core/include/opencv2/core/version.hpp
+
       - name: Setup Java
         uses: actions/setup-java@v5
         with:
