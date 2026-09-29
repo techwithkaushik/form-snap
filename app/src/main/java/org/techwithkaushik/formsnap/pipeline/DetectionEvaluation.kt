@@ -66,34 +66,51 @@ object DetectionEvaluation {
         return DetectionKind.values().associateWith { kind ->
             val truths = expected.filter { it.kind == kind }
             val predictions = actual.filter { it.kind == kind }
-            val matchedPredictions = HashSet<Int>()
-            var truePositives = 0
-            var falseNegatives = 0
+            val overlaps = Array(truths.size) { truthIndex ->
+                DoubleArray(predictions.size) { predictionIndex ->
+                    intersectionOverUnion(
+                        truths[truthIndex].box,
+                        predictions[predictionIndex].box,
+                    )
+                }
+            }
 
-            for (truth in truths) {
-                var bestIndex = -1
-                var bestIou = -1.0
-                for (index in predictions.indices) {
-                    if (index in matchedPredictions) continue
-                    val iou = intersectionOverUnion(truth.box, predictions[index].box)
-                    if (iou > bestIou) {
-                        bestIou = iou
-                        bestIndex = index
+            // Maximum-cardinality bipartite matching. A simple greedy pass can
+            // consume the only valid prediction for a later truth and undercount
+            // true positives, even when a complete valid matching exists.
+            val truthByPrediction = IntArray(predictions.size) { -1 }
+
+            fun assign(truthIndex: Int, visitedPredictions: BooleanArray): Boolean {
+                val candidates = predictions.indices
+                    .filter { overlaps[truthIndex][it] >= iouThreshold }
+                    .sortedByDescending { overlaps[truthIndex][it] }
+
+                for (predictionIndex in candidates) {
+                    if (visitedPredictions[predictionIndex]) continue
+                    visitedPredictions[predictionIndex] = true
+
+                    val previousTruth = truthByPrediction[predictionIndex]
+                    if (previousTruth == -1 ||
+                        assign(previousTruth, visitedPredictions)
+                    ) {
+                        truthByPrediction[predictionIndex] = truthIndex
+                        return true
                     }
                 }
+                return false
+            }
 
-                if (bestIndex >= 0 && bestIou >= iouThreshold) {
-                    matchedPredictions += bestIndex
+            var truePositives = 0
+            for (truthIndex in truths.indices) {
+                if (assign(truthIndex, BooleanArray(predictions.size))) {
                     truePositives++
-                } else {
-                    falseNegatives++
                 }
             }
 
             DetectionMetrics(
                 truePositives = truePositives,
-                falsePositives = predictions.size - matchedPredictions.size,
-                falseNegatives = falseNegatives,
+                falsePositives = predictions.size - truePositives,
+                falseNegatives = truths.size - truePositives,
             )
         }
     }
