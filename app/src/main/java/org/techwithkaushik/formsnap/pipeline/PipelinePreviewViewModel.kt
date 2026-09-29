@@ -248,6 +248,17 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
         }
     }
 
+    suspend fun applyExternalCorrection(kind: DetectionKind, bounds: android.graphics.RectF) {
+        val current = stateFor(kind) ?: return
+        val width = current.sourceWidth.toFloat().coerceAtLeast(1f)
+        val height = current.sourceHeight.toFloat().coerceAtLeast(1f)
+        val left = bounds.left.coerceIn(0f, width - 1f)
+        val top = bounds.top.coerceIn(0f, height - 1f)
+        val right = bounds.right.coerceIn(left + 1f, width)
+        val bottom = bounds.bottom.coerceIn(top + 1f, height)
+        applyCorrection(kind, current.withBounds(android.graphics.RectF(left, top, right, bottom)))
+    }
+
     suspend fun applyCorrection(
         kind: DetectionKind,
         correction: PreviewCorrectionState,
@@ -303,7 +314,7 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
                 DetectionCandidate(
                     kind = it.kind,
                     bounds = it.automaticBounds,
-                    confidence = 1f,
+                    confidence = _state.value.photoConfidence ?: 0f,
                     source = "preview-automatic",
                 )
             }
@@ -311,7 +322,7 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
                 DetectionCandidate(
                     kind = it.kind,
                     bounds = it.automaticBounds,
-                    confidence = 1f,
+                    confidence = _state.value.signatureConfidence ?: 0f,
                     source = "preview-automatic",
                 )
             }
