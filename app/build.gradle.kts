@@ -14,7 +14,7 @@ android {
         targetSdk = libs.versions.androidTargetSdk.get().toInt()
         versionCode = 3
         versionName = "0.2.0"
-
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildFeatures {
@@ -65,6 +65,8 @@ android {
 
 dependencies {
     testImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.espresso.core)
 
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core)
