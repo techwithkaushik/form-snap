@@ -66,6 +66,11 @@ android {
 dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core)
+    implementation(libs.androidx.compose.runtime)
+    implementation(libs.androidx.compose.foundation)
+    implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.ui)
+    implementation("com.github.yalantis:ucrop:2.2.8")
     implementation(project(":core:processor"))
     implementation(project(":core:database"))
     implementation(project(":feature:capture"))
