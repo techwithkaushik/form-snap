@@ -66,6 +66,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
+        // Remove stale intermediate files left by a killed or previously crashed run.
+        org.techwithkaushik.formSnap.foundation.ProcessingPaths.cleanup(this)
         OpenCVLoader.initLocal()
         setContent { FormSnapTheme { FormSnapApp() } }
     }
@@ -118,7 +120,10 @@ class MainActivity : ComponentActivity() {
         val pipelineLauncher = rememberLauncherForActivityResult(
             ActivityResultContracts.StartActivityForResult(),
         ) {
+            source?.delete()
             source = null
+            // The pipeline activity has finished; no temporary session should remain.
+            org.techwithkaushik.formSnap.foundation.ProcessingPaths.cleanup(this@MainActivity)
             mode = CaptureMode.WHOLE_FORM
         }
 
@@ -258,7 +263,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun launchCamera(launcher: ActivityResultLauncher<Uri>) {
-        val dir = File(cacheDir, "captures").apply { mkdirs() }
+        val dir = File(
+            org.techwithkaushik.formSnap.foundation.ProcessingPaths.root(this),
+            "inputs/captures",
+        ).apply { mkdirs() }
         val file = File(dir, "capture_${System.currentTimeMillis()}.jpg")
         val uri = FileProvider.getUriForFile(
             this,
@@ -271,7 +279,10 @@ class MainActivity : ComponentActivity() {
 
     private fun uriToFile(uri: Uri, prefix: String): File? {
         return try {
-            val dir = File(cacheDir, "inputs").apply { mkdirs() }
+            val dir = File(
+                org.techwithkaushik.formSnap.foundation.ProcessingPaths.root(this),
+                "inputs",
+            ).apply { mkdirs() }
             val file = File(dir, "${prefix}_${System.currentTimeMillis()}.jpg")
             contentResolver.openInputStream(uri)?.use { input ->
                 FileOutputStream(file).use { output -> input.copyTo(output) }
