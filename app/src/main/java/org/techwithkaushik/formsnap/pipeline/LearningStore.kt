@@ -12,6 +12,7 @@ object LearningStore {
     private const val FILE_NAME = "correction_learning.json"
     private const val SCHEMA = 2
     private const val MAX_PROFILES = 64
+    private const val MIN_PROFILE_SIMILARITY = 0.35f
 
     private fun file(context: Context): File = File(context.filesDir, FILE_NAME)
 
@@ -61,18 +62,22 @@ object LearningStore {
         if (candidates.isEmpty()) return null
 
         return candidates
-            .maxByOrNull {
+            .map { profile ->
                 val similarity = CorrectionLearning.conditionSimilarity(
-                    profile = it,
+                    profile = profile,
                     conditionBrightness = conditionBrightness,
                     conditionContrast = conditionContrast,
                     conditionSaturation = conditionSaturation,
                     conditionEdgeDensity = conditionEdgeDensity,
                     aspectRatio = aspectRatio,
                 )
-                val usage = minOf(100, it.sampleCount) / 100f
-                similarity * 0.70f + it.confidence * 0.20f + usage * 0.10f
+                val usage = minOf(100, profile.sampleCount) / 100f
+                val score = similarity * 0.70f + profile.confidence * 0.20f + usage * 0.10f
+                Triple(profile, similarity, score)
             }
+            .filter { (_, similarity, _) -> similarity >= MIN_PROFILE_SIMILARITY }
+            .maxByOrNull { (_, _, score) -> score }
+            ?.first
             ?.takeIf { it.sampleCount >= 2 || it.confidence >= 0.70f }
     }
 

@@ -63,6 +63,32 @@ class CorrectionLearningTest {
     }
 
     @Test
+    fun incompatibleCaptureShapeDoesNotReuseLearnedCorrection() {
+        val profile = LearnedCorrection(
+            kind = DetectionKind.PHOTO,
+            conditionAspectRatio = 0.75f,
+            sampleCount = 20,
+            confidence = 0.98f,
+        )
+
+        assertTrue(
+            CorrectionLearning.isCompatibleForApplication(profile, aspectRatio = 0.80f),
+        )
+        assertEquals(
+            false,
+            CorrectionLearning.isCompatibleForApplication(profile, aspectRatio = 1.5f),
+        )
+        assertEquals(
+            false,
+            CorrectionLearning.isCompatibleForApplication(
+                profile,
+                aspectRatio = 0.80f,
+                minimumSimilarity = Float.NaN,
+            ),
+        )
+    }
+
+    @Test
     fun conditionSimilarityCombinesOnlyKnownFeaturesOnNormalizedScales() {
         val profile = LearnedCorrection(
             kind = DetectionKind.PHOTO,

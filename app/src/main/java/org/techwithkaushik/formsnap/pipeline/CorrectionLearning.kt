@@ -81,6 +81,30 @@ object CorrectionLearning {
         return (1f - distances.average().toFloat()).coerceIn(0f, 1f)
     }
 
+    /**
+     * Prevents applying a high-confidence correction learned from a materially
+     * different capture shape or environment.
+     */
+    fun isCompatibleForApplication(
+        profile: LearnedCorrection,
+        conditionBrightness: Float? = null,
+        conditionContrast: Float? = null,
+        conditionSaturation: Float? = null,
+        conditionEdgeDensity: Float? = null,
+        aspectRatio: Float? = null,
+        minimumSimilarity: Float = 0.35f,
+    ): Boolean {
+        if (!minimumSimilarity.isFinite() || minimumSimilarity !in 0f..1f) return false
+        return conditionSimilarity(
+            profile = profile,
+            conditionBrightness = conditionBrightness,
+            conditionContrast = conditionContrast,
+            conditionSaturation = conditionSaturation,
+            conditionEdgeDensity = conditionEdgeDensity,
+            aspectRatio = aspectRatio,
+        ) >= minimumSimilarity
+    }
+
     private fun normalizedDistance(first: Float, second: Float, scale: Float): Float =
         (abs(first - second) / scale).coerceIn(0f, 1f)
 
