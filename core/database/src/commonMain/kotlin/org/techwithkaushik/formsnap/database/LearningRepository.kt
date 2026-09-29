@@ -1,15 +1,26 @@
 package org.techwithkaushik.formsnap.database
 
-import app.cash.sqldelight.coroutines.asFlow
-import app.cash.sqldelight.coroutines.mapToList
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 
-class LearningRepository(
-    private val database: LearningDatabaseWrapper,
-) {
-    private val queries = database.instance.learningDatabaseQueries
+data class UserCorrectionLogRecord(
+    val id: Long,
+    val timestamp: Long,
+    val contentType: String,
+    val detectedX: Long,
+    val detectedY: Long,
+    val correctedX: Long,
+    val correctedY: Long,
+    val isRejected: Long,
+)
 
+data class TunedParameterRecord(
+    val parameterKey: String,
+    val parameterValue: Double,
+)
+
+class LearningRepository(
+    private val access: LearningDatabaseAccess,
+) {
     fun record(
         timestamp: Long,
         contentType: String,
@@ -18,37 +29,55 @@ class LearningRepository(
         correctedX: Long,
         correctedY: Long,
         isRejected: Long,
-    ) {
-        queries.insertCorrection(
-            timestamp = timestamp,
-            contentType = contentType,
-            detectedX = detectedX,
-            detectedY = detectedY,
-            correctedX = correctedX,
-            correctedY = correctedY,
-            isRejected = isRejected,
-        )
-    }
+    ) = access.insertCorrection(
+        timestamp,
+        contentType,
+        detectedX,
+        detectedY,
+        correctedX,
+        correctedY,
+        isRejected,
+    )
 
-    fun allLogs(): Flow<List<UserCorrectionLog>> =
-        queries
-            .selectAllLogs()
-            .asFlow()
-            .mapToList(Dispatchers.Default)
+    fun allLogs(): Flow<List<UserCorrectionLogRecord>> =
+        access.selectAllLogs()
+
+    fun allLogsSnapshot(): List<UserCorrectionLogRecord> =
+        access.selectAllLogsSnapshot()
 
     fun getParameter(parameterKey: String): Double? =
-        queries.getParameter(parameterKey).executeAsOneOrNull()
+        access.getParameter(parameterKey)
 
-    fun allParameters(): List<TunedParameters> =
-        queries.selectAllParameters().executeAsList()
+    fun allParameters(): List<TunedParameterRecord> =
+        access.selectAllParameters()
 
     fun updateParameter(
         parameterKey: String,
         parameterValue: Double,
-    ) {
-        queries.updateParameter(
-            parameterKey = parameterKey,
-            parameterValue = parameterValue,
-        )
-    }
+    ) = access.updateParameter(parameterKey, parameterValue)
+}
+
+internal interface LearningDatabaseAccess {
+    fun insertCorrection(
+        timestamp: Long,
+        contentType: String,
+        detectedX: Long,
+        detectedY: Long,
+        correctedX: Long,
+        correctedY: Long,
+        isRejected: Long,
+    )
+
+    fun selectAllLogs(): Flow<List<UserCorrectionLogRecord>>
+
+    fun selectAllLogsSnapshot(): List<UserCorrectionLogRecord>
+
+    fun selectAllParameters(): List<TunedParameterRecord>
+
+    fun getParameter(parameterKey: String): Double?
+
+    fun updateParameter(
+        parameterKey: String,
+        parameterValue: Double,
+    )
 }
