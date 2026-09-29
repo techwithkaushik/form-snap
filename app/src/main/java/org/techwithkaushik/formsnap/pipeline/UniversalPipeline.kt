@@ -42,8 +42,34 @@ object UniversalPipeline {
                 aspectRatio = features?.aspectRatio ?: candidateAspectRatio,
             )
         }
+        // Geometry corrections require a normalized layout match. Lighting,
+        // contrast or crop aspect alone may match an unrelated form, so the
+        // condition profile contributes appearance tuning but never moves bounds.
+        val topology = LayoutTopologyMatcher.signature(
+            sourceWidth = source.cols(),
+            sourceHeight = source.rows(),
+            photoBounds = detection.photo?.bounds,
+            signatureBounds = detection.signature?.bounds,
+        )
+        val topologyProfile = if (context != null && topology != null) {
+            LayoutTopologyStore.best(context, topology, kind)
+        } else null
+        val topologyAdjustedBounds = if (topologyProfile != null && topology != null) {
+            LayoutTopologyMatcher.apply(
+                bounds = candidate.bounds,
+                profile = topologyProfile,
+                actualSignature = topology,
+                sourceWidth = source.cols(),
+                sourceHeight = source.rows(),
+            )
+        } else null
         val application = LearnedProfileApplier.apply(candidate, learned, features)
-        val adjustedCandidate = candidate.copy(bounds = application.bounds)
+        val adjustedCandidate = candidate.copy(
+            bounds = topologyAdjustedBounds ?: candidate.bounds,
+        )
+        val topologyBlend = if (topologyProfile != null && topology != null && topologyAdjustedBounds != null) {
+            LayoutTopologyMatcher.similarity(topologyProfile.signature, topology, kind)
+        } else 0f
 
         val output = OutputNormalizer.normalize(source, adjustedCandidate, kind, dpi)
         val appearanceApplied = try {
@@ -71,7 +97,7 @@ object UniversalPipeline {
             kind = kind,
             image = appearanceApplied,
             quality = quality,
-            learnedBlend = application.blend,
+            learnedBlend = topologyBlend,
             learned = learned,
         )
     }
