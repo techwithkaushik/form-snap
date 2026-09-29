@@ -16,6 +16,10 @@ class CorrectionLearningTest {
         assertEquals(false, CorrectionLearning.isSafe(valid.copy(conditionAspectRatio = 0f)))
         assertEquals(false, CorrectionLearning.isSafe(valid.copy(confidence = 1.1f)))
         assertEquals(false, CorrectionLearning.isSafe(valid.copy(sampleCount = 0)))
+        assertEquals(false, CorrectionLearning.isSafe(valid.copy(sampleCount = 101)))
+        assertEquals(false, CorrectionLearning.isSafe(valid.copy(appearance = valid.appearance.copy(contrast = 2f))))
+        assertEquals(false, CorrectionLearning.isSafe(valid.copy(appearance = valid.appearance.copy(inkThreshold = 300))))
+        assertEquals(false, CorrectionLearning.isSafe(valid.copy(conditionAspectRatio = 100f)))
     }
 
     @Test
