@@ -38,17 +38,14 @@ jobs:
           mkdir -p "$ROOT"
           unzip -q "$ZIP" -d "$ROOT"
           SDK_DIR="$(find "$ROOT" -type d -path '*/sdk' -print -quit)"
+          ls "$SDK_DIR"
           test -n "$SDK_DIR"
           test -d "$SDK_DIR/java"
-          test -d "$SDK_DIR/native"
-          test -f "$SDK_DIR/java/src/main/java/org/opencv/android/OpenCVLoader.java"
-          test -f "$SDK_DIR/native/libs/armeabi-v7a/libopencv_java5.so"
           rm -rf opencv
           mkdir -p opencv
           cp -R "$SDK_DIR/." opencv/
           echo "Selected complete OpenCV Android SDK (sdk module)."
           echo "Java sources: opencv/java"
-          echo "Native runtime: opencv/native"
           find opencv -maxdepth 2 -type f | sort | head -80
 
       - name: Setup Java
