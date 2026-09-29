@@ -28,6 +28,19 @@ jobs:
           gradle-version: '9.6.0'
           cache-provider: enhanced
 
+      - name: Build OpenCV Android SDK
+        working-directory: opencv2
+        run: |
+          set -e
+          chmod +x platforms/android/build_sdk.py
+          python3 platforms/android/build_sdk.py \
+            --ndk_path "$ANDROID_NDK_ROOT" \
+            --sdk_path "$ANDROID_HOME" \
+            --extra_modules_path "modules" \
+            --config Release \
+            --build_doc false \
+            --no_samples
+
       - name: Decode Keystore
         id: keystore
         uses: timheuer/base64-to-file@v2.0
