@@ -16,6 +16,25 @@ object ProcessingPaths {
         root(context).deleteRecursively()
     }
 
+    /**
+     * Remove only old temporary entries. Active sessions are preserved if the
+     * launcher Activity is recreated while a pipeline screen is still running.
+     */
+    fun cleanupStale(
+        context: Context,
+        maxAgeMillis: Long = 24L * 60L * 60L * 1000L,
+    ) {
+        val root = root(context)
+        val cutoff = System.currentTimeMillis() - maxAgeMillis
+        root.walkBottomUp().forEach { entry ->
+            if (entry != root && entry.lastModified() < cutoff) {
+                entry.deleteRecursively()
+            } else if (entry != root && entry.isDirectory && entry.list()?.isEmpty() == true) {
+                entry.delete()
+            }
+        }
+    }
+
     fun cleanupSession(session: File?) {
         session?.deleteRecursively()
     }
