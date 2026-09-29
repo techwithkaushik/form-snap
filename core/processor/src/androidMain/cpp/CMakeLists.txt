@@ -8,40 +8,44 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(FORMSNAP_NATIVE_ROOT "${CMAKE_CURRENT_LIST_DIR}")
 
-# Preserve the existing native layout:
+# OpenCV 4.10.0 is checked out as the repository submodule "opencv2".
+# Its official Android SDK archive is prepared by the CI workflow at:
+#   opencv2/android-sdk/sdk/
 #
-# cpp/
-# ├── include/
-# │   └── OpenCV headers
-# └── jniLibs/
-#     ├── arm64-v8a/libopencv_java5.so
-#     └── armeabi-v7a/libopencv_java5.so
+# Keep the Form Snap native layout unchanged:
+#   cpp/CMakeLists.txt
+#   cpp/native-lib.cpp
+#   cpp/native-lib.h
 #
-set(FORMSNAP_OPENCV_INCLUDE_DIR
-    "${FORMSNAP_NATIVE_ROOT}/include"
+set(OPENCV_SDK_ROOT
+    "${CMAKE_CURRENT_LIST_DIR}/../../../../../opencv2/android-sdk/sdk"
 )
 
-set(FORMSNAP_OPENCV_LIBRARY
-    "${FORMSNAP_NATIVE_ROOT}/jniLibs/${ANDROID_ABI}/libopencv_java5.so"
+set(OPENCV_INCLUDE_DIR
+    "${OPENCV_SDK_ROOT}/native/jni/include"
 )
 
-if(NOT EXISTS "${FORMSNAP_OPENCV_INCLUDE_DIR}/opencv.hpp")
+set(OPENCV_LIBRARY
+    "${OPENCV_SDK_ROOT}/native/libs/${ANDROID_ABI}/libopencv_java4.so"
+)
+
+if(NOT EXISTS "${OPENCV_INCLUDE_DIR}/opencv2/core.hpp")
     message(FATAL_ERROR
-        "Missing OpenCV headers: ${FORMSNAP_OPENCV_INCLUDE_DIR}/opencv.hpp"
+        "OpenCV 4.10.0 headers not found: ${OPENCV_INCLUDE_DIR}"
     )
 endif()
 
-if(NOT EXISTS "${FORMSNAP_OPENCV_LIBRARY}")
+if(NOT EXISTS "${OPENCV_LIBRARY}")
     message(FATAL_ERROR
-        "Missing OpenCV native library for ABI ${ANDROID_ABI}: ${FORMSNAP_OPENCV_LIBRARY}"
+        "OpenCV 4.10.0 library not found for ABI ${ANDROID_ABI}: ${OPENCV_LIBRARY}"
     )
 endif()
 
-add_library(formsnap_opencv_java5 SHARED IMPORTED GLOBAL)
+add_library(opencv_java4 SHARED IMPORTED GLOBAL)
 
-set_target_properties(formsnap_opencv_java5 PROPERTIES
-    IMPORTED_LOCATION "${FORMSNAP_OPENCV_LIBRARY}"
-    INTERFACE_INCLUDE_DIRECTORIES "${FORMSNAP_OPENCV_INCLUDE_DIR}"
+set_target_properties(opencv_java4 PROPERTIES
+    IMPORTED_LOCATION "${OPENCV_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${OPENCV_INCLUDE_DIR}"
 )
 
 add_library(formsnap_processor SHARED native-lib.cpp)
@@ -49,12 +53,12 @@ add_library(formsnap_processor SHARED native-lib.cpp)
 target_include_directories(formsnap_processor
     PRIVATE
         "${FORMSNAP_NATIVE_ROOT}"
-        "${FORMSNAP_OPENCV_INCLUDE_DIR}"
+        "${OPENCV_INCLUDE_DIR}"
 )
 
 target_link_libraries(formsnap_processor
     PRIVATE
-        formsnap_opencv_java5
+        opencv_java4
         android
         log
 )
