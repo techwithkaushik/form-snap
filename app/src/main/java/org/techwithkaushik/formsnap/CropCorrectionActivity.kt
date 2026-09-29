@@ -163,7 +163,7 @@ private fun CropEditorContent(
             Canvas(
                 Modifier.fillMaxSize().pointerInput(bitmap, sourceWidth, sourceHeight) {
                     fun geometry(): Geometry {
-                        val fit = min(size.width / bitmap.width, size.height / bitmap.height)
+                        val fit = min(size.width.toFloat() / bitmap.width, size.height.toFloat() / bitmap.height)
                         val width = bitmap.width * fit
                         val height = bitmap.height * fit
                         val left = (size.width - width) / 2f
