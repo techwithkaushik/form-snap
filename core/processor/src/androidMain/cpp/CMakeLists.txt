@@ -7,20 +7,38 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(FORMSNAP_NATIVE_ROOT "${CMAKE_CURRENT_LIST_DIR}")
-set(FORMSNAP_OPENCV_ROOT "${FORMSNAP_NATIVE_ROOT}/jniLibs")
 
-set(FORMSNAP_OPENCV_INCLUDE_DIR "${FORMSNAP_OPENCV_ROOT}/${ANDROID_ABI}/include")
-set(FORMSNAP_OPENCV_LIBRARY "${FORMSNAP_OPENCV_ROOT}/${ANDROID_ABI}/libopencv_java5.so")
+# Preserve the existing native layout:
+#
+# cpp/
+# ├── include/
+# │   └── OpenCV headers
+# └── jniLibs/
+#     ├── arm64-v8a/libopencv_java5.so
+#     └── armeabi-v7a/libopencv_java5.so
+#
+set(FORMSNAP_OPENCV_INCLUDE_DIR
+    "${FORMSNAP_NATIVE_ROOT}/include"
+)
 
-if(NOT EXISTS "${FORMSNAP_OPENCV_INCLUDE_DIR}/opencv2/core.hpp")
-    message(FATAL_ERROR "Missing embedded OpenCV 5 headers for ABI ${ANDROID_ABI}: ${FORMSNAP_OPENCV_INCLUDE_DIR}")
+set(FORMSNAP_OPENCV_LIBRARY
+    "${FORMSNAP_NATIVE_ROOT}/jniLibs/${ANDROID_ABI}/libopencv_java5.so"
+)
+
+if(NOT EXISTS "${FORMSNAP_OPENCV_INCLUDE_DIR}/opencv.hpp")
+    message(FATAL_ERROR
+        "Missing OpenCV headers: ${FORMSNAP_OPENCV_INCLUDE_DIR}/opencv.hpp"
+    )
 endif()
 
 if(NOT EXISTS "${FORMSNAP_OPENCV_LIBRARY}")
-    message(FATAL_ERROR "Missing embedded OpenCV 5 library for ABI ${ANDROID_ABI}: ${FORMSNAP_OPENCV_LIBRARY}")
+    message(FATAL_ERROR
+        "Missing OpenCV native library for ABI ${ANDROID_ABI}: ${FORMSNAP_OPENCV_LIBRARY}"
+    )
 endif()
 
 add_library(formsnap_opencv_java5 SHARED IMPORTED GLOBAL)
+
 set_target_properties(formsnap_opencv_java5 PROPERTIES
     IMPORTED_LOCATION "${FORMSNAP_OPENCV_LIBRARY}"
     INTERFACE_INCLUDE_DIRECTORIES "${FORMSNAP_OPENCV_INCLUDE_DIR}"
