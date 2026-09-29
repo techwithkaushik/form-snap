@@ -112,7 +112,7 @@ object LayoutTopologyMatcher {
         if (!listOf(
                 profile.deltas.left, profile.deltas.top,
                 profile.deltas.right, profile.deltas.bottom,
-            ).all(Float::isFinite)
+            ).all { it.isFinite() }
         ) return null
         if (listOf(
                 profile.deltas.left, profile.deltas.top,
