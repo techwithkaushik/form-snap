@@ -2,7 +2,6 @@ plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.android.library)
-    alias(libs.plugins.sqldelight)
 }
 
 kotlin {
@@ -14,14 +13,12 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
-            implementation(libs.sqldelight.runtime)
-            implementation(libs.sqldelight.coroutines)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
         }
 
         androidMain.dependencies {
-            implementation(libs.sqldelight.android.driver)
+            implementation(libs.androidx.room.runtime)
             implementation(libs.kotlinx.coroutines.android)
         }
     }
@@ -42,13 +39,5 @@ android {
 
     buildFeatures {
         buildConfig = false
-    }
-}
-
-sqldelight {
-    databases {
-        register("LearningDatabase") {
-            packageName.set("org.techwithkaushik.formsnap.database")
-        }
     }
 }
