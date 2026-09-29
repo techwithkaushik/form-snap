@@ -87,8 +87,20 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
                 try {
                     UniversalDetectionEngine.detect(
                         source = source,
-                        rejectedPhotoBounds = rejectedPhotoBounds,
-                        rejectedSignatureBounds = rejectedSignatureBounds,
+                        rejectedPhotoBounds = rejectedPhotoBounds + RejectedDetectionStore.load(
+                            context,
+                            input,
+                            DetectionKind.PHOTO,
+                            source.cols(),
+                            source.rows(),
+                        ),
+                        rejectedSignatureBounds = rejectedSignatureBounds + RejectedDetectionStore.load(
+                            context,
+                            input,
+                            DetectionKind.SIGNATURE,
+                            source.cols(),
+                            source.rows(),
+                        ),
                     )
                 } finally {
                     source.release()
@@ -178,6 +190,16 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
         val correction = stateFor(kind)
         if (correction != null) {
             val rejected = android.graphics.RectF(correction.automaticBounds)
+            current.source?.let { sourceFile ->
+                RejectedDetectionStore.record(
+                    context = context,
+                    source = sourceFile,
+                    kind = kind,
+                    bounds = rejected,
+                    sourceWidth = correction.sourceWidth,
+                    sourceHeight = correction.sourceHeight,
+                )
+            }
             when (kind) {
                 DetectionKind.PHOTO -> rejectedPhotoBounds.add(rejected)
                 DetectionKind.SIGNATURE -> rejectedSignatureBounds.add(rejected)
