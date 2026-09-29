@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - '**'
+      - "**"
   pull_request:
     branches:
-      - '**'
+      - "**"
 
 jobs:
   build:
@@ -20,71 +20,48 @@ jobs:
           submodules: false
           fetch-depth: 1
 
-      - name: Checkout OpenCV 5.0.0
-        env:
-          OPENCV_COMMIT: 40738fb16ceddb5fb3fea747585f7ce6abb0605b
+      - name: Download OpenCV Android SDK
+        shell: bash
         run: |
           set -euxo pipefail
-          rm -rf opencv2
-          git clone --depth 1 --branch 5.0.0 https://github.com/opencv/opencv.git opencv2
-          cd opencv2
-          test "$(git rev-parse HEAD)" = "$OPENCV_COMMIT"
-          test -f modules/core/include/opencv2/core/version.hpp
-          printf '%s\n' "OpenCV source verified:"
-          git rev-parse HEAD
-          sed -n '/CV_VERSION_MAJOR/,+3p' modules/core/include/opencv2/core/version.hpp
+          VERSION="5.0.0"
+          curl --fail --location --retry 3 \
+            "https://github.com/opencv/opencv/releases/download/${VERSION}/opencv-${VERSION}-android-sdk.zip" \
+            -o "$RUNNER_TEMP/opencv-android-sdk.zip"
+          rm -rf "$RUNNER_TEMP/opencv-sdk"
+          mkdir -p "$RUNNER_TEMP/opencv-sdk"
+          unzip -q "$RUNNER_TEMP/opencv-android-sdk.zip" -d "$RUNNER_TEMP/opencv-sdk"
+          SDK_JAVA="$(find "$RUNNER_TEMP/opencv-sdk" -type d -path "*/sdk/java" -print -quit)"
+          SDK_NATIVE="$(find "$RUNNER_TEMP/opencv-sdk" -type d -path "*/sdk/native" -print -quit)"
+          test -n "$SDK_JAVA"
+          test -n "$SDK_NATIVE"
+          rm -rf opencv/src/main
+          mkdir -p opencv/src/main
+          cp -R "$SDK_JAVA/src" opencv/src/main/java
+          cp -R "$SDK_JAVA/res" opencv/src/main/res
+          cp "$SDK_JAVA/AndroidManifest.xml" opencv/src/main/AndroidManifest.xml
+          echo "OpenCV Java SDK staged."
+          test -f opencv/src/main/java/org/opencv/android/OpenCVLoader.java
+          test -f "$SDK_NATIVE/libs/armeabi-v7a/libopencv_java5.so"
 
       - name: Setup Java
         uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '17'
-
-      - name: Prepare workspace for Gradle validation
-        run: |
-          set -euxo pipefail
-          find "$GITHUB_WORKSPACE/opencv2" -type f -name 'gradle-wrapper.jar' -delete
-          find "$GITHUB_WORKSPACE/opencv2" -type f -name 'gradlew' -delete
+          java-version: "17"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
         with:
-          gradle-version: '9.6.0'
+          gradle-version: "9.6.0"
           cache-provider: enhanced
           validate-wrappers: false
 
-      - name: Build OpenCV 5.0.0 Android SDK
-        working-directory: opencv2
-        env:
-          ANDROID_NATIVE_API_LEVEL: '23'
-          ANDROID_MIN_SDK_VERSION: '23'
-          ANDROID_COMPILE_SDK_VERSION: '35'
-          ANDROID_TARGET_SDK_VERSION: '35'
-        run: |
-          set -euxo pipefail
-          rm -rf ../opencv-build
-          python3 platforms/android/build_sdk.py \
-            ../opencv-build \
-            "$GITHUB_WORKSPACE/opencv2" \
-            --modules_list core,imgproc,calib3d,features2d,flann,ml,objdetect,photo,stitching,video,videoio,highgui \
-            --ndk_path "$ANDROID_NDK_ROOT" \
-            --sdk_path "$ANDROID_HOME" \
-            --config platforms/android/ndk-25.config.py \
-            --no_kotlin \
-            --no_ccache \
-            --no_samples_build
-          test -f ../opencv-build/OpenCV-android-sdk/sdk/native/jni/include/opencv2/core.hpp
-          test -f ../opencv-build/OpenCV-android-sdk/sdk/native/libs/arm64-v8a/libopencv_java5.so
-          test -f ../opencv-build/OpenCV-android-sdk/sdk/native/libs/armeabi-v7a/libopencv_java5.so
-          rm -rf ../opencv2/android-sdk
-          mkdir -p ../opencv2/android-sdk
-          mv ../opencv-build/OpenCV-android-sdk ../opencv2/android-sdk/sdk
-          rm -rf ../opencv-build
       - name: Decode Keystore
         id: keystore
         uses: timheuer/base64-to-file@v2.0
         with:
-          fileName: 'dev_keystore.jks'
+          fileName: "dev_keystore.jks"
           encodedString: ${{ secrets.SIGNING_KEYSTORE }}
 
       - name: Build signed APK
@@ -102,7 +79,7 @@ jobs:
           fi
 
       - name: Verify APK
-        if: github.event_name == 'push'
+        if: github.event_name == "push"
         run: |
           set -e
           APK="app/build/outputs/apk/release/app-release.apk"
@@ -112,8 +89,8 @@ jobs:
           "$APKSIGNER" verify --verbose "$APK"
 
       - name: Upload APK
-        if: github.event_name == 'push'
+        if: github.event_name == "push"
         uses: actions/upload-artifact@v4
         with:
-          name: form-snap-arm32-compose
+          name: form-snap-arm32-java-opencv
           path: app/build/outputs/apk/release/app-release.apk
