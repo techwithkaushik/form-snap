@@ -15,9 +15,6 @@ android {
         versionCode = 3
         versionName = "0.2.0"
 
-        ndk {
-            abiFilters += setOf("armeabi-v7a")
-        }
     }
 
     buildFeatures {
