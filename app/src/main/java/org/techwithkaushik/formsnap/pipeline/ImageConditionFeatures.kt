@@ -40,6 +40,7 @@ data class ImageConditionFeatures(
             val region = source.submat(Rect(left, top, right - left, bottom - top))
             val gray = Mat()
             val hsv = Mat()
+            val bgr = Mat()
             val edges = Mat()
             val mean = MatOfDouble()
             val standardDeviation = MatOfDouble()
@@ -60,7 +61,9 @@ data class ImageConditionFeatures(
                         Core.mean(hsv).`val`[1] / 64.0
                     }
                     4 -> {
-                        Imgproc.cvtColor(region, hsv, Imgproc.COLOR_BGRA2HSV)
+                        // OpenCV has no BGRA-to-HSV conversion code. Drop alpha first.
+                        Imgproc.cvtColor(region, bgr, Imgproc.COLOR_BGRA2BGR)
+                        Imgproc.cvtColor(bgr, hsv, Imgproc.COLOR_BGR2HSV)
                         Core.mean(hsv).`val`[1] / 64.0
                     }
                     else -> 0.0
@@ -82,6 +85,7 @@ data class ImageConditionFeatures(
                 standardDeviation.release()
                 mean.release()
                 edges.release()
+                bgr.release()
                 hsv.release()
                 gray.release()
                 region.release()
