@@ -174,14 +174,22 @@ object CorrectionLearning {
         val corrected = correctedBounds ?: automatic.bounds
         val width = automatic.bounds.width().coerceAtLeast(1f)
         val height = automatic.bounds.height().coerceAtLeast(1f)
+        val deltas = CropDeltaNormalizer.normalize(
+            leftPixels = corrected.left - automatic.bounds.left,
+            topPixels = corrected.top - automatic.bounds.top,
+            rightPixels = corrected.right - automatic.bounds.right,
+            bottomPixels = corrected.bottom - automatic.bounds.bottom,
+            width = width,
+            height = height,
+        )
         return LearnedCorrection(
             kind = automatic.kind,
             // Version 3 stores edge offsets as fractions of the detected crop,
             // not absolute pixels, so feedback remains valid across resolutions.
-            boundsDeltaLeft = (corrected.left - automatic.bounds.left) / width,
-            boundsDeltaTop = (corrected.top - automatic.bounds.top) / height,
-            boundsDeltaRight = (corrected.right - automatic.bounds.right) / width,
-            boundsDeltaBottom = (corrected.bottom - automatic.bounds.bottom) / height,
+            boundsDeltaLeft = deltas.left,
+            boundsDeltaTop = deltas.top,
+            boundsDeltaRight = deltas.right,
+            boundsDeltaBottom = deltas.bottom,
             appearance = appearance,
             conditionBrightness = sourceBrightness,
             conditionContrast = sourceContrast,
