@@ -1,10 +1,6 @@
 package org.techwithkaushik.formSnap.pipeline
 
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.RectF
-import org.opencv.android.Utils
-import org.opencv.core.Mat
+import org.techwithkaushik.formSnap.foundation.ProcessingSession
 import java.io.File
 
 data class PreviewResult(
@@ -14,31 +10,54 @@ data class PreviewResult(
     val signaturePath: String?,
     val photoCandidate: DetectionCandidate?,
     val signatureCandidate: DetectionCandidate?,
-)
+    private val session: ProcessingSession,
+) : AutoCloseable {
+    /**
+     * Preview files belong to this result and remain available until close().
+     * Consume with use { ... } when the preview is no longer needed.
+     */
+    override fun close() {
+        session.closeAndDelete()
+    }
+}
 
 object PipelinePreviewService {
     fun process(context: android.content.Context, input: File, dpi: Int = 300): PreviewResult {
         require(input.exists()) { "Input image does not exist" }
-        val detection = UniversalDetectionEngine.detect(org.opencv.imgcodecs.Imgcodecs.imread(input.absolutePath))
-        var photoPath: String? = null
-        var signaturePath: String? = null
-        val session = org.techwithkaushik.formSnap.foundation.ProcessingSession.create(context)
-        try {
+        val session = ProcessingSession.create(context)
+        return try {
             UniversalPipelineBatch.processFile(input, dpi, context).use { result ->
+                var photoPath: String? = null
+                var signaturePath: String? = null
+
                 result.photo?.image?.let { image ->
                     val file = session.file("photo_preview.jpg")
-                    check(org.opencv.imgcodecs.Imgcodecs.imwrite(file.absolutePath, image)) { "Unable to write photo preview" }
+                    check(org.opencv.imgcodecs.Imgcodecs.imwrite(file.absolutePath, image)) {
+                        "Unable to write photo preview"
+                    }
                     photoPath = file.absolutePath
                 }
                 result.signature?.image?.let { image ->
                     val file = session.file("signature_preview.jpg")
-                    check(org.opencv.imgcodecs.Imgcodecs.imwrite(file.absolutePath, image)) { "Unable to write signature preview" }
+                    check(org.opencv.imgcodecs.Imgcodecs.imwrite(file.absolutePath, image)) {
+                        "Unable to write signature preview"
+                    }
                     signaturePath = file.absolutePath
                 }
+
+                PreviewResult(
+                    sourceWidth = result.detection.sourceWidth,
+                    sourceHeight = result.detection.sourceHeight,
+                    photoPath = photoPath,
+                    signaturePath = signaturePath,
+                    photoCandidate = result.photo?.detection?.photo ?: result.detection.photo,
+                    signatureCandidate = result.signature?.detection?.signature ?: result.detection.signature,
+                    session = session,
+                )
             }
-            return PreviewResult(detection.sourceWidth, detection.sourceHeight, photoPath, signaturePath, detection.photo, detection.signature)
-        } finally {
+        } catch (t: Throwable) {
             session.closeAndDelete()
+            throw t
         }
     }
 }
