@@ -102,14 +102,12 @@ object UniversalDetectionEngine {
                 val rect = OpenCvGeometry.boundingRect(contour)
                 val rectArea = rect.width.toDouble() * rect.height.toDouble()
                 if (rectArea < imageArea * 0.003) {
-                    contour.release()
                     continue
                 }
 
                 val contourArea = abs(OpenCvGeometry.contourArea(contour))
                 val rectangularity = contourArea / max(1.0, rectArea)
                 if (rectangularity < 0.45) {
-                    contour.release()
                     continue
                 }
 
@@ -133,9 +131,9 @@ object UniversalDetectionEngine {
                     frameLike = frameLike,
                 )
 
-                contour.release()
             }
         } finally {
+            contours.forEach { it.release() }
             hierarchy.release()
         }
 
@@ -268,12 +266,14 @@ object UniversalDetectionEngine {
 
         val roi = gray.submat(clipped)
         val edges = Mat()
-        Imgproc.Canny(roi, edges, 50.0, 150.0)
-        val density = Core.countNonZero(edges).toDouble() /
-            max(1.0, clipped.width.toDouble() * clipped.height.toDouble())
-        edges.release()
-        roi.release()
-        return density
+        return try {
+            Imgproc.Canny(roi, edges, 50.0, 150.0)
+            Core.countNonZero(edges).toDouble() /
+                max(1.0, clipped.width.toDouble() * clipped.height.toDouble())
+        } finally {
+            edges.release()
+            roi.release()
+        }
     }
 
     private fun hasInk(gray: Mat, rect: Rect): Boolean =
@@ -285,18 +285,20 @@ object UniversalDetectionEngine {
 
         val roi = gray.submat(clipped)
         val threshold = Mat()
-        Imgproc.threshold(
-            roi,
-            threshold,
-            145.0,
-            255.0,
-            Imgproc.THRESH_BINARY_INV,
-        )
-        val score = Core.countNonZero(threshold).toDouble() /
-            max(1.0, clipped.width.toDouble() * clipped.height.toDouble())
-        threshold.release()
-        roi.release()
-        return score
+        return try {
+            Imgproc.threshold(
+                roi,
+                threshold,
+                145.0,
+                255.0,
+                Imgproc.THRESH_BINARY_INV,
+            )
+            Core.countNonZero(threshold).toDouble() /
+                max(1.0, clipped.width.toDouble() * clipped.height.toDouble())
+        } finally {
+            threshold.release()
+            roi.release()
+        }
     }
 
     private fun isFrameLike(gray: Mat, rect: Rect): Boolean {
@@ -305,32 +307,38 @@ object UniversalDetectionEngine {
 
         val roi = gray.submat(clipped)
         val edges = Mat()
-        Imgproc.Canny(roi, edges, 60.0, 160.0)
+        try {
+            Imgproc.Canny(roi, edges, 60.0, 160.0)
 
-        val top = edges.rowRange(0, max(1, edges.rows() / 12))
-        val bottom = edges.rowRange(
-            max(0, edges.rows() - max(1, edges.rows() / 12)),
-            edges.rows(),
-        )
-        val left = edges.colRange(0, max(1, edges.cols() / 12))
-        val right = edges.colRange(
-            max(0, edges.cols() - max(1, edges.cols() / 12)),
-            edges.cols(),
-        )
-
-        val horizontal = (Core.countNonZero(top) + Core.countNonZero(bottom)).toDouble()
-        val vertical = (Core.countNonZero(left) + Core.countNonZero(right)).toDouble()
-        val perimeterScale = max(
-            1.0,
-            (top.rows() * top.cols() + bottom.rows() * bottom.cols() +
-                left.rows() * left.cols() + right.rows() * right.cols()).toDouble(),
-        )
-
-        val result = (horizontal + vertical) / perimeterScale > 0.10
-
-        edges.release()
-        roi.release()
-        return result
+            val top = edges.rowRange(0, max(1, edges.rows() / 12))
+            val bottom = edges.rowRange(
+                max(0, edges.rows() - max(1, edges.rows() / 12)),
+                edges.rows(),
+            )
+            val left = edges.colRange(0, max(1, edges.cols() / 12))
+            val right = edges.colRange(
+                max(0, edges.cols() - max(1, edges.cols() / 12)),
+                edges.cols(),
+            )
+            try {
+                val horizontal = (Core.countNonZero(top) + Core.countNonZero(bottom)).toDouble()
+                val vertical = (Core.countNonZero(left) + Core.countNonZero(right)).toDouble()
+                val perimeterScale = max(
+                    1.0,
+                    (top.rows() * top.cols() + bottom.rows() * bottom.cols() +
+                        left.rows() * left.cols() + right.rows() * right.cols()).toDouble(),
+                )
+                return (horizontal + vertical) / perimeterScale > 0.10
+            } finally {
+                right.release()
+                left.release()
+                bottom.release()
+                top.release()
+            }
+        } finally {
+            edges.release()
+            roi.release()
+        }
     }
 
     private fun clip(rect: Rect, image: Mat): Rect {
