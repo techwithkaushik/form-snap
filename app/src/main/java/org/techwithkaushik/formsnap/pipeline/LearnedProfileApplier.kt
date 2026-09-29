@@ -14,7 +14,7 @@ object LearnedProfileApplier {
         candidate: DetectionCandidate,
         learned: LearnedCorrection?,
     ): LearnedApplication {
-        if (learned == null) {
+        if (learned == null || !isSafeToApply(candidate, learned)) {
             return LearnedApplication(candidate.bounds, AppearanceAdjustments(), 0f)
         }
 
@@ -51,6 +51,38 @@ object LearnedProfileApplier {
             ),
             blend = strength,
         )
+    }
+
+    private fun isSafeToApply(
+        candidate: DetectionCandidate,
+        learned: LearnedCorrection,
+    ): Boolean {
+        val bounds = candidate.bounds
+        if (!bounds.left.isFinite() || !bounds.top.isFinite() ||
+            !bounds.right.isFinite() || !bounds.bottom.isFinite() ||
+            bounds.width() < 1f || bounds.height() < 1f
+        ) return false
+
+        // A single correction is not enough to change future results unless
+        // the detector itself reported very high confidence in that correction.
+        if (learned.sampleCount < 2 && learned.confidence < 0.85f) return false
+        if (learned.sampleCount < 1 || !learned.confidence.isFinite()) return false
+        if (learned.confidence !in 0f..1f) return false
+
+        return listOf(
+            learned.boundsDeltaLeft,
+            learned.boundsDeltaTop,
+            learned.boundsDeltaRight,
+            learned.boundsDeltaBottom,
+            learned.conditionAspectRatio,
+            learned.conditionEdgeDensity,
+            learned.appearance.brightness,
+            learned.appearance.contrast,
+            learned.appearance.saturation,
+            learned.appearance.sharpness,
+            learned.appearance.denoise,
+            learned.appearance.backgroundCleanup,
+        ).all { it.isFinite() } && learned.conditionAspectRatio > 0f
     }
 
     private fun blendBounds(base: RectF, learned: RectF, strength: Float): RectF = RectF(
