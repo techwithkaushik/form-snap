@@ -9,10 +9,6 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.FormSnap">
         <activity
-            android:name="com.yalantis.ucrop.UCropActivity"
-            android:screenOrientation="portrait"
-            android:theme="@style/Theme.AppCompat.Light.NoActionBar" />
-        <activity
             android:name="org.techwithkaushik.formSnap.CropCorrectionActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
