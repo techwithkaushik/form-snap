@@ -5,9 +5,12 @@ import org.techwithkaushik.formsnap.BuildConfig
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
-import android.os.Environment
+import android.content.Intent
+import android.provider.DocumentsContract
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 
@@ -18,7 +21,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import com.yalantis.ucrop.UCrop
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.techwithkaushik.formSnap.pipeline.DetectionKind
 import org.techwithkaushik.formSnap.pipeline.PipelinePreviewViewModel
 import org.techwithkaushik.formSnap.ui.PipelinePreviewScreen
@@ -42,6 +47,8 @@ class PipelinePreviewActivity : ComponentActivity() {
     private var onExternalCorrection: ((DetectionKind, File) -> Unit)? = null
 
     private var correctionKindForResult: DetectionKind? = null
+    private var pendingFolderKind: DetectionKind? = null
+    private var pendingSavePath: String? = null
 
     private val cameraLauncher: ActivityResultLauncher<Uri> =
         registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
@@ -126,6 +133,75 @@ class PipelinePreviewActivity : ComponentActivity() {
             val state by viewModel.state.collectAsState()
             val scope = rememberCoroutineScope()
             val editKind = remember { mutableStateOf<DetectionKind?>(null) }
+            val saveMessage = remember { mutableStateOf<String?>(null) }
+            val saving = remember { mutableStateOf(false) }
+            val prefs = remember {
+                getSharedPreferences("formsnap_storage", MODE_PRIVATE)
+            }
+
+            val folderPicker = rememberLauncherForActivityResult(
+                ActivityResultContracts.OpenDocumentTree(),
+            ) { uri ->
+                val kind = pendingFolderKind
+                val pathToSave = pendingSavePath
+                pendingFolderKind = null
+                pendingSavePath = null
+                if (uri == null || kind == null) {
+                    saveMessage.value = if (uri == null) "Folder selection cancelled." else null
+                } else {
+                    try {
+                        val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                        contentResolver.takePersistableUriPermission(uri, flags)
+                        prefs.edit().putString("${kind.folderKey()}_directory_uri", uri.toString()).apply()
+                        if (pathToSave != null) {
+                            scope.launch {
+                                saving.value = true
+                                saveMessage.value = try {
+                                    saveOutputToFolder(kind, pathToSave, uri)
+                                } catch (t: Throwable) {
+                                    t.message ?: "Save failed."
+                                } finally {
+                                    saving.value = false
+                                }
+                            }
+                        } else {
+                            saveMessage.value = "${kind.label()} folder selected."
+                        }
+                    } catch (t: Throwable) {
+                        saveMessage.value = t.message ?: "Unable to remember folder permission."
+                    }
+                }
+            }
+
+            fun saveOrChooseFolder(kind: DetectionKind, path: String?) {
+                if (path.isNullOrBlank() || !File(path).isFile) {
+                    saveMessage.value = "No processed ${kind.label().lowercase()} is available to save."
+                    return
+                }
+                val savedUri = prefs.getString("${kind.folderKey()}_directory_uri", null)
+                    ?.let(Uri::parse)
+                val hasPermission = savedUri != null &&
+                    contentResolver.persistedUriPermissions.any {
+                        it.uri == savedUri && it.isWritePermission
+                    }
+                if (hasPermission && savedUri != null) {
+                    scope.launch {
+                        saving.value = true
+                        saveMessage.value = try {
+                            saveOutputToFolder(kind, path, savedUri)
+                        } catch (t: Throwable) {
+                            t.message ?: "Save failed."
+                        } finally {
+                            saving.value = false
+                        }
+                    }
+                } else {
+                    pendingFolderKind = kind
+                    pendingSavePath = path
+                    folderPicker.launch(null)
+                }
+            }
             val editedPhotoPath = remember { mutableStateOf<String?>(null) }
             val editedSignaturePath = remember { mutableStateOf<String?>(null) }
             val editedPhotoVersion = remember { mutableStateOf(0L) }
@@ -183,7 +259,8 @@ class PipelinePreviewActivity : ComponentActivity() {
                 photoDetected = state.photoState != null && state.photoPreviewPath != null,
                 signatureDetected = state.signatureState != null && state.signaturePreviewPath != null,
                 processing = state.processing,
-                message = state.error,
+                message = saveMessage.value ?: state.error,
+                saving = saving.value,
                 onProcess = {
                     scope.launch {
                         viewModel.redetect()
@@ -219,6 +296,28 @@ class PipelinePreviewActivity : ComponentActivity() {
                 onRejectSignature = {
                     viewModel.reject(DetectionKind.SIGNATURE)
                 },
+                onSavePhoto = {
+                    saveOrChooseFolder(
+                        DetectionKind.PHOTO,
+                        editedPhotoPath.value ?: state.photoPreviewPath,
+                    )
+                },
+                onChoosePhotoFolder = {
+                    pendingFolderKind = DetectionKind.PHOTO
+                    pendingSavePath = null
+                    folderPicker.launch(null)
+                },
+                onSaveSignature = {
+                    saveOrChooseFolder(
+                        DetectionKind.SIGNATURE,
+                        editedSignaturePath.value ?: state.signaturePreviewPath,
+                    )
+                },
+                onChooseSignatureFolder = {
+                    pendingFolderKind = DetectionKind.SIGNATURE
+                    pendingSavePath = null
+                    folderPicker.launch(null)
+                },
                 onBack = {
                     finish()
                 },
@@ -231,6 +330,44 @@ class PipelinePreviewActivity : ComponentActivity() {
         activePipelineViewModel = null
         super.onDestroy()
     }
+
+
+    private suspend fun saveOutputToFolder(
+        kind: DetectionKind,
+        sourcePath: String,
+        treeUri: Uri,
+    ): String = withContext(Dispatchers.IO) {
+        val maxKb = intent.getDoubleExtra(EXTRA_MAX_KB, 50.0)
+            .toInt().coerceIn(5, 2048)
+        val bytes = SavedImageEncoder.encodeWithinLimit(File(sourcePath), maxKb)
+        val documentId = DocumentsContract.getTreeDocumentId(treeUri)
+        val parent = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId)
+        val fileName = "FormSnap-${kind.name.lowercase()}-${System.currentTimeMillis()}.jpg"
+        val target = DocumentsContract.createDocument(
+            contentResolver,
+            parent,
+            "image/jpeg",
+            fileName,
+        ) ?: error("The selected folder refused to create the output file.")
+
+        try {
+            contentResolver.openOutputStream(target, "w")?.use { output ->
+                output.write(bytes)
+                output.flush()
+            } ?: error("Cannot open the selected output file.")
+            val sizeKb = String.format(java.util.Locale.US, "%.1f", bytes.size / 1024.0)
+            "${kind.label()} saved ($sizeKb KB)."
+        } catch (t: Throwable) {
+            runCatching { DocumentsContract.deleteDocument(contentResolver, target) }
+            throw t
+        }
+    }
+
+    private fun DetectionKind.folderKey(): String =
+        if (this == DetectionKind.PHOTO) "photo" else "signature"
+
+    private fun DetectionKind.label(): String =
+        if (this == DetectionKind.PHOTO) "Photo" else "Signature"
 
     private fun openDetectedEditor(source: File, kind: DetectionKind) {
         val destination = File(

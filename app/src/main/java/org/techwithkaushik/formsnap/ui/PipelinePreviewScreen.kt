@@ -28,6 +28,7 @@ fun PipelinePreviewScreen(
     signatureDetected: Boolean,
     processing: Boolean,
     message: String?,
+    saving: Boolean = false,
     onProcess: () -> Unit,
     onRecapture: () -> Unit,
     onReimport: () -> Unit,
@@ -37,6 +38,10 @@ fun PipelinePreviewScreen(
     onEditSignature: () -> Unit,
     onAcceptSignature: () -> Unit,
     onRejectSignature: () -> Unit,
+    onSavePhoto: () -> Unit,
+    onChoosePhotoFolder: () -> Unit,
+    onSaveSignature: () -> Unit,
+    onChooseSignatureFolder: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -80,10 +85,14 @@ fun PipelinePreviewScreen(
         item {
             Button(
                 onClick = onProcess,
-                enabled = !processing,
+                enabled = !processing && !saving,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(if (processing) "Processing…" else "Process")
+                Text(when {
+                    processing -> "Processing…"
+                    saving -> "Saving…"
+                    else -> "Process"
+                })
             }
         }
 
@@ -98,6 +107,8 @@ fun PipelinePreviewScreen(
                     onEdit = onEditPhoto,
                     onAccept = onAcceptPhoto,
                     onReject = onRejectPhoto,
+                    onSave = onSavePhoto,
+                    onChooseFolder = onChoosePhotoFolder,
                 )
             }
         }
@@ -111,6 +122,8 @@ fun PipelinePreviewScreen(
                     onEdit = onEditSignature,
                     onAccept = onAcceptSignature,
                     onReject = onRejectSignature,
+                    onSave = onSaveSignature,
+                    onChooseFolder = onChooseSignatureFolder,
                 )
             }
         }
@@ -134,6 +147,8 @@ private fun OutputPreviewCard(
     onEdit: () -> Unit,
     onAccept: () -> Unit,
     onReject: () -> Unit,
+    onSave: () -> Unit,
+    onChooseFolder: () -> Unit,
 ) {
     Card {
         Column(
@@ -150,6 +165,25 @@ private fun OutputPreviewCard(
                     modifier = Modifier.fillMaxWidth().height(220.dp),
                     contentScale = ContentScale.Fit,
                 )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(
+                    onClick = onSave,
+                    enabled = detected && preview != null,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Save")
+                }
+                OutlinedButton(
+                    onClick = onChooseFolder,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Folder")
+                }
             }
 
             Row(
