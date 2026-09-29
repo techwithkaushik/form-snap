@@ -42,10 +42,25 @@ object OutputNormalizer {
         }
 
         val crop = CropEngine.crop(source, candidate)
+        var rectified: Mat? = null
         var cleaned: Mat? = null
         var resized: Mat? = null
         try {
-            cleaned = BorderCleaner.clean(crop.image, kind)
+            val bgrCrop = Mat()
+            try {
+                when (crop.image.channels()) {
+                    1 -> Imgproc.cvtColor(crop.image, bgrCrop, Imgproc.COLOR_GRAY2BGR)
+                    3 -> crop.image.copyTo(bgrCrop)
+                    4 -> Imgproc.cvtColor(crop.image, bgrCrop, Imgproc.COLOR_BGRA2BGR)
+                    else -> throw IllegalArgumentException(
+                        "Unsupported image channel count: ${crop.image.channels()}",
+                    )
+                }
+                rectified = PerspectiveNormalizer.rectifyCrop(bgrCrop, kind)
+            } finally {
+                bgrCrop.release()
+            }
+            cleaned = BorderCleaner.clean(rectified, kind)
             val output = Mat()
             resized = output
             Imgproc.resize(
@@ -68,6 +83,7 @@ object OutputNormalizer {
         } finally {
             resized?.release()
             cleaned?.release()
+            rectified?.release()
             crop.image.release()
         }
     }
