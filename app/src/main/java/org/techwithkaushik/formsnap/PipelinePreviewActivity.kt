@@ -252,6 +252,17 @@ class PipelinePreviewActivity : ComponentActivity() {
                 viewModel.loadBitmap(editedSignaturePath.value ?: state.signaturePreviewPath)
             }
 
+            val detectionMessage = when {
+                state.processing -> null
+                state.photoState == null && state.signatureState == null ->
+                    "No photo or signature was confidently detected. Try a clearer, closer image with even lighting."
+                state.photoState != null && state.signatureState == null ->
+                    "Photo detected. No signature was confidently detected."
+                state.photoState == null && state.signatureState != null ->
+                    "Signature detected. No photo was confidently detected."
+                else -> null
+            }
+
             PipelinePreviewScreen(
                 inputPreview = inputBitmap,
                 photoPreview = photoBitmap,
@@ -259,7 +270,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                 photoDetected = state.photoState != null && state.photoPreviewPath != null,
                 signatureDetected = state.signatureState != null && state.signaturePreviewPath != null,
                 processing = state.processing,
-                message = saveMessage.value ?: state.error,
+                message = saveMessage.value ?: state.error ?: detectionMessage,
                 saving = saving.value,
                 onProcess = {
                     scope.launch {
