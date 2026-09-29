@@ -3,7 +3,6 @@ package org.techwithkaushik.formSnap.pipeline
 import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
-import org.opencv.core.Scalar
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
 import kotlin.math.max
@@ -18,8 +17,13 @@ object BorderCleaner {
         val dark = Mat()
         val mask = Mat.zeros(input.size(), CvType.CV_8UC1)
         val output = Mat()
+        var horizontalKernel: Mat? = null
+        var verticalKernel: Mat? = null
+        var horizontal: Mat? = null
+        var vertical: Mat? = null
+        var keepOutput = false
 
-        return try {
+        try {
             Imgproc.cvtColor(input, gray, Imgproc.COLOR_BGR2GRAY)
 
             val threshold = when (kind) {
@@ -38,17 +42,16 @@ object BorderCleaner {
             val edgeX = max(2, input.cols() / 35)
             val edgeY = max(2, input.rows() / 35)
 
-            val horizontalKernel = Imgproc.getStructuringElement(
+            horizontalKernel = Imgproc.getStructuringElement(
                 Imgproc.MORPH_RECT,
                 Size(max(9, input.cols() / 3).toDouble(), 1.0),
             )
-            val verticalKernel = Imgproc.getStructuringElement(
+            verticalKernel = Imgproc.getStructuringElement(
                 Imgproc.MORPH_RECT,
                 Size(1.0, max(9, input.rows() / 3).toDouble()),
             )
-
-            val horizontal = Mat()
-            val vertical = Mat()
+            horizontal = Mat()
+            vertical = Mat()
 
             Imgproc.morphologyEx(
                 dark,
@@ -89,31 +92,29 @@ object BorderCleaner {
                 ),
             )
 
-            val repaired = Mat()
-            input.copyTo(repaired)
-
             if (Core.countNonZero(mask) > 0) {
                 org.opencv.photo.Photo.inpaint(
-                    repaired,
+                    input,
                     mask,
                     output,
                     2.0,
                     org.opencv.photo.Photo.INPAINT_TELEA,
                 )
-                repaired.release()
-                output.clone()
             } else {
-                repaired
-            }.also {
-                horizontal.release()
-                vertical.release()
-                horizontalKernel.release()
-                verticalKernel.release()
+                input.copyTo(output)
             }
+
+            keepOutput = true
+            return output
         } finally {
+            vertical?.release()
+            horizontal?.release()
+            verticalKernel?.release()
+            horizontalKernel?.release()
             mask.release()
             dark.release()
             gray.release()
+            if (!keepOutput) output.release()
         }
     }
 }
