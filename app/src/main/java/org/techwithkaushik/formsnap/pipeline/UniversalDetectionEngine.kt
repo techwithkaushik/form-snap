@@ -72,7 +72,12 @@ object UniversalDetectionEngine {
             // even when the form has no printed signature box.
             val signatureCandidates = candidates + collectInkCandidates(gray)
 
-            val photo = selectPhoto(candidates, scaledRejectedPhotos)
+            val photo = selectPhoto(
+                candidates,
+                scaledRejectedPhotos,
+                gray.cols(),
+                gray.rows(),
+            )
             val signature = selectSignature(
                 signatureCandidates,
                 photo,
@@ -266,10 +271,18 @@ object UniversalDetectionEngine {
     private fun selectPhoto(
         candidates: List<ShapeCandidate>,
         rejectedBounds: Set<android.graphics.RectF>,
+        imageWidth: Int,
+        imageHeight: Int,
     ): ShapeCandidate? {
+        val imageArea = imageWidth.toDouble() * imageHeight.toDouble()
         return candidates
             .asSequence()
             .filter { candidate -> !isRejected(candidate.rect, rejectedBounds) }
+            // The outer sheet of paper is often portrait-shaped too. Exclude
+            // large page-sized contours so they cannot win as a "photo".
+            .filter {
+                it.rect.width.toDouble() * it.rect.height.toDouble() <= imageArea * 0.45
+            }
             .filter {
                 val ratio = it.rect.width.toDouble() / max(1, it.rect.height).toDouble()
                 ratio in 0.55..1.15
@@ -298,6 +311,12 @@ object UniversalDetectionEngine {
                 ratio in 1.55..4.2
             }
             .filter { it.rect.width >= 140 && it.rect.height >= 20 }
+            // Reject page-sized and large table regions; signatures occupy a
+            // comparatively small area even when there is no printed frame.
+            .filter {
+                it.rect.width.toDouble() * it.rect.height.toDouble() <=
+                    gray.cols().toDouble() * gray.rows().toDouble() * 0.25
+            }
             .filter { it.rect.y + it.rect.height * 0.35 >= photoBottom * 0.55 }
             .filter { hasInk(gray, it.rect) }
             .maxByOrNull {
