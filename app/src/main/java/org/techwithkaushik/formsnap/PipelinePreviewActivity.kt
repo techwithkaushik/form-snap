@@ -222,11 +222,6 @@ class PipelinePreviewActivity : ComponentActivity() {
             setCompressionQuality(95)
             setShowCropGrid(true)
             setShowCropFrame(true)
-            setBrightnessEnabled(true)
-            setContrastEnabled(true)
-            setSaturationEnabled(true)
-            setSharpnessEnabled(true)
-            setHideBottomControls(false)
         }
 
         UCrop.of(
