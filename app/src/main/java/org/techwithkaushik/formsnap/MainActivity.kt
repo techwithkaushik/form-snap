@@ -1,6 +1,8 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 package org.techwithkaushik.formSnap
 
+import org.techwithkaushik.formsnap.BuildConfig
+
 import android.Manifest
 import android.content.Context
 import android.content.Intent
