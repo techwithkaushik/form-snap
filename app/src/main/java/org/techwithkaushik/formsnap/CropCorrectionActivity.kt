@@ -238,7 +238,9 @@ private fun CropEditorContent(
                         if (dragMode != DragMode.NONE) crop = next
                     },
             ) {
-                val g = geometry()
+                val g = calculateGeometry(
+                    size.width, size.height, bitmap.width, bitmap.height, sourceWidth, sourceHeight,
+                )
                 drawImage(
                     bitmap.asImageBitmap(),
                     dstOffset = IntOffset(g.left.roundToInt(), g.top.roundToInt()),
@@ -287,4 +289,27 @@ private data class Geometry(
 private enum class DragMode {
     NONE, MOVE, LEFT, RIGHT, TOP, BOTTOM,
     TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT,
+}
+
+
+private fun calculateGeometry(
+    canvasWidth: Float,
+    canvasHeight: Float,
+    bitmapWidth: Int,
+    bitmapHeight: Int,
+    sourceWidth: Int,
+    sourceHeight: Int,
+): Geometry {
+    val fit = min(canvasWidth / bitmapWidth, canvasHeight / bitmapHeight)
+    val width = bitmapWidth * fit
+    val height = bitmapHeight * fit
+    return Geometry(
+        left = (canvasWidth - width) / 2f,
+        top = (canvasHeight - height) / 2f,
+        fitScale = fit,
+        sourceScaleX = bitmapWidth.toFloat() / sourceWidth * fit,
+        sourceScaleY = bitmapHeight.toFloat() / sourceHeight * fit,
+        width = width,
+        height = height,
+    )
 }
