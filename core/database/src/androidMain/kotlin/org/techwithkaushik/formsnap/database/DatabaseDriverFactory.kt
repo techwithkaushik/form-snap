@@ -2,25 +2,26 @@ package org.techwithkaushik.formsnap.database
 
 import android.content.Context
 import app.cash.sqldelight.android.AndroidSqliteDriver
+import app.cash.sqldelight.db.SqlDriver
 
-actual class DatabaseDriverFactory(
-    private val context: Context,
+class AndroidLearningDatabase(
+    context: Context,
 ) {
-    fun createDatabase(): LearningDatabaseWrapper {
-        val driver =
-            AndroidSqliteDriver(
-                schema = LearningDatabase.Schema,
-                context = context.applicationContext,
-                name = DATABASE_NAME,
-            )
+    private val applicationContext = context.applicationContext
 
-        return LearningDatabaseWrapper(
-            driver = driver,
-            instance = LearningDatabase(driver),
+    val driver: SqlDriver by lazy {
+        AndroidSqliteDriver(
+            schema = LearningDatabase.Schema,
+            context = applicationContext,
+            name = DATABASE_NAME,
         )
     }
 
-    private companion object {
-        const val DATABASE_NAME = "formsnap-learning.db"
+    val instance: LearningDatabase by lazy {
+        LearningDatabase(driver)
+    }
+
+    companion object {
+        private const val DATABASE_NAME = "formsnap-learning.db"
     }
 }
