@@ -63,9 +63,12 @@ object UniversalDetectionEngine {
             kernel.release()
 
             val candidates = collectCandidates(morph, gray)
+            // Add ink-derived candidates so handwritten signatures can be found
+            // even when the form has no printed signature box.
+            val signatureCandidates = candidates + collectInkCandidates(gray)
 
             val photo = selectPhoto(candidates, rejectedPhotoBounds)
-            val signature = selectSignature(candidates, photo, gray, rejectedSignatureBounds)
+            val signature = selectSignature(signatureCandidates, photo, gray, rejectedSignatureBounds)
 
             val invScale = if (scale == 0.0) 1.0 else 1.0 / scale
 
@@ -140,6 +143,85 @@ object UniversalDetectionEngine {
         return result
             .sortedByDescending { it.score }
             .take(60)
+    }
+
+    /**
+     * Finds horizontal ink groups independently of printed rectangles.
+     * The lower-page bias is a weak filter only; selection still checks aspect
+     * ratio, ink density, rejected regions, and position relative to a photo.
+     */
+    private fun collectInkCandidates(gray: Mat): List<ShapeCandidate> {
+        val binary = Mat()
+        val grouped = Mat()
+        val hierarchy = Mat()
+        var kernel: Mat? = null
+        val contours = ArrayList<MatOfPoint>()
+        try {
+            Imgproc.threshold(
+                gray,
+                binary,
+                0.0,
+                255.0,
+                Imgproc.THRESH_BINARY_INV or Imgproc.THRESH_OTSU,
+            )
+            kernel = Imgproc.getStructuringElement(
+                Imgproc.MORPH_RECT,
+                org.opencv.core.Size(17.0, 3.0),
+            )
+            Imgproc.morphologyEx(binary, grouped, Imgproc.MORPH_CLOSE, kernel)
+            Imgproc.findContours(
+                grouped,
+                contours,
+                hierarchy,
+                Imgproc.RETR_EXTERNAL,
+                Imgproc.CHAIN_APPROX_SIMPLE,
+            )
+
+            val imageArea = gray.cols().toDouble() * gray.rows().toDouble()
+            val result = ArrayList<ShapeCandidate>()
+            for (contour in contours) {
+                val rect = OpenCvGeometry.boundingRect(contour)
+                if (rect.width < 140 || rect.height < 18) continue
+                if (rect.height > max(90, (gray.rows() * 0.12).toInt())) continue
+                if (rect.y < gray.rows() * 0.30) continue
+
+                val ratio = rect.width.toDouble() / max(1, rect.height).toDouble()
+                if (ratio !in 1.45..6.0) continue
+                val rectArea = rect.width.toDouble() * rect.height.toDouble()
+                if (rectArea > imageArea * 0.25) continue
+
+                val ink = inkScore(gray, rect)
+                if (ink < 0.012) continue
+
+                val ratioFit = 1.0 - min(1.0, abs(ratio - 2.6) / 3.4)
+                val widthScore = min(1.0, rect.width / max(1.0, gray.cols() * 0.35))
+                val lowerPageScore = (rect.y.toDouble() / max(1, gray.rows())).coerceIn(0.0, 1.0)
+                val edgeScore = min(1.0, edgeDensity(gray, rect) / 0.28)
+                val score = (
+                    ratioFit * 0.30 +
+                        min(1.0, ink * 4.0) * 0.30 +
+                        widthScore * 0.15 +
+                        lowerPageScore * 0.15 +
+                        edgeScore * 0.10
+                    ).coerceIn(0.0, 1.0)
+
+                result += ShapeCandidate(
+                    rect = rect,
+                    score = score,
+                    rectangularity = abs(OpenCvGeometry.contourArea(contour)) /
+                        max(1.0, rectArea),
+                    edgeDensity = edgeScore,
+                    frameLike = false,
+                )
+            }
+            return result.sortedByDescending { it.score }.take(40)
+        } finally {
+            contours.forEach { it.release() }
+            kernel?.release()
+            hierarchy.release()
+            grouped.release()
+            binary.release()
+        }
     }
 
     private fun shapeScore(
