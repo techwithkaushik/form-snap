@@ -34,7 +34,7 @@ Roadmap source: 'FormSnap_2_0_Master_Development_Specification_UPDATED.pdf' (22 
 - The manual crop editor edits the original source coordinate space rather than editing only the already-cropped output.
 - Rejected candidate regions persist per source identity and are bounded in count.
 - The output destination is a single persisted SAF document tree; both output types use that root, without creating Photos/ or Signatures/ subdirectories.
-- Default output names are [personName]-photo.jpg and [personName]-sign.png; collision suffixes are inserted before the extension. The signature defaults to PNG, with a size-budgeted lossless encoder that downsamples only if necessary.
+- Default output names are [personName]-photo.jpg and [personName]-sign.png; collision suffixes are inserted before the extension. The signature defaults to PNG, with optional JPEG export. The PNG encoder is lossless and downsamples only if necessary to satisfy the size budget.
 - The required two-run learning test is not considered passed until a labeled integration fixture demonstrates: run 1 corrects a loose crop; run 2 on a matching layout applies the learned correction before preview and stays within an explicitly measured tolerance.
 
 ## Current code changes in the feature branch
@@ -44,7 +44,7 @@ Roadmap source: 'FormSnap_2_0_Master_Development_Specification_UPDATED.pdf' (22 
 - Learning profile version 3 stores normalized crop edge deltas; application converts them to pixels using the current candidate dimensions.
 - Added pure unit tests for normalized-delta scaling and output filename sanitization/collision suffixes.
 - Rejected candidate storage is persisted per source-file identity, bounded to ten regions per detection type.
-- One persisted output-folder URI is shared by photo and signature. Photo uses JPEG; signature uses PNG. Writes are read back and size-verified.
+- One persisted output-folder URI is shared by photo and signature. Photo uses JPEG; signature defaults to PNG and can optionally use JPEG. Writes are read back and size-verified.
 
 ## Release decision
 
