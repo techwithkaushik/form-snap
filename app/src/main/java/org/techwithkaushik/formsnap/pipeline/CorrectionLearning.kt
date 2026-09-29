@@ -1,6 +1,7 @@
 package org.techwithkaushik.formSnap.pipeline
 
 import kotlin.math.abs
+import kotlin.math.ln
 
 data class AppearanceAdjustments(
     val brightness: Float = 0f,
@@ -44,6 +45,44 @@ object CorrectionLearning {
 
     private fun close(first: Float, second: Float, tolerance: Float): Boolean =
         abs(first - second) <= tolerance
+
+    /**
+     * Returns a normalized similarity in [0, 1] for the conditions known by the
+     * caller. Aspect ratio uses a logarithmic ratio so a 2x and 1/2x mismatch
+     * are treated symmetrically. Missing features are excluded, not guessed.
+     */
+    fun conditionSimilarity(
+        profile: LearnedCorrection,
+        conditionBrightness: Float? = null,
+        conditionContrast: Float? = null,
+        conditionSaturation: Float? = null,
+        conditionEdgeDensity: Float? = null,
+        aspectRatio: Float? = null,
+    ): Float {
+        val distances = buildList {
+            conditionBrightness?.let {
+                add(normalizedDistance(profile.conditionBrightness, it, 2f))
+            }
+            conditionContrast?.let {
+                add(normalizedDistance(profile.conditionContrast, it, 4f))
+            }
+            conditionSaturation?.let {
+                add(normalizedDistance(profile.conditionSaturation, it, 4f))
+            }
+            conditionEdgeDensity?.let {
+                add(normalizedDistance(profile.conditionEdgeDensity, it, 1f))
+            }
+            aspectRatio?.takeIf { it.isFinite() && it > 0f }?.let {
+                val ratioDistance = abs(ln(profile.conditionAspectRatio / it)) / ln(2f)
+                add(ratioDistance.coerceIn(0f, 1f))
+            }
+        }
+        if (distances.isEmpty()) return 1f
+        return (1f - distances.average().toFloat()).coerceIn(0f, 1f)
+    }
+
+    private fun normalizedDistance(first: Float, second: Float, scale: Float): Float =
+        (abs(first - second) / scale).coerceIn(0f, 1f)
 
     /**
      * Validates data at the learning-store boundary, not just at the UI feedback

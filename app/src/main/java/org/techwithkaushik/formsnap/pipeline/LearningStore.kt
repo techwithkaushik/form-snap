@@ -7,7 +7,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import kotlin.math.max
-import kotlin.math.min
 
 object LearningStore {
     private const val FILE_NAME = "correction_learning.json"
@@ -42,29 +41,36 @@ object LearningStore {
         )
     }
 
+    /**
+     * Selects a profile using only capture features actually supplied by the caller.
+     * Unknown features are not silently compared against defaults, which previously
+     * penalized profiles learned from real lighting/contrast/edge measurements.
+     */
     fun best(
         context: Context,
         kind: DetectionKind,
-        conditionBrightness: Float = 0f,
-        conditionContrast: Float = 1f,
-        conditionSaturation: Float = 1f,
-        conditionEdgeDensity: Float = 0f,
-        aspectRatio: Float = 1f,
+        conditionBrightness: Float? = null,
+        conditionContrast: Float? = null,
+        conditionSaturation: Float? = null,
+        conditionEdgeDensity: Float? = null,
+        aspectRatio: Float? = null,
     ): LearnedCorrection? {
-        val candidates = read(context).filter { it.kind == kind }
+        val candidates = read(context).filter {
+            it.kind == kind && CorrectionLearning.isSafe(it)
+        }
         if (candidates.isEmpty()) return null
 
         return candidates
             .maxByOrNull {
-                val conditionDistance =
-                    kotlin.math.abs(it.conditionBrightness - conditionBrightness) +
-                        kotlin.math.abs(it.conditionContrast - conditionContrast) +
-                        kotlin.math.abs(it.conditionSaturation - conditionSaturation) +
-                        kotlin.math.abs(it.conditionEdgeDensity - conditionEdgeDensity) +
-                        kotlin.math.abs(it.conditionAspectRatio - aspectRatio)
-
-                val similarity = (1f - conditionDistance / 4f).coerceIn(0f, 1f)
-                val usage = min(100, it.sampleCount) / 100f
+                val similarity = CorrectionLearning.conditionSimilarity(
+                    profile = it,
+                    conditionBrightness = conditionBrightness,
+                    conditionContrast = conditionContrast,
+                    conditionSaturation = conditionSaturation,
+                    conditionEdgeDensity = conditionEdgeDensity,
+                    aspectRatio = aspectRatio,
+                )
+                val usage = minOf(100, it.sampleCount) / 100f
                 similarity * 0.70f + it.confidence * 0.20f + usage * 0.10f
             }
             ?.takeIf { it.sampleCount >= 2 || it.confidence >= 0.70f }

@@ -34,17 +34,58 @@ class CorrectionLearningTest {
         )
 
         assertTrue(CorrectionLearning.sameConditionProfile(baseline, baseline.copy(confidence = 0.9f)))
+        assertEquals(false, CorrectionLearning.sameConditionProfile(baseline, baseline.copy(conditionContrast = 1.5f)))
+        assertEquals(false, CorrectionLearning.sameConditionProfile(baseline, baseline.copy(conditionSaturation = 1.3f)))
+        assertEquals(false, CorrectionLearning.sameConditionProfile(baseline, baseline.copy(kind = DetectionKind.SIGNATURE)))
+    }
+
+    @Test
+    fun conditionSimilarityIgnoresFeaturesThatWereNotMeasured() {
+        val profile = LearnedCorrection(
+            kind = DetectionKind.PHOTO,
+            conditionBrightness = 0.8f,
+            conditionContrast = 2.5f,
+            conditionSaturation = 2.2f,
+            conditionEdgeDensity = 0.8f,
+            conditionAspectRatio = 0.75f,
+        )
+
         assertEquals(
-            false,
-            CorrectionLearning.sameConditionProfile(baseline, baseline.copy(conditionContrast = 1.5f)),
+            1f,
+            CorrectionLearning.conditionSimilarity(profile, aspectRatio = 0.75f),
+            0.0001f,
         )
         assertEquals(
-            false,
-            CorrectionLearning.sameConditionProfile(baseline, baseline.copy(conditionSaturation = 1.3f)),
+            0.5f,
+            CorrectionLearning.conditionSimilarity(profile, aspectRatio = 1.5f),
+            0.0001f,
+        )
+    }
+
+    @Test
+    fun conditionSimilarityCombinesOnlyKnownFeaturesOnNormalizedScales() {
+        val profile = LearnedCorrection(
+            kind = DetectionKind.PHOTO,
+            conditionBrightness = 0f,
+            conditionContrast = 1f,
+            conditionSaturation = 1f,
+            conditionEdgeDensity = 0f,
+            conditionAspectRatio = 1f,
+        )
+
+        assertEquals(
+            0.75f,
+            CorrectionLearning.conditionSimilarity(
+                profile = profile,
+                conditionBrightness = 1f,
+                conditionEdgeDensity = 0f,
+            ),
+            0.0001f,
         )
         assertEquals(
-            false,
-            CorrectionLearning.sameConditionProfile(baseline, baseline.copy(kind = DetectionKind.SIGNATURE)),
+            1f,
+            CorrectionLearning.conditionSimilarity(profile),
+            0.0001f,
         )
     }
 
