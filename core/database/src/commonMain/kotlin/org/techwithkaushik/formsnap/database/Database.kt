@@ -1,13 +1,15 @@
 package org.techwithkaushik.formsnap.database
 
-expect class DatabaseDriverFactory {
-    fun createDriver(): app.cash.sqldelight.db.SqlDriver
-}
+import app.cash.sqldelight.db.SqlDriver
 
-class LearningDatabaseProvider(
-    private val factory: DatabaseDriverFactory,
-) {
-    val database: LearningDatabase by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        LearningDatabase(factory.createDriver())
-    }
-}
+/**
+ * Holds the platform SQLDelight driver together with the generated database.
+ *
+ * This mirrors the PeopleInSpace pattern: the platform DI layer constructs the
+ * driver and generated database together, while common code only depends on
+ * this wrapper.
+ */
+class LearningDatabaseWrapper(
+    val driver: SqlDriver,
+    val instance: LearningDatabase,
+)
