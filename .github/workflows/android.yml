@@ -4,21 +4,25 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - "**"
+      - feature/foundation-pipeline
   pull_request:
     branches:
-      - "**"
+      - feature/foundation-pipeline
+
+permissions:
+  contents: read
 
 jobs:
   build:
+    name: Build signed APK
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          submodules: false
+          ref: feature/foundation-pipeline
           fetch-depth: 1
+          submodules: false
 
       - name: Setup Java
         uses: actions/setup-java@v5
@@ -37,7 +41,7 @@ jobs:
         id: keystore
         uses: timheuer/base64-to-file@v2.0
         with:
-          fileName: "dev_keystore.jks"
+          fileName: dev_keystore.jks
           encodedString: ${{ secrets.SIGNING_KEYSTORE }}
 
       - name: Build signed APK
@@ -48,14 +52,13 @@ jobs:
           SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
         run: |
           set -euo pipefail
-          if [ -x "./gradlew" ]; then
-            ./gradlew :app:assembleRelease --no-daemon --build-cache
+          if [ -x ./gradlew ]; then
+            ./gradlew :app:assembleRelease --no-daemon --build-cache --stacktrace
           else
-            gradle :app:assembleRelease --no-daemon --build-cache
+            gradle :app:assembleRelease --no-daemon --build-cache --stacktrace
           fi
 
       - name: Verify APK
-        if: github.event_name == "push"
         run: |
           set -euo pipefail
           APK="app/build/outputs/apk/release/app-release.apk"
@@ -65,7 +68,6 @@ jobs:
           "$APKSIGNER" verify --verbose "$APK"
 
       - name: Upload APK
-        if: github.event_name == "push"
         uses: actions/upload-artifact@v4
         with:
           name: form-snap-arm32-java-opencv
