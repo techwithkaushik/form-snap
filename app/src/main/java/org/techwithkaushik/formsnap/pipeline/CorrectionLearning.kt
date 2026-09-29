@@ -29,6 +29,21 @@ data class LearnedCorrection(
 
 object CorrectionLearning {
     /**
+     * Returns true only when two corrections describe sufficiently similar
+     * capture conditions to be safely averaged into one learning profile.
+     */
+    fun sameConditionProfile(first: LearnedCorrection, second: LearnedCorrection): Boolean =
+        first.kind == second.kind &&
+            close(first.conditionAspectRatio, second.conditionAspectRatio, 0.15f) &&
+            close(first.conditionBrightness, second.conditionBrightness, 0.15f) &&
+            close(first.conditionContrast, second.conditionContrast, 0.20f) &&
+            close(first.conditionSaturation, second.conditionSaturation, 0.20f) &&
+            close(first.conditionEdgeDensity, second.conditionEdgeDensity, 0.15f)
+
+    private fun close(first: Float, second: Float, tolerance: Float): Boolean =
+        abs(first - second) <= tolerance
+
+    /**
      * Validates data at the learning-store boundary, not just at the UI feedback
      * boundary. This prevents NaN/Infinity values from poisoning future blends.
      */
