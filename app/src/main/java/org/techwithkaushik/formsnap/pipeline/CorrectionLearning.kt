@@ -28,6 +28,40 @@ data class LearnedCorrection(
 )
 
 object CorrectionLearning {
+    /**
+     * Validates data at the learning-store boundary, not just at the UI feedback
+     * boundary. This prevents NaN/Infinity values from poisoning future blends.
+     */
+    fun isSafe(correction: LearnedCorrection): Boolean {
+        val numericValues = listOf(
+            correction.boundsDeltaLeft,
+            correction.boundsDeltaTop,
+            correction.boundsDeltaRight,
+            correction.boundsDeltaBottom,
+            correction.appearance.brightness,
+            correction.appearance.contrast,
+            correction.appearance.saturation,
+            correction.appearance.sharpness,
+            correction.appearance.denoise,
+            correction.appearance.backgroundCleanup,
+            correction.conditionBrightness,
+            correction.conditionContrast,
+            correction.conditionSaturation,
+            correction.conditionEdgeDensity,
+            correction.conditionAspectRatio,
+            correction.confidence,
+        )
+        if (numericValues.any { !it.isFinite() }) return false
+        if (correction.conditionAspectRatio <= 0f) return false
+        if (correction.sampleCount < 1) return false
+        if (correction.confidence !in 0f..1f) return false
+        if (correction.conditionBrightness !in -1f..1f) return false
+        if (correction.conditionContrast !in 0f..4f) return false
+        if (correction.conditionSaturation !in 0f..4f) return false
+        if (correction.conditionEdgeDensity !in 0f..1f) return false
+        return true
+    }
+
     fun fromCorrection(
         automatic: DetectionCandidate,
         correctedBounds: android.graphics.RectF?,
