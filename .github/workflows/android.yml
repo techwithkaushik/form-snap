@@ -40,11 +40,6 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Remove OpenCV Gradle wrappers before Gradle validation
-        run: |
-          set -euxo pipefail
-          find "$GITHUB_WORKSPACE/opencv2" -type f -name 'gradle-wrapper.jar' -delete
-
       - name: Prepare workspace for Gradle validation
         run: |
           set -euxo pipefail
@@ -60,8 +55,13 @@ jobs:
 
       - name: Build OpenCV 5.0.0 Android SDK
         working-directory: opencv2
+        env:
+          ANDROID_NATIVE_API_LEVEL: '23'
+          ANDROID_MIN_SDK_VERSION: '23'
+          ANDROID_COMPILE_SDK_VERSION: '35'
+          ANDROID_TARGET_SDK_VERSION: '35'
         run: |
-          set -e
+          set -euxo pipefail
           rm -rf ../opencv-build
           python3 platforms/android/build_sdk.py \
             ../opencv-build \
