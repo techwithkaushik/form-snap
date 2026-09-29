@@ -23,6 +23,32 @@ class CorrectionLearningTest {
     }
 
     @Test
+    fun learningProfilesOnlyMergeWhenCaptureConditionsAreSimilar() {
+        val baseline = LearnedCorrection(
+            kind = DetectionKind.PHOTO,
+            conditionBrightness = 0.1f,
+            conditionContrast = 1.1f,
+            conditionSaturation = 0.9f,
+            conditionEdgeDensity = 0.2f,
+            conditionAspectRatio = 0.75f,
+        )
+
+        assertTrue(CorrectionLearning.sameConditionProfile(baseline, baseline.copy(confidence = 0.9f)))
+        assertEquals(
+            false,
+            CorrectionLearning.sameConditionProfile(baseline, baseline.copy(conditionContrast = 1.5f)),
+        )
+        assertEquals(
+            false,
+            CorrectionLearning.sameConditionProfile(baseline, baseline.copy(conditionSaturation = 1.3f)),
+        )
+        assertEquals(
+            false,
+            CorrectionLearning.sameConditionProfile(baseline, baseline.copy(kind = DetectionKind.SIGNATURE)),
+        )
+    }
+
+    @Test
     fun blendUsesPreviousSampleCountAsWeight() {
         val previous = LearnedCorrection(
             kind = DetectionKind.PHOTO,
