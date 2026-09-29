@@ -1,0 +1,204 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://techwithkaushik.github.io/form-snap/detection-fixture.schema.json",
+  "title": "FormSnap labelled detection fixture",
+  "description": "Annotation metadata for an offline photo/signature detection evaluation image. Keep personal documents out of the public repository.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "image",
+    "scenario",
+    "annotations"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$"
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "file",
+        "width",
+        "height",
+        "sha256"
+      ],
+      "properties": {
+        "file": {
+          "type": "string",
+          "pattern": "^[^/\\\\.][^/\\\\]*\\.(png|jpg|jpeg|webp)$"
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-fA-F0-9]{64}$"
+        }
+      }
+    },
+    "scenario": {
+      "enum": [
+        "photo_only",
+        "signature_only",
+        "both",
+        "neither"
+      ]
+    },
+    "capture": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "boxed": {
+          "type": "boolean"
+        },
+        "tiltDegrees": {
+          "type": "number",
+          "minimum": -90,
+          "maximum": 90
+        },
+        "distance": {
+          "enum": [
+            "near",
+            "normal",
+            "far",
+            "unknown"
+          ]
+        },
+        "lighting": {
+          "enum": [
+            "dim",
+            "normal",
+            "bright",
+            "backlit",
+            "mixed",
+            "unknown"
+          ]
+        },
+        "background": {
+          "enum": [
+            "plain",
+            "printed_form",
+            "cluttered",
+            "unknown"
+          ]
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 500
+        }
+      }
+    },
+    "annotations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "box"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "photo",
+              "signature"
+            ]
+          },
+          "box": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "left",
+              "top",
+              "right",
+              "bottom"
+            ],
+            "properties": {
+              "left": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "top": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "right": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "bottom": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
+          },
+          "contentBox": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "left",
+              "top",
+              "right",
+              "bottom"
+            ],
+            "properties": {
+              "left": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "top": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "right": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "bottom": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reviewedBy": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "reviewedAt": {
+          "type": "string",
+          "format": "date"
+        },
+        "secondReviewerAgreed": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}
