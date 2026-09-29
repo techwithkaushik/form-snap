@@ -56,6 +56,7 @@ class PipelinePreviewActivity : ComponentActivity() {
     private var correctionKindForResult: DetectionKind? = null
     private var pendingFolderKind: DetectionKind? = null
     private var pendingSavePath: String? = null
+    private var pendingPersonName: String? = null
 
     private val cameraLauncher: ActivityResultLauncher<Uri> =
         registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
@@ -139,11 +140,13 @@ class PipelinePreviewActivity : ComponentActivity() {
             }
             val state by viewModel.state.collectAsState()
             val scope = rememberCoroutineScope()
-            val editKind = remember { mutableStateOf<DetectionKind?>(null) }
             val saveMessage = remember { mutableStateOf<String?>(null) }
             val saving = remember { mutableStateOf(false) }
             val prefs = remember {
                 getSharedPreferences("formsnap_storage", MODE_PRIVATE)
+            }
+            val personName = remember {
+                mutableStateOf(prefs.getString("person_name", "") ?: "")
             }
 
             val folderPicker = rememberLauncherForActivityResult(
@@ -151,8 +154,10 @@ class PipelinePreviewActivity : ComponentActivity() {
             ) { uri ->
                 val kind = pendingFolderKind
                 val pathToSave = pendingSavePath
+                val nameToSave = pendingPersonName.orEmpty()
                 pendingFolderKind = null
                 pendingSavePath = null
+                pendingPersonName = null
                 if (uri == null || kind == null) {
                     saveMessage.value = if (uri == null) "Folder selection cancelled." else null
                 } else {
@@ -160,12 +165,12 @@ class PipelinePreviewActivity : ComponentActivity() {
                         val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
                             Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                         contentResolver.takePersistableUriPermission(uri, flags)
-                        prefs.edit().putString("${kind.folderKey()}_directory_uri", uri.toString()).apply()
+                        prefs.edit().putString("output_directory_uri", uri.toString()).apply()
                         if (pathToSave != null) {
                             scope.launch {
                                 saving.value = true
                                 saveMessage.value = try {
-                                    saveOutputToFolder(kind, pathToSave, uri)
+                                    saveOutputToFolder(kind, pathToSave, uri, nameToSave)
                                 } catch (t: Throwable) {
                                     t.message ?: "Save failed."
                                 } finally {
@@ -186,8 +191,12 @@ class PipelinePreviewActivity : ComponentActivity() {
                     saveMessage.value = "No processed ${kind.label().lowercase()} is available to save."
                     return
                 }
-                val savedUri = prefs.getString("${kind.folderKey()}_directory_uri", null)
-                    ?.let(Uri::parse)
+                val legacyUri = prefs.getString("${kind.legacyFolderKey()}_directory_uri", null)
+                val savedUriString = prefs.getString("output_directory_uri", null) ?: legacyUri
+                if (savedUriString != null && prefs.getString("output_directory_uri", null) == null) {
+                    prefs.edit().putString("output_directory_uri", savedUriString).apply()
+                }
+                val savedUri = savedUriString?.let(Uri::parse)
                 val hasPermission = savedUri != null &&
                     contentResolver.persistedUriPermissions.any {
                         it.uri == savedUri && it.isWritePermission
@@ -196,7 +205,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                     scope.launch {
                         saving.value = true
                         saveMessage.value = try {
-                            saveOutputToFolder(kind, path, savedUri)
+                            saveOutputToFolder(kind, path, savedUri, personName.value)
                         } catch (t: Throwable) {
                             t.message ?: "Save failed."
                         } finally {
@@ -206,6 +215,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                 } else {
                     pendingFolderKind = kind
                     pendingSavePath = path
+                    pendingPersonName = personName.value
                     folderPicker.launch(null)
                 }
             }
@@ -278,6 +288,11 @@ class PipelinePreviewActivity : ComponentActivity() {
                 signatureConfidence = state.signatureConfidence,
                 processing = state.processing,
                 message = saveMessage.value ?: state.error ?: detectionMessage,
+                personName = personName.value,
+                onPersonNameChange = { value ->
+                    personName.value = value
+                    prefs.edit().putString("person_name", value).apply()
+                },
                 saving = saving.value,
                 onProcess = {
                     scope.launch {
@@ -323,6 +338,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                 onChoosePhotoFolder = {
                     pendingFolderKind = DetectionKind.PHOTO
                     pendingSavePath = null
+                    pendingPersonName = personName.value
                     folderPicker.launch(null)
                 },
                 onSaveSignature = {
@@ -334,6 +350,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                 onChooseSignatureFolder = {
                     pendingFolderKind = DetectionKind.SIGNATURE
                     pendingSavePath = null
+                    pendingPersonName = personName.value
                     folderPicker.launch(null)
                 },
                 onBack = {
@@ -354,17 +371,38 @@ class PipelinePreviewActivity : ComponentActivity() {
         kind: DetectionKind,
         sourcePath: String,
         treeUri: Uri,
+        personName: String,
     ): String = withContext(Dispatchers.IO) {
-        val maxKb = intent.getIntExtra(EXTRA_MAX_KB, 50)
-            .coerceIn(5, 2048)
-        val bytes = SavedImageEncoder.encodeWithinLimit(File(sourcePath), maxKb)
+        val maxKb = intent.getIntExtra(EXTRA_MAX_KB, 50).coerceIn(5, 2048)
+        val isSignature = kind == DetectionKind.SIGNATURE
+        val bytes = if (isSignature) {
+            SavedImageEncoder.encodePngWithinLimit(File(sourcePath), maxKb)
+        } else {
+            SavedImageEncoder.encodeWithinLimit(File(sourcePath), maxKb)
+        }
         val documentId = DocumentsContract.getTreeDocumentId(treeUri)
         val parent = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId)
-        val fileName = "FormSnap-${kind.name.lowercase()}-${System.currentTimeMillis()}.jpg"
+        val childDocuments = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, documentId)
+        val existingNames = mutableSetOf<String>()
+        contentResolver.query(
+            childDocuments,
+            arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            val nameColumn = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+            while (cursor.moveToNext()) existingNames += cursor.getString(nameColumn)
+        }
+        val baseName = OutputFileNaming.desiredName(kind, personName)
+        var fileName = baseName
+        var suffix = 1
+        while (fileName in existingNames) fileName = OutputFileNaming.withSuffix(baseName, suffix++)
+        val mimeType = if (isSignature) "image/png" else "image/jpeg"
         val target = DocumentsContract.createDocument(
             contentResolver,
             parent,
-            "image/jpeg",
+            mimeType,
             fileName,
         ) ?: error("The selected folder refused to create the output file.")
 
@@ -373,15 +411,20 @@ class PipelinePreviewActivity : ComponentActivity() {
                 output.write(bytes)
                 output.flush()
             } ?: error("Cannot open the selected output file.")
+            val writtenBytes = contentResolver.openInputStream(target)?.use { it.readBytes().size }
+                ?: error("Could not verify the saved output.")
+            check(writtenBytes == bytes.size) { "Saved output verification failed." }
             val sizeKb = String.format(java.util.Locale.US, "%.1f", bytes.size / 1024.0)
-            "${kind.label()} saved ($sizeKb KB)."
+            "${kind.label()} saved as $fileName ($sizeKb KB)."
         } catch (t: Throwable) {
             runCatching { DocumentsContract.deleteDocument(contentResolver, target) }
             throw t
         }
     }
 
-    private fun DetectionKind.folderKey(): String =
+    private fun DetectionKind.folderKey(): String = "output"
+
+    private fun DetectionKind.legacyFolderKey(): String =
         if (this == DetectionKind.PHOTO) "photo" else "signature"
 
     private fun DetectionKind.label(): String =
