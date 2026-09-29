@@ -287,7 +287,15 @@ class PipelinePreviewActivity : ComponentActivity() {
                     }
                 },
                 onAcceptPhoto = {
-                    scope.launch { viewModel.accept(DetectionKind.PHOTO) }
+                    scope.launch {
+                        if (editedPhotoPath.value != null) {
+                            viewModel.accept(DetectionKind.PHOTO, recordFeedback = false)
+                            saveMessage.value =
+                                "Edited photo accepted. Automatic learning was skipped because the editor does not provide source-image crop coordinates."
+                        } else {
+                            viewModel.accept(DetectionKind.PHOTO)
+                        }
+                    }
                 },
                 onRejectPhoto = {
                     viewModel.reject(DetectionKind.PHOTO)
@@ -301,7 +309,15 @@ class PipelinePreviewActivity : ComponentActivity() {
                     }
                 },
                 onAcceptSignature = {
-                    scope.launch { viewModel.accept(DetectionKind.SIGNATURE) }
+                    scope.launch {
+                        if (editedSignaturePath.value != null) {
+                            viewModel.accept(DetectionKind.SIGNATURE, recordFeedback = false)
+                            saveMessage.value =
+                                "Edited signature accepted. Automatic learning was skipped because the editor does not provide source-image crop coordinates."
+                        } else {
+                            viewModel.accept(DetectionKind.SIGNATURE)
+                        }
+                    }
                 },
                 onRejectSignature = {
                     viewModel.reject(DetectionKind.SIGNATURE)
