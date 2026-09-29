@@ -57,6 +57,7 @@ class PipelinePreviewActivity : ComponentActivity() {
     private var pendingFolderKind: DetectionKind? = null
     private var pendingSavePath: String? = null
     private var pendingPersonName: String? = null
+    private var pendingSignatureAsJpeg: Boolean? = null
 
     private val cameraLauncher: ActivityResultLauncher<Uri> =
         registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
@@ -148,6 +149,9 @@ class PipelinePreviewActivity : ComponentActivity() {
             val personName = remember {
                 mutableStateOf(prefs.getString("person_name", "") ?: "")
             }
+            val signatureAsJpeg = remember {
+                mutableStateOf(prefs.getBoolean("signature_as_jpeg", false))
+            }
 
             val folderPicker = rememberLauncherForActivityResult(
                 ActivityResultContracts.OpenDocumentTree(),
@@ -155,9 +159,12 @@ class PipelinePreviewActivity : ComponentActivity() {
                 val kind = pendingFolderKind
                 val pathToSave = pendingSavePath
                 val nameToSave = pendingPersonName.orEmpty()
+                val signatureJpegToSave = pendingSignatureAsJpeg
+                    ?: prefs.getBoolean("signature_as_jpeg", false)
                 pendingFolderKind = null
                 pendingSavePath = null
                 pendingPersonName = null
+                pendingSignatureAsJpeg = null
                 if (uri == null || kind == null) {
                     saveMessage.value = if (uri == null) "Folder selection cancelled." else null
                 } else {
@@ -170,7 +177,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                             scope.launch {
                                 saving.value = true
                                 saveMessage.value = try {
-                                    saveOutputToFolder(kind, pathToSave, uri, nameToSave)
+                                    saveOutputToFolder(kind, pathToSave, uri, nameToSave, signatureJpegToSave)
                                 } catch (t: Throwable) {
                                     t.message ?: "Save failed."
                                 } finally {
@@ -205,7 +212,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                     scope.launch {
                         saving.value = true
                         saveMessage.value = try {
-                            saveOutputToFolder(kind, path, savedUri, personName.value)
+                            saveOutputToFolder(kind, path, savedUri, personName.value, signatureAsJpeg.value)
                         } catch (t: Throwable) {
                             t.message ?: "Save failed."
                         } finally {
@@ -216,6 +223,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                     pendingFolderKind = kind
                     pendingSavePath = path
                     pendingPersonName = personName.value
+                    pendingSignatureAsJpeg = signatureAsJpeg.value
                     folderPicker.launch(null)
                 }
             }
@@ -293,6 +301,11 @@ class PipelinePreviewActivity : ComponentActivity() {
                     personName.value = value
                     prefs.edit().putString("person_name", value).apply()
                 },
+                signatureAsJpeg = signatureAsJpeg.value,
+                onSignatureAsJpegChange = { enabled ->
+                    signatureAsJpeg.value = enabled
+                    prefs.edit().putBoolean("signature_as_jpeg", enabled).apply()
+                },
                 saving = saving.value,
                 onProcess = {
                     scope.launch {
@@ -339,6 +352,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                     pendingFolderKind = DetectionKind.PHOTO
                     pendingSavePath = null
                     pendingPersonName = personName.value
+                    pendingSignatureAsJpeg = signatureAsJpeg.value
                     folderPicker.launch(null)
                 },
                 onSaveSignature = {
@@ -372,10 +386,12 @@ class PipelinePreviewActivity : ComponentActivity() {
         sourcePath: String,
         treeUri: Uri,
         personName: String,
+        signatureAsJpeg: Boolean,
     ): String = withContext(Dispatchers.IO) {
         val maxKb = intent.getIntExtra(EXTRA_MAX_KB, 50).coerceIn(5, 2048)
         val isSignature = kind == DetectionKind.SIGNATURE
-        val bytes = if (isSignature) {
+        val usePng = isSignature && !signatureAsJpeg
+        val bytes = if (usePng) {
             SavedImageEncoder.encodePngWithinLimit(File(sourcePath), maxKb)
         } else {
             SavedImageEncoder.encodeWithinLimit(File(sourcePath), maxKb)
@@ -394,11 +410,11 @@ class PipelinePreviewActivity : ComponentActivity() {
             val nameColumn = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
             while (cursor.moveToNext()) existingNames += cursor.getString(nameColumn)
         }
-        val baseName = OutputFileNaming.desiredName(kind, personName)
+        val baseName = OutputFileNaming.desiredName(kind, personName, signatureAsJpeg)
         var fileName = baseName
         var suffix = 1
         while (fileName in existingNames) fileName = OutputFileNaming.withSuffix(baseName, suffix++)
-        val mimeType = if (isSignature) "image/png" else "image/jpeg"
+        val mimeType = if (usePng) "image/png" else "image/jpeg"
         val target = DocumentsContract.createDocument(
             contentResolver,
             parent,
