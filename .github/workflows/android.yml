@@ -24,6 +24,30 @@ jobs:
           fetch-depth: 1
           submodules: false
 
+      - name: Download OpenCV Android SDK 5.0.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          OPENCV_VERSION="5.0.0"
+          ZIP="$RUNNER_TEMP/opencv-android-sdk.zip"
+          ROOT="$RUNNER_TEMP/opencv-sdk"
+          curl --fail --location --retry 5 --retry-all-errors \
+            "https://github.com/opencv/opencv/releases/download/${OPENCV_VERSION}/opencv-${OPENCV_VERSION}-android-sdk.zip" \
+            -o "$ZIP"
+          rm -rf "$ROOT"
+          mkdir -p "$ROOT"
+          unzip -q "$ZIP" -d "$ROOT"
+          SDK_DIR="$(find "$ROOT" -type d -path '*/sdk' -print -quit)"
+          test -n "$SDK_DIR"
+          test -d "$SDK_DIR/java"
+          test -f "$SDK_DIR/java/build.gradle"
+          test -f "$SDK_DIR/java/src/main/java/org/opencv/android/OpenCVLoader.java"
+          rm -rf opencv
+          mkdir -p opencv
+          cp -R "$SDK_DIR/java/." opencv/
+          echo "Using OpenCV Java SDK from: $SDK_DIR/java"
+          find opencv -maxdepth 2 -type f | sort | head -50
+
       - name: Setup Java
         uses: actions/setup-java@v5
         with:
