@@ -252,20 +252,20 @@ object FormSnapOpenCvProcessor {
         var bestScore = 0.0
 
         for (contour in contours) {
-            val area = abs(Imgproc.contourArea(contour))
+            val area = abs(OpenCvGeometry.contourArea(contour))
             if (area < imageArea * 0.35) {
                 contour.release()
                 continue
             }
             val points = MatOfPoint2f(*contour.toArray())
-            val perimeter = Imgproc.arcLength(points, true)
+            val perimeter = OpenCvGeometry.arcLength(points, true)
             val approx = MatOfPoint2f()
-            Imgproc.approxPolyDP(points, approx, perimeter * 0.02, true)
+            OpenCvGeometry.approxPolyDP(points, approx, perimeter * 0.02, true)
             if (approx.rows() == 4) {
                 val quad = approx.toArray()
                 val quadMat = MatOfPoint(*quad)
-                val convex = Imgproc.isContourConvex(quadMat)
-                val rect = Imgproc.boundingRect(quadMat)
+                val convex = OpenCvGeometry.isContourConvex(quadMat)
+                val rect = OpenCvGeometry.boundingRect(quadMat)
                 val fill = area / max(1.0, rect.width.toDouble() * rect.height)
                 val aspect = rect.width.toDouble() / max(1, rect.height).toDouble()
                 val portraitScore = if (aspect in 0.62..0.80) 1.0 else 0.0
@@ -292,7 +292,7 @@ object FormSnapOpenCvProcessor {
                 Point((targetW - 1).toDouble(), (targetH - 1).toDouble()),
                 Point(0.0, (targetH - 1).toDouble()),
             )
-            val transform = Imgproc.getPerspectiveTransform(srcCorners, dstCorners)
+            val transform = OpenCvGeometry.getPerspectiveTransform(srcCorners, dstCorners)
             val warped = Mat()
             Imgproc.warpPerspective(
                 small,
@@ -475,8 +475,8 @@ object FormSnapOpenCvProcessor {
         val signatureCandidates = ArrayList<FieldCandidate>()
 
         for (contour in contours) {
-            val area = abs(Imgproc.contourArea(contour))
-            val box = Imgproc.boundingRect(contour)
+            val area = abs(OpenCvGeometry.contourArea(contour))
+            val box = OpenCvGeometry.boundingRect(contour)
             val boxArea = box.width.toDouble() * box.height.toDouble()
             val ratio = box.width.toDouble() / max(1, box.height).toDouble()
             val rectangularity = area / max(1.0, boxArea)
@@ -487,14 +487,14 @@ object FormSnapOpenCvProcessor {
             }
 
             val points = MatOfPoint2f(*contour.toArray())
-            val perimeter = Imgproc.arcLength(points, true)
+            val perimeter = OpenCvGeometry.arcLength(points, true)
             val approx = MatOfPoint2f()
-            Imgproc.approxPolyDP(points, approx, perimeter * 0.02, true)
+            OpenCvGeometry.approxPolyDP(points, approx, perimeter * 0.02, true)
 
-            if (approx.rows() == 4 && Imgproc.isContourConvex(MatOfPoint(*approx.toArray()))) {
+            if (approx.rows() == 4 && OpenCvGeometry.isContourConvex(MatOfPoint(*approx.toArray()))) {
                 val quad = approx.toArray()
                 val sizeScore = min(1.0, boxArea / (imageArea * 0.55))
-                val quadArea = abs(Imgproc.contourArea(MatOfPoint(*quad)))
+                val quadArea = abs(OpenCvGeometry.contourArea(MatOfPoint(*quad)))
                 val quadRectangularity = quadArea / max(1.0, boxArea)
 
                 if (ratio in 0.62..1.02) {
@@ -679,7 +679,7 @@ object FormSnapOpenCvProcessor {
             Point((targetW - 1).toDouble(), (targetH - 1).toDouble()),
             Point(0.0, (targetH - 1).toDouble()),
         )
-        val transform = Imgproc.getPerspectiveTransform(src, dst)
+        val transform = OpenCvGeometry.getPerspectiveTransform(src, dst)
         val warped = Mat()
         Imgproc.warpPerspective(
             source,
@@ -727,8 +727,8 @@ object FormSnapOpenCvProcessor {
         var bestFace: Rect? = null
 
         for (contour in contours) {
-            val r = Imgproc.boundingRect(contour)
-            val a = abs(Imgproc.contourArea(contour))
+            val r = OpenCvGeometry.boundingRect(contour)
+            val a = abs(OpenCvGeometry.contourArea(contour))
             val ratio = r.width.toDouble() / max(1, r.height).toDouble()
             val fill = a / max(1.0, r.width.toDouble() * r.height)
             val marginX = min(r.x, template.cols() - (r.x + r.width)).toDouble() / template.cols()
@@ -1039,8 +1039,8 @@ object FormSnapOpenCvProcessor {
         var best: Rect? = null
         var bestScore = Double.NEGATIVE_INFINITY
         for (contour in contours) {
-            val area = abs(Imgproc.contourArea(contour))
-            val box = Imgproc.boundingRect(contour)
+            val area = abs(OpenCvGeometry.contourArea(contour))
+            val box = OpenCvGeometry.boundingRect(contour)
             val ratio = box.width.toDouble() / max(1, box.height).toDouble()
             val rectangularity = area / max(1.0, box.width.toDouble() * box.height)
             if (area >= imageArea * 0.05 && ratio in 0.60..1.05 && rectangularity > 0.65) {
@@ -1091,9 +1091,9 @@ object FormSnapOpenCvProcessor {
         val candidates = ArrayList<Pair<Rect, Double>>()
 
         for (contour in contours) {
-            val rect = Imgproc.boundingRect(contour)
+            val rect = OpenCvGeometry.boundingRect(contour)
             val rectArea = rect.width.toDouble() * rect.height.toDouble()
-            val contourArea = abs(Imgproc.contourArea(contour))
+            val contourArea = abs(OpenCvGeometry.contourArea(contour))
             val rectangularity = contourArea / max(1.0, rectArea)
             val ratio = rect.width.toDouble() / max(1, rect.height).toDouble()
 
@@ -1108,12 +1108,12 @@ object FormSnapOpenCvProcessor {
             }
 
             val points = MatOfPoint2f(*contour.toArray())
-            val perimeter = Imgproc.arcLength(points, true)
+            val perimeter = OpenCvGeometry.arcLength(points, true)
             val approx = MatOfPoint2f()
-            Imgproc.approxPolyDP(points, approx, perimeter * 0.02, true)
+            OpenCvGeometry.approxPolyDP(points, approx, perimeter * 0.02, true)
             val quad = if (approx.rows() == 4) MatOfPoint(*approx.toArray()) else null
 
-            val quadBonus = if (quad != null && Imgproc.isContourConvex(quad)) 1.0 else 0.0
+            val quadBonus = if (quad != null && OpenCvGeometry.isContourConvex(quad)) 1.0 else 0.0
             quad?.release()
 
             val inkScore = partialSignatureInkScore(source, rect)
@@ -1285,7 +1285,7 @@ object FormSnapOpenCvProcessor {
             return null
         }
 
-        val bbox = Imgproc.boundingRect(points)
+        val bbox = OpenCvGeometry.boundingRect(points)
         points.release()
 
         val padX = max(12, min(40, bbox.width / 6))
