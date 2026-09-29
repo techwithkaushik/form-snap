@@ -14,7 +14,16 @@ class PreviewCorrectionController(
     }
 
     fun setAppearance(adjustments: AppearanceAdjustments) {
-        state = state.withAppearance(adjustments)
+        val values = listOf(
+            adjustments.brightness,
+            adjustments.contrast,
+            adjustments.saturation,
+            adjustments.sharpness,
+            adjustments.denoise,
+            adjustments.backgroundCleanup,
+        )
+        if (values.any { !it.isFinite() }) return
+        state = state.withAppearance(AppearanceTuning.clamp(adjustments))
     }
 
     fun accept() {
@@ -36,6 +45,14 @@ class PreviewCorrectionController(
     fun feedback(): CorrectionFeedback = state.correction(detectionCandidate)
 
     private fun clamp(bounds: RectF): RectF {
+        // Ignore invalid drag/gesture coordinates instead of letting NaN or
+        // Infinity enter preview state and later reach correction learning.
+        if (!bounds.left.isFinite() || !bounds.top.isFinite() ||
+            !bounds.right.isFinite() || !bounds.bottom.isFinite()
+        ) {
+            return RectF(state.currentBounds)
+        }
+
         val maxRight = state.sourceWidth.toFloat().coerceAtLeast(1f)
         val maxBottom = state.sourceHeight.toFloat().coerceAtLeast(1f)
         val left = bounds.left.coerceIn(0f, maxRight - 1f)
