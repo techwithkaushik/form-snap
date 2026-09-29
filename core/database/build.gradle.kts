@@ -18,7 +18,7 @@ kotlin {
         }
 
         androidMain.dependencies {
-            implementation(libs.androidx.room.runtime)
+            implementation("androidx.room:room-runtime:2.7.2")
             implementation(libs.kotlinx.coroutines.android)
         }
     }
