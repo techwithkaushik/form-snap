@@ -1,5 +1,7 @@
 package org.techwithkaushik.formSnap.pipeline
 
+import kotlin.math.abs
+
 data class AppearanceAdjustments(
     val brightness: Float = 0f,
     val contrast: Float = 1f,
