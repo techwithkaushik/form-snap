@@ -19,7 +19,7 @@ data class FormSnapUiState(
 )
 
 class FormSnapViewModel(
-    private val processor: ImageProcessor = ImageProcessor(),
+    private val processor: ImageProcessor,
 ) : ViewModel() {
 
     private val processingSupervisor = SupervisorJob(viewModelScope.coroutineContext[Job])
