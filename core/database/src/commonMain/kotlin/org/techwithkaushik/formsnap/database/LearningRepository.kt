@@ -18,7 +18,7 @@ data class TunedParameterRecord(
     val parameterValue: Double,
 )
 
-class LearningRepository(
+class LearningRepository internal constructor(
     private val access: LearningDatabaseAccess,
 ) {
     fun record(
