@@ -24,7 +24,15 @@ jobs:
           fetch-depth: 1
           submodules: false
 
+      - name: Cache OpenCV Android SDK
+        id: opencv-cache
+        uses: actions/cache@v4
+        with:
+          path: opencv/
+          key: opencv-android-sdk-5.0.0-${{ runner.os }}
+
       - name: Download OpenCV Android SDK 5.0.0
+        if: steps.opencv-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -53,6 +61,7 @@ jobs:
         with:
           gradle-version: "9.6.0"
           cache-provider: enhanced
+          cache-read-only: false
           validate-wrappers: false
 
       - name: Run unit tests
@@ -78,7 +87,15 @@ jobs:
           fetch-depth: 1
           submodules: false
 
+      - name: Cache OpenCV Android SDK
+        id: opencv-cache
+        uses: actions/cache@v4
+        with:
+          path: opencv/
+          key: opencv-android-sdk-5.0.0-${{ runner.os }}
+
       - name: Download OpenCV Android SDK 5.0.0
+        if: steps.opencv-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -107,6 +124,7 @@ jobs:
         with:
           gradle-version: "9.6.0"
           cache-provider: enhanced
+          cache-read-only: false
           validate-wrappers: false
 
       - name: Decode Keystore
