@@ -19,18 +19,20 @@ object LearningStore {
 
     @Synchronized
     fun record(context: Context, correction: LearnedCorrection) {
-        val profiles = read(context).toMutableList()
+        if (!CorrectionLearning.isSafe(correction)) return
+        val safeCorrection = correction.copy(appearance = AppearanceTuning.clamp(correction.appearance))
+        val profiles = read(context).filter(CorrectionLearning::isSafe).toMutableList()
         val index = profiles.indexOfFirst {
-            it.kind == correction.kind &&
-                close(it.conditionAspectRatio, correction.conditionAspectRatio, 0.15f) &&
-                close(it.conditionBrightness, correction.conditionBrightness, 0.15f) &&
-                close(it.conditionEdgeDensity, correction.conditionEdgeDensity, 0.15f)
+            it.kind == safeCorrection.kind &&
+                close(it.conditionAspectRatio, safeCorrection.conditionAspectRatio, 0.15f) &&
+                close(it.conditionBrightness, safeCorrection.conditionBrightness, 0.15f) &&
+                close(it.conditionEdgeDensity, safeCorrection.conditionEdgeDensity, 0.15f)
         }
 
         if (index >= 0) {
-            profiles[index] = CorrectionLearning.blend(profiles[index], correction)
+            profiles[index] = CorrectionLearning.blend(profiles[index], safeCorrection)
         } else {
-            profiles += correction
+            profiles += safeCorrection
         }
 
         write(
@@ -92,7 +94,7 @@ object LearningStore {
             val array = root.optJSONArray("profiles") ?: JSONArray()
             buildList {
                 for (i in 0 until array.length()) {
-                    parse(array.optJSONObject(i), schema)?.let(::add)
+                    parse(array.optJSONObject(i), schema)?.takeIf(CorrectionLearning::isSafe)?.let(::add)
                 }
             }
         }.getOrDefault(emptyList())
