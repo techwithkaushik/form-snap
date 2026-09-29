@@ -38,6 +38,7 @@ data class ImageConditionFeatures(
             if (right - left < 2 || bottom - top < 2) return null
 
             val region = source.submat(Rect(left, top, right - left, bottom - top))
+            val sampled = Mat()
             val gray = Mat()
             val hsv = Mat()
             val bgr = Mat()
@@ -45,24 +46,37 @@ data class ImageConditionFeatures(
             val mean = MatOfDouble()
             val standardDeviation = MatOfDouble()
             try {
-                when (region.channels()) {
-                    1 -> region.copyTo(gray)
-                    3 -> Imgproc.cvtColor(region, gray, Imgproc.COLOR_BGR2GRAY)
-                    4 -> Imgproc.cvtColor(region, gray, Imgproc.COLOR_BGRA2GRAY)
+                val scale = minOf(1.0, 512.0 / max(region.cols(), region.rows()).toDouble())
+                if (scale < 1.0) {
+                    Imgproc.resize(
+                        region,
+                        sampled,
+                        org.opencv.core.Size(),
+                        scale,
+                        scale,
+                        Imgproc.INTER_AREA,
+                    )
+                } else {
+                    region.copyTo(sampled)
+                }
+                when (sampled.channels()) {
+                    1 -> sampled.copyTo(gray)
+                    3 -> Imgproc.cvtColor(sampled, gray, Imgproc.COLOR_BGR2GRAY)
+                    4 -> Imgproc.cvtColor(sampled, gray, Imgproc.COLOR_BGRA2GRAY)
                 }
 
                 Core.meanStdDev(gray, mean, standardDeviation)
                 val meanBrightness = Core.mean(gray).`val`[0]
                 val contrast = (standardDeviation.toArray().firstOrNull() ?: 0.0) / 64.0
 
-                val saturation = when (region.channels()) {
+                val saturation = when (sampled.channels()) {
                     3 -> {
-                        Imgproc.cvtColor(region, hsv, Imgproc.COLOR_BGR2HSV)
+                        Imgproc.cvtColor(sampled, hsv, Imgproc.COLOR_BGR2HSV)
                         Core.mean(hsv).`val`[1] / 64.0
                     }
                     4 -> {
                         // OpenCV has no BGRA-to-HSV conversion code. Drop alpha first.
-                        Imgproc.cvtColor(region, bgr, Imgproc.COLOR_BGRA2BGR)
+                        Imgproc.cvtColor(sampled, bgr, Imgproc.COLOR_BGRA2BGR)
                         Imgproc.cvtColor(bgr, hsv, Imgproc.COLOR_BGR2HSV)
                         Core.mean(hsv).`val`[1] / 64.0
                     }
@@ -88,6 +102,7 @@ data class ImageConditionFeatures(
                 bgr.release()
                 hsv.release()
                 gray.release()
+                sampled.release()
                 region.release()
             }
         }

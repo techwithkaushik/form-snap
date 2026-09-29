@@ -19,6 +19,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.produceState
 import com.yalantis.ucrop.UCrop
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -231,24 +232,43 @@ class PipelinePreviewActivity : ComponentActivity() {
                 )
             }
 
-            val inputBitmap = remember(state.source?.absolutePath) {
-                state.source?.let { BitmapFactory.decodeFile(it.absolutePath) }
-            }
-            val photoBitmap = remember(
-                state.photoPreviewPath,
-                state.photoPreviewVersion,
-                editedPhotoPath.value,
-                editedPhotoVersion.value,
+            // Decode display thumbnails off the main thread and cap their dimensions.
+            // Full-resolution decoding here could block Compose and allocate hundreds of MB.
+            val inputBitmap by produceState<android.graphics.Bitmap?>(
+                initialValue = null,
+                key1 = state.source?.absolutePath,
             ) {
-                viewModel.loadBitmap(editedPhotoPath.value ?: state.photoPreviewPath)
+                value = withContext(Dispatchers.IO) {
+                    state.source?.let { decodePreviewBitmap(it.absolutePath, maxDimension = 1200) }
+                }
             }
-            val signatureBitmap = remember(
-                state.signaturePreviewPath,
-                state.signaturePreviewVersion,
-                editedSignaturePath.value,
-                editedSignatureVersion.value,
+            val photoBitmap by produceState<android.graphics.Bitmap?>(
+                initialValue = null,
+                key1 = listOf(
+                    state.photoPreviewPath,
+                    state.photoPreviewVersion,
+                    editedPhotoPath.value,
+                    editedPhotoVersion.value,
+                ),
             ) {
-                viewModel.loadBitmap(editedSignaturePath.value ?: state.signaturePreviewPath)
+                val previewPath = editedPhotoPath.value ?: state.photoPreviewPath
+                value = withContext(Dispatchers.IO) {
+                    previewPath?.let { decodePreviewBitmap(it, maxDimension = 900) }
+                }
+            }
+            val signatureBitmap by produceState<android.graphics.Bitmap?>(
+                initialValue = null,
+                key1 = listOf(
+                    state.signaturePreviewPath,
+                    state.signaturePreviewVersion,
+                    editedSignaturePath.value,
+                    editedSignatureVersion.value,
+                ),
+            ) {
+                val previewPath = editedSignaturePath.value ?: state.signaturePreviewPath
+                value = withContext(Dispatchers.IO) {
+                    previewPath?.let { decodePreviewBitmap(it, maxDimension = 900) }
+                }
             }
 
             val detectionMessage = when {
@@ -431,4 +451,23 @@ class PipelinePreviewActivity : ComponentActivity() {
         const val EXTRA_EXTERNAL_CORRECTION_PATH = "formsnap.external_correction_path"
         const val EXTRA_EXTERNAL_CORRECTION_KIND = "formsnap.external_correction_kind"
     }
+}
+
+/** Loads a display-only thumbnail; processing continues to use the full-resolution source. */
+private fun decodePreviewBitmap(path: String, maxDimension: Int): android.graphics.Bitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(path, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+    var sample = 1
+    while (bounds.outWidth / sample > maxDimension ||
+        bounds.outHeight / sample > maxDimension
+    ) {
+        sample *= 2
+    }
+    val options = BitmapFactory.Options().apply {
+        inSampleSize = sample
+        inPreferredConfig = android.graphics.Bitmap.Config.RGB_565
+    }
+    return BitmapFactory.decodeFile(path, options)
 }
