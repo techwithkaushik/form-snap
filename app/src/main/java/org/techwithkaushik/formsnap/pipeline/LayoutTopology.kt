@@ -17,7 +17,7 @@ data class NormalizedLayoutBox(
     val aspectRatio: Float get() = height / width.coerceAtLeast(0.0001f)
 
     fun isValid(): Boolean =
-        listOf(left, top, right, bottom).all(Float::isFinite) &&
+        listOf(left, top, right, bottom).all { it.isFinite() } &&
             left in 0f..1f && top in 0f..1f &&
             right in 0f..1f && bottom in 0f..1f &&
             right > left && bottom > top
