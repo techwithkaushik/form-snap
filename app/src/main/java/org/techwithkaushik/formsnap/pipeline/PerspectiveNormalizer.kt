@@ -1,5 +1,6 @@
 package org.techwithkaushik.formSnap.pipeline
 
+import org.techwithkaushik.formSnap.OpenCvGeometry
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
@@ -61,7 +62,7 @@ object PerspectiveNormalizer {
             Point((width - 1).toDouble(), (height - 1).toDouble()),
             Point(0.0, (height - 1).toDouble()),
         )
-        val matrix = Imgproc.getPerspectiveTransform(src, dst)
+        val matrix = OpenCvGeometry.getPerspectiveTransform(src, dst)
         val output = Mat()
         Imgproc.warpPerspective(source, output, matrix, org.opencv.core.Size(width.toDouble(), height.toDouble()))
         matrix.release()
