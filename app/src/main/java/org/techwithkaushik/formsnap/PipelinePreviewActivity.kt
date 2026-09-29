@@ -268,6 +268,8 @@ class PipelinePreviewActivity : ComponentActivity() {
                 signaturePreview = signatureBitmap,
                 photoDetected = state.photoState != null && state.photoPreviewPath != null,
                 signatureDetected = state.signatureState != null && state.signaturePreviewPath != null,
+                photoConfidence = state.photoConfidence,
+                signatureConfidence = state.signatureConfidence,
                 processing = state.processing,
                 message = saveMessage.value ?: state.error ?: detectionMessage,
                 saving = saving.value,

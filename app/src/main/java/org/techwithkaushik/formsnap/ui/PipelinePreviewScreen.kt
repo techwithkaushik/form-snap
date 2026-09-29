@@ -26,6 +26,8 @@ fun PipelinePreviewScreen(
     signaturePreview: Bitmap?,
     photoDetected: Boolean,
     signatureDetected: Boolean,
+    photoConfidence: Float? = null,
+    signatureConfidence: Float? = null,
     processing: Boolean,
     message: String?,
     saving: Boolean = false,
@@ -104,6 +106,7 @@ fun PipelinePreviewScreen(
                     title = "Photo",
                     preview = photoPreview,
                     detected = photoDetected,
+                    confidence = photoConfidence,
                     onEdit = onEditPhoto,
                     onAccept = onAcceptPhoto,
                     onReject = onRejectPhoto,
@@ -119,6 +122,7 @@ fun PipelinePreviewScreen(
                     title = "Signature",
                     preview = signaturePreview,
                     detected = signatureDetected,
+                    confidence = signatureConfidence,
                     onEdit = onEditSignature,
                     onAccept = onAcceptSignature,
                     onReject = onRejectSignature,
@@ -144,6 +148,7 @@ private fun OutputPreviewCard(
     title: String,
     preview: Bitmap?,
     detected: Boolean,
+    confidence: Float?,
     onEdit: () -> Unit,
     onAccept: () -> Unit,
     onReject: () -> Unit,
@@ -157,6 +162,12 @@ private fun OutputPreviewCard(
         ) {
             Text(title)
             Text(if (detected) "Detected" else "Not detected")
+            Text(
+                confidence?.let {
+                    "Heuristic score: ${(it.coerceIn(0f, 1f) * 100f).toInt()}/100 • not a calibrated probability"
+                } ?: "Detection score unavailable; review the crop carefully.",
+                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+            )
 
             preview?.let { bitmap ->
                 Image(

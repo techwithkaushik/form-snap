@@ -19,6 +19,8 @@ data class PreviewProcessingState(
     val source: File? = null,
     val photoState: PreviewCorrectionState? = null,
     val signatureState: PreviewCorrectionState? = null,
+    val photoConfidence: Float? = null,
+    val signatureConfidence: Float? = null,
     val photoPreviewPath: String? = null,
     val signaturePreviewPath: String? = null,
     val photoPreviewVersion: Long = 0L,
@@ -108,6 +110,8 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
                         detection.sourceHeight,
                     )
                 },
+                photoConfidence = detection.photo?.confidence,
+                signatureConfidence = detection.signature?.confidence,
             )
 
             renderDetectedPreviews()
@@ -178,6 +182,7 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
         _state.value = when (kind) {
             DetectionKind.PHOTO -> current.copy(
                 photoState = null,
+                photoConfidence = null,
                 photoPreviewPath = null,
                 photoPreviewVersion = current.photoPreviewVersion + 1L,
                 processing = false,
@@ -185,6 +190,7 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
             )
             DetectionKind.SIGNATURE -> current.copy(
                 signatureState = null,
+                signatureConfidence = null,
                 signaturePreviewPath = null,
                 signaturePreviewVersion = current.signaturePreviewVersion + 1L,
                 processing = false,
