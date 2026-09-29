@@ -274,9 +274,15 @@ private fun CropEditorContent(
                 }
             }
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) { Text("Cancel") }
-            Button(onClick = { onConfirm(RectF(crop)) }, modifier = Modifier.weight(1f)) { Text("Apply crop") }
+            OutlinedButton(
+                onClick = { crop = RectF(initialBounds); dragMode = DragMode.NONE },
+                modifier = Modifier.weight(1f),
+            ) { Text("Reset") }
+            Button(onClick = { onConfirm(RectF(crop)) }, modifier = Modifier.weight(1.2f)) {
+                Text("Apply crop")
+            }
         }
     }
 }
