@@ -63,12 +63,22 @@ object UniversalDetectionEngine {
             kernel.release()
 
             val candidates = collectCandidates(morph, gray)
+            // Rejection bounds are stored in original-image coordinates, while
+            // candidates are measured on the downscaled working image.
+            val scaledRejectedPhotos = scaleBounds(rejectedPhotoBounds, scale)
+            val scaledRejectedSignatures = scaleBounds(rejectedSignatureBounds, scale)
+
             // Add ink-derived candidates so handwritten signatures can be found
             // even when the form has no printed signature box.
             val signatureCandidates = candidates + collectInkCandidates(gray)
 
-            val photo = selectPhoto(candidates, rejectedPhotoBounds)
-            val signature = selectSignature(signatureCandidates, photo, gray, rejectedSignatureBounds)
+            val photo = selectPhoto(candidates, scaledRejectedPhotos)
+            val signature = selectSignature(
+                signatureCandidates,
+                photo,
+                gray,
+                scaledRejectedSignatures,
+            )
 
             val invScale = if (scale == 0.0) 1.0 else 1.0 / scale
 
@@ -295,6 +305,21 @@ object UniversalDetectionEngine {
                 val ratioFit = 1.0 - min(1.0, abs(ratio - 2.5) / 1.5)
                 it.score + ratioFit * 0.25 + min(0.25, inkScore(gray, it.rect))
             }
+    }
+
+    private fun scaleBounds(
+        bounds: Set<android.graphics.RectF>,
+        scale: Double,
+    ): Set<android.graphics.RectF> {
+        if (scale == 1.0 || bounds.isEmpty()) return bounds
+        return bounds.mapTo(mutableSetOf()) { rect ->
+            android.graphics.RectF(
+                (rect.left * scale).toFloat(),
+                (rect.top * scale).toFloat(),
+                (rect.right * scale).toFloat(),
+                (rect.bottom * scale).toFloat(),
+            )
+        }
     }
 
     private fun isRejected(
