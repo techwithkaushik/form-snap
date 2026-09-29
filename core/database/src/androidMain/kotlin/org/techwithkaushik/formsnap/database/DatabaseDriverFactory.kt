@@ -12,7 +12,7 @@ object DatabaseProvider {
             instance ?: Room.databaseBuilder(
                 context.applicationContext,
                 LearningDatabase::class.java,
-                LEARNING_DATABASE_NAME,
+                "formsnap-learning.db",
             ).fallbackToDestructiveMigration().build().also { instance = it }
         }
 }
