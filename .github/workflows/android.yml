@@ -40,16 +40,16 @@ jobs:
           SDK_DIR="$(find "$ROOT" -type d -path '*/sdk' -print -quit)"
           test -n "$SDK_DIR"
           test -d "$SDK_DIR/java"
-          test -f "$SDK_DIR/java/build.gradle"
-          test -f "$SDK_DIR/java/src/main/java/org/opencv/android/OpenCVLoader.java"
           test -d "$SDK_DIR/native"
+          test -f "$SDK_DIR/java/src/main/java/org/opencv/android/OpenCVLoader.java"
+          test -f "$SDK_DIR/native/libs/armeabi-v7a/libopencv_java5.so"
           rm -rf opencv
           mkdir -p opencv
-          cp -R "$SDK_DIR/java/." opencv/
-          cp -R "$SDK_DIR/native" opencv/native
-          echo "Selected OpenCV Java module and bundled native runtime."
-          echo "Using OpenCV Java SDK from: $SDK_DIR/java"
-          find opencv -maxdepth 2 -type f | sort | head -50
+          cp -R "$SDK_DIR/." opencv/
+          echo "Selected complete OpenCV Android SDK (sdk module)."
+          echo "Java sources: opencv/java"
+          echo "Native runtime: opencv/native"
+          find opencv -maxdepth 2 -type f | sort | head -80
 
       - name: Setup Java
         uses: actions/setup-java@v5
