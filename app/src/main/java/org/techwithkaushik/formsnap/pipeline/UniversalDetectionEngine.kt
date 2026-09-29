@@ -1,5 +1,6 @@
 package org.techwithkaushik.formSnap.pipeline
 
+import org.techwithkaushik.formSnap.OpenCvGeometry
 import org.opencv.core.Core
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
@@ -98,14 +99,14 @@ object UniversalDetectionEngine {
 
         try {
             for (contour in contours) {
-                val rect = Imgproc.boundingRect(contour)
+                val rect = OpenCvGeometry.boundingRect(contour)
                 val rectArea = rect.width.toDouble() * rect.height.toDouble()
                 if (rectArea < imageArea * 0.003) {
                     contour.release()
                     continue
                 }
 
-                val contourArea = abs(Imgproc.contourArea(contour))
+                val contourArea = abs(OpenCvGeometry.contourArea(contour))
                 val rectangularity = contourArea / max(1.0, rectArea)
                 if (rectangularity < 0.45) {
                     contour.release()
