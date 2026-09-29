@@ -13,11 +13,14 @@ internal object OutputFileNaming {
         return normalized.ifBlank { "FormSnap" }
     }
 
-    fun desiredName(kind: DetectionKind, personName: String): String =
-        when (kind) {
-            DetectionKind.PHOTO -> "${baseName(personName)}-photo.jpg"
-            DetectionKind.SIGNATURE -> "${baseName(personName)}-sign.png"
-        }
+    fun desiredName(
+        kind: DetectionKind,
+        personName: String,
+        signatureAsJpeg: Boolean = false,
+    ): String = when (kind) {
+        DetectionKind.PHOTO -> "${baseName(personName)}-photo.jpg"
+        DetectionKind.SIGNATURE -> "${baseName(personName)}-sign.${if (signatureAsJpeg) "jpg" else "png"}"
+    }
 
     fun withSuffix(fileName: String, suffix: Int): String {
         require(suffix >= 1)
