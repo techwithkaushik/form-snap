@@ -33,7 +33,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
-import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -79,6 +78,7 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun FormSnapApp() {
+        val ioScope = rememberCoroutineScope()
         var settings by remember { mutableStateOf(OutputSettings()) }
         var settingsOpen by remember { mutableStateOf(false) }
         var source by remember { mutableStateOf<File?>(null) }
@@ -128,7 +128,7 @@ class MainActivity : ComponentActivity() {
             if (uri == null) {
                 saveMessage = "Learning export cancelled."
             } else {
-                lifecycleScope.launch(Dispatchers.IO) {
+                ioScope.launch(Dispatchers.IO) {
                     try {
                         val output = contentResolver.openOutputStream(uri)
                             ?: error("Cannot open export destination")
@@ -151,7 +151,7 @@ class MainActivity : ComponentActivity() {
             if (uri == null) {
                 saveMessage = "Learning import cancelled."
             } else {
-                lifecycleScope.launch(Dispatchers.IO) {
+                ioScope.launch(Dispatchers.IO) {
                     try {
                         val input = contentResolver.openInputStream(uri)
                             ?: error("Cannot open learning backup")
