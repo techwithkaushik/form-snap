@@ -88,13 +88,13 @@ object LayoutTopologyMatcher {
         val actualOther = boxFor(actual, otherKind)
         val contextScore = when {
             expectedOther == null && actualOther == null -> 1f
-            expectedOther == null || actualOther == null -> 0.25f
+            expectedOther == null || actualOther == null -> 0f
             else -> boxSimilarity(expectedOther, actualOther)
         }
         val aspectScore = exp(
             -abs(ln(expected.imageAspectRatio.toDouble() / actual.imageAspectRatio.toDouble())) / ln(2.0),
         ).toFloat().coerceIn(0f, 1f)
-        return (targetScore * 0.65f + contextScore * 0.25f + aspectScore * 0.10f)
+        return (targetScore * 0.60f + contextScore * 0.30f + aspectScore * 0.10f)
             .coerceIn(0f, 1f)
     }
 
