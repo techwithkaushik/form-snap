@@ -13,9 +13,6 @@ object DatabaseProvider {
                 context.applicationContext,
                 LearningDatabase::class.java,
                 LEARNING_DATABASE_NAME,
-            )
-                .fallbackToDestructiveMigration()
-                .build()
-                .also { instance = it }
+            ).fallbackToDestructiveMigration().build().also { instance = it }
         }
 }
