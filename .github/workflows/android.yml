@@ -42,9 +42,12 @@ jobs:
           test -d "$SDK_DIR/java"
           test -f "$SDK_DIR/java/build.gradle"
           test -f "$SDK_DIR/java/src/main/java/org/opencv/android/OpenCVLoader.java"
+          test -d "$SDK_DIR/native"
           rm -rf opencv
           mkdir -p opencv
           cp -R "$SDK_DIR/java/." opencv/
+          cp -R "$SDK_DIR/native" opencv/native
+          echo "Selected OpenCV Java module and bundled native runtime."
           echo "Using OpenCV Java SDK from: $SDK_DIR/java"
           find opencv -maxdepth 2 -type f | sort | head -50
 
