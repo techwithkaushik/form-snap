@@ -86,6 +86,37 @@ class DetectionEvaluationTest {
     }
 
     @Test
+    fun matchingFindsMaximumNumberOfValidPairsInsteadOfGreedyChoice() {
+        val firstTruth = DetectionObservation(
+            DetectionKind.PHOTO,
+            box(0.0, 0.0, 100.0, 100.0),
+        )
+        val secondTruth = DetectionObservation(
+            DetectionKind.PHOTO,
+            box(30.0, 0.0, 130.0, 100.0),
+        )
+        // The first prediction overlaps both truths, while the second only
+        // overlaps the first truth above the 0.5 IoU threshold.
+        val flexiblePrediction = DetectionObservation(
+            DetectionKind.PHOTO,
+            box(20.0, 0.0, 120.0, 100.0),
+        )
+        val constrainedPrediction = DetectionObservation(
+            DetectionKind.PHOTO,
+            box(-20.0, 0.0, 80.0, 100.0),
+        )
+
+        val metrics = DetectionEvaluation.evaluate(
+            expected = listOf(firstTruth, secondTruth),
+            actual = listOf(flexiblePrediction, constrainedPrediction),
+        ).getValue(DetectionKind.PHOTO)
+
+        assertEquals(2, metrics.truePositives)
+        assertEquals(0, metrics.falsePositives)
+        assertEquals(0, metrics.falseNegatives)
+    }
+
+    @Test
     fun lowOverlapIsCountedAsMissAndFalsePositive() {
         val truth = DetectionObservation(DetectionKind.SIGNATURE, box(0.0, 0.0, 100.0, 30.0))
         val prediction = DetectionObservation(DetectionKind.SIGNATURE, box(200.0, 200.0, 300.0, 230.0))
