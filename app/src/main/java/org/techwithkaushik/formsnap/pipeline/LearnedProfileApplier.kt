@@ -21,7 +21,7 @@ object LearnedProfileApplier {
         val aspect = candidate.bounds.height() / candidate.bounds.width().coerceAtLeast(1f)
         val conditionDistance =
             abs(learned.conditionAspectRatio - aspect) +
-                abs(learned.conditionEdgeDensity - 0f)
+                abs(learned.conditionEdgeDensity)
 
         val conditionMatch = (1f - conditionDistance / 2f).coerceIn(0f, 1f)
         val strength = (
@@ -41,14 +41,21 @@ object LearnedProfileApplier {
             b.right + learned.boundsDeltaRight,
             b.bottom + learned.boundsDeltaBottom,
         )
+        // Validate the final blend too: a finite correction can still invert or
+        // collapse a rectangle after it is applied to a small candidate.
+        if (!isValidBounds(blendBounds(b, learnedBounds, strength))) {
+            return LearnedApplication(candidate.bounds, AppearanceAdjustments(), 0f)
+        }
+
+        val appearance = blendAppearance(
+            AppearanceAdjustments(),
+            learned.appearance,
+            strength,
+        )
 
         return LearnedApplication(
             bounds = blendBounds(b, learnedBounds, strength),
-            appearance = blendAppearance(
-                AppearanceAdjustments(),
-                learned.appearance,
-                strength,
-            ),
+            appearance = AppearanceTuning.clamp(appearance),
             blend = strength,
         )
     }
@@ -58,10 +65,8 @@ object LearnedProfileApplier {
         learned: LearnedCorrection,
     ): Boolean {
         val bounds = candidate.bounds
-        if (!bounds.left.isFinite() || !bounds.top.isFinite() ||
-            !bounds.right.isFinite() || !bounds.bottom.isFinite() ||
-            bounds.width() < 1f || bounds.height() < 1f
-        ) return false
+        if (!isValidBounds(bounds)) return false
+        if (learned.kind != candidate.kind) return false
 
         // A single correction is not enough to change future results unless
         // the detector itself reported very high confidence in that correction.
@@ -69,7 +74,7 @@ object LearnedProfileApplier {
         if (learned.sampleCount < 1 || !learned.confidence.isFinite()) return false
         if (learned.confidence !in 0f..1f) return false
 
-        return listOf(
+        val valuesAreFinite = listOf(
             learned.boundsDeltaLeft,
             learned.boundsDeltaTop,
             learned.boundsDeltaRight,
@@ -82,8 +87,34 @@ object LearnedProfileApplier {
             learned.appearance.sharpness,
             learned.appearance.denoise,
             learned.appearance.backgroundCleanup,
-        ).all { it.isFinite() } && learned.conditionAspectRatio > 0f
+        ).all { it.isFinite() }
+        if (!valuesAreFinite || learned.conditionAspectRatio <= 0f) return false
+
+        // Reject profiles whose individual edge corrections are implausibly
+        // large relative to this crop. This prevents stale/corrupt profiles
+        // from moving a crop far away from the detector's actual candidate.
+        val maxHorizontalDelta = bounds.width() * MAX_EDGE_DELTA_RATIO
+        val maxVerticalDelta = bounds.height() * MAX_EDGE_DELTA_RATIO
+        if (abs(learned.boundsDeltaLeft) > maxHorizontalDelta ||
+            abs(learned.boundsDeltaRight) > maxHorizontalDelta ||
+            abs(learned.boundsDeltaTop) > maxVerticalDelta ||
+            abs(learned.boundsDeltaBottom) > maxVerticalDelta
+        ) return false
+
+        val adjustedWidth = bounds.width() +
+            learned.boundsDeltaRight - learned.boundsDeltaLeft
+        val adjustedHeight = bounds.height() +
+            learned.boundsDeltaBottom - learned.boundsDeltaTop
+        return adjustedWidth >= bounds.width() * MIN_SIZE_RATIO &&
+            adjustedWidth <= bounds.width() * MAX_SIZE_RATIO &&
+            adjustedHeight >= bounds.height() * MIN_SIZE_RATIO &&
+            adjustedHeight <= bounds.height() * MAX_SIZE_RATIO
     }
+
+    private fun isValidBounds(bounds: RectF): Boolean =
+        bounds.left.isFinite() && bounds.top.isFinite() &&
+            bounds.right.isFinite() && bounds.bottom.isFinite() &&
+            bounds.width() >= 1f && bounds.height() >= 1f
 
     private fun blendBounds(base: RectF, learned: RectF, strength: Float): RectF = RectF(
         lerp(base.left, learned.left, strength),
@@ -115,4 +146,8 @@ object LearnedProfileApplier {
     )
 
     private fun lerp(a: Float, b: Float, t: Float): Float = a + (b - a) * t
+
+    private const val MAX_EDGE_DELTA_RATIO = 0.35f
+    private const val MIN_SIZE_RATIO = 0.50f
+    private const val MAX_SIZE_RATIO = 1.50f
 }
