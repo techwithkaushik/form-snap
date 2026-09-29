@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -33,6 +34,8 @@ fun PipelinePreviewScreen(
     message: String?,
     personName: String,
     onPersonNameChange: (String) -> Unit,
+    signatureAsJpeg: Boolean,
+    onSignatureAsJpegChange: (Boolean) -> Unit,
     saving: Boolean = false,
     onProcess: () -> Unit,
     onRecapture: () -> Unit,
@@ -104,14 +107,25 @@ fun PipelinePreviewScreen(
         message?.let { text -> item { Text(text) } }
 
         item {
-            OutlinedTextField(
-                value = personName,
-                onValueChange = onPersonNameChange,
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Name for saved files (optional)") },
-                supportingText = { Text("Photo: name-photo.jpg • Signature: name-sign.png") },
-                singleLine = true,
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                OutlinedTextField(
+                    value = personName,
+                    onValueChange = onPersonNameChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Name for saved files (optional)") },
+                    supportingText = {
+                        Text(if (signatureAsJpeg) "Photo: name-photo.jpg • Signature: name-sign.jpg" else "Photo: name-photo.jpg • Signature: name-sign.png")
+                    },
+                    singleLine = true,
+                )
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = signatureAsJpeg,
+                        onCheckedChange = onSignatureAsJpegChange,
+                    )
+                    Text("Save signature as JPEG instead of PNG")
+                }
+            }
         }
 
         if (photoDetected) {
