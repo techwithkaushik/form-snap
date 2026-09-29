@@ -140,7 +140,7 @@ object UniversalDetectionEngine {
 
                 val ratio = rect.width.toDouble() / max(1, rect.height).toDouble()
                 val edgeDensity = edgeDensity(edgeMap, rect)
-                val frameLike = isFrameLike(gray, rect)
+                val frameLike = isFrameLike(edgeMap, rect)
 
                 val score = shapeScore(
                     ratio = ratio,
@@ -432,32 +432,41 @@ object UniversalDetectionEngine {
         }
     }
 
-    private fun isFrameLike(gray: Mat, rect: Rect): Boolean {
-        val clipped = clip(rect, gray)
+    /**
+     * Reuses the single full-image Canny map instead of running Canny once for
+     * every contour. This keeps candidate scoring bounded on dense forms.
+     */
+    private fun isFrameLike(edgeMap: Mat, rect: Rect): Boolean {
+        val clipped = clip(rect, edgeMap)
         if (clipped.width <= 8 || clipped.height <= 8) return false
 
-        val roi = gray.submat(clipped)
-        val edges = Mat()
+        val roi = edgeMap.submat(clipped)
         try {
-            Imgproc.Canny(roi, edges, 60.0, 160.0)
-
-            val top = edges.rowRange(0, max(1, edges.rows() / 12))
-            val bottom = edges.rowRange(
-                max(0, edges.rows() - max(1, edges.rows() / 12)),
-                edges.rows(),
+            val horizontalBand = max(1, roi.rows() / 12)
+            val verticalBand = max(1, roi.cols() / 12)
+            val top = roi.rowRange(0, horizontalBand)
+            val bottom = roi.rowRange(
+                max(0, roi.rows() - horizontalBand),
+                roi.rows(),
             )
-            val left = edges.colRange(0, max(1, edges.cols() / 12))
-            val right = edges.colRange(
-                max(0, edges.cols() - max(1, edges.cols() / 12)),
-                edges.cols(),
+            val left = roi.colRange(0, verticalBand)
+            val right = roi.colRange(
+                max(0, roi.cols() - verticalBand),
+                roi.cols(),
             )
             try {
-                val horizontal = (Core.countNonZero(top) + Core.countNonZero(bottom)).toDouble()
-                val vertical = (Core.countNonZero(left) + Core.countNonZero(right)).toDouble()
+                val horizontal = (
+                    Core.countNonZero(top) + Core.countNonZero(bottom)
+                    ).toDouble()
+                val vertical = (
+                    Core.countNonZero(left) + Core.countNonZero(right)
+                    ).toDouble()
                 val perimeterScale = max(
                     1.0,
-                    (top.rows() * top.cols() + bottom.rows() * bottom.cols() +
-                        left.rows() * left.cols() + right.rows() * right.cols()).toDouble(),
+                    (
+                        top.rows() * top.cols() + bottom.rows() * bottom.cols() +
+                            left.rows() * left.cols() + right.rows() * right.cols()
+                        ).toDouble(),
                 )
                 return (horizontal + vertical) / perimeterScale > 0.10
             } finally {
@@ -467,7 +476,6 @@ object UniversalDetectionEngine {
                 top.release()
             }
         } finally {
-            edges.release()
             roi.release()
         }
     }
