@@ -245,13 +245,14 @@ class PipelinePreviewActivity : ComponentActivity() {
             setShowCropFrame(true)
         }
 
-        UCrop.of(
+        val cropIntent = UCrop.of(
             Uri.fromFile(source),
             Uri.fromFile(destination),
         )
             .withOptions(options)
             .withMaxResultSize(1600, 1600)
-            .start(this, correctionLauncher)
+            .getIntent(this)
+        correctionLauncher.launch(cropIntent)
     }
 
     companion object {
