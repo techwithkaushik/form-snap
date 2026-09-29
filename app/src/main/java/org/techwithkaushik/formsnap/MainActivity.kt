@@ -81,6 +81,7 @@ class MainActivity : ComponentActivity() {
         val ioScope = rememberCoroutineScope()
         var settings by remember { mutableStateOf(OutputSettings()) }
         var settingsOpen by remember { mutableStateOf(false) }
+        var resetLearningConfirm by remember { mutableStateOf(false) }
         var source by remember { mutableStateOf<File?>(null) }
         var mode by remember { mutableStateOf(CaptureMode.WHOLE_FORM) }
         var saveMessage by remember { mutableStateOf<String?>(null) }
@@ -217,6 +218,7 @@ class MainActivity : ComponentActivity() {
                 onSettings = { settingsOpen = true },
                 onExportLearning = { exportLearning.launch("FormSnap-Learning.fsl") },
                 onImportLearning = { importLearning.launch(arrayOf("*/*")) },
+                onResetLearning = { resetLearningConfirm = true },
                 onCamera = { selected ->
                     mode = selected
                     if (ContextCompat.checkSelfPermission(
@@ -288,6 +290,40 @@ class MainActivity : ComponentActivity() {
                 onFolder = { type ->
                     pendingFolderType = type
                     folderPicker.launch(null)
+                },
+            )
+        }
+
+        if (resetLearningConfirm) {
+            AlertDialog(
+                onDismissRequest = { resetLearningConfirm = false },
+                title = { Text("Reset learning memory?") },
+                text = {
+                    Text("This removes saved correction profiles from this device. The built-in detector and your saved images will not be changed.")
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            resetLearningConfirm = false
+                            ioScope.launch(Dispatchers.IO) {
+                                try {
+                                    org.techwithkaushik.formSnap.pipeline.LearningStore.clear(
+                                        this@MainActivity,
+                                    )
+                                    withContext(Dispatchers.Main) {
+                                        saveMessage = "Learning memory reset. Built-in detection is unchanged."
+                                    }
+                                } catch (t: Throwable) {
+                                    withContext(Dispatchers.Main) {
+                                        saveMessage = t.message ?: "Could not reset learning memory."
+                                    }
+                                }
+                            }
+                        },
+                    ) { Text("Reset") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { resetLearningConfirm = false }) { Text("Cancel") }
                 },
             )
         }
@@ -433,6 +469,7 @@ class MainActivity : ComponentActivity() {
         onSettings: () -> Unit,
         onExportLearning: () -> Unit,
         onImportLearning: () -> Unit,
+        onResetLearning: () -> Unit,
         onCamera: (CaptureMode) -> Unit,
         onImport: () -> Unit,
     ) {
@@ -507,6 +544,10 @@ class MainActivity : ComponentActivity() {
                                     modifier = Modifier.weight(1f),
                                 ) { Text("Import") }
                             }
+                            OutlinedButton(
+                                onClick = onResetLearning,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text("Reset learning memory") }
                         }
                     }
                 }
