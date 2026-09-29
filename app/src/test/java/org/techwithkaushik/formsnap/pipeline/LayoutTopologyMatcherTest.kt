@@ -57,7 +57,7 @@ class LayoutTopologyMatcherTest {
 
         val score = LayoutTopologyMatcher.similarity(expected, actual, DetectionKind.PHOTO)
 
-        assertTrue(score < 0.95f)
+        assertTrue(score < LayoutTopologyMatcher.MIN_MATCH_CONFIDENCE)
     }
 
     @Test
