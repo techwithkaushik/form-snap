@@ -29,6 +29,7 @@ Roadmap source: 'FormSnap_2_0_Master_Development_Specification_UPDATED.pdf' (22 
 ## Delta-update acceptance gates
 
 - Candidate geometry and feedback must use a documented coordinate space.
+- Current topology matching uses normalized photo/signature candidate boxes plus source aspect ratio. The full segmented-component topology graph described in the delta specification is still a gap; it must not be reported as complete.
 - Crop offsets recorded by new profiles are normalized against candidate width/height, so similar crops can transfer across source resolutions. Legacy v1/v2 profiles remain interpreted as pixel offsets and are not merged with v3 normalized profiles.
 - The manual crop editor edits the original source coordinate space rather than editing only the already-cropped output.
 - Rejected candidate regions persist per source identity and are bounded in count.
@@ -38,7 +39,8 @@ Roadmap source: 'FormSnap_2_0_Master_Development_Specification_UPDATED.pdf' (22 
 
 ## Current code changes in the feature branch
 
-- Source-coordinate crop editor with move/resize handles; corrected bounds flow back to the preview ViewModel.
+- Source-coordinate crop editor with move/resize handles, Reset, Cancel and Apply; corrected bounds flow back to the preview ViewModel.
+- Normalized topology signature/matcher and a bounded profile store; the matcher gates pre-preview reuse at a measured similarity of at least 0.75. This is a first-release two-region signature, not the full segmented-component graph.
 - Learning profile version 3 stores normalized crop edge deltas; application converts them to pixels using the current candidate dimensions.
 - Added pure unit tests for normalized-delta scaling and output filename sanitization/collision suffixes.
 - Rejected candidate storage is persisted per source-file identity, bounded to ten regions per detection type.
