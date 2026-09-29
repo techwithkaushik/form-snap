@@ -1,27 +1,21 @@
 package org.techwithkaushik.formsnap.database
 
 import android.content.Context
-import app.cash.sqldelight.android.AndroidSqliteDriver
-import app.cash.sqldelight.db.SqlDriver
+import androidx.room.Room
 
-class AndroidLearningDatabase(
-    context: Context,
-) {
-    private val applicationContext = context.applicationContext
+object DatabaseProvider {
+    @Volatile
+    private var instance: LearningDatabase? = null
 
-    val driver: SqlDriver by lazy {
-        AndroidSqliteDriver(
-            schema = LearningDatabase.Schema,
-            context = applicationContext,
-            name = DATABASE_NAME,
-        )
-    }
-
-    val instance: LearningDatabase by lazy {
-        LearningDatabase(driver)
-    }
-
-    companion object {
-        private const val DATABASE_NAME = "formsnap-learning.db"
-    }
+    fun get(context: Context): LearningDatabase =
+        instance ?: synchronized(this) {
+            instance ?: Room.databaseBuilder(
+                context.applicationContext,
+                LearningDatabase::class.java,
+                LEARNING_DATABASE_NAME,
+            )
+                .fallbackToDestructiveMigration()
+                .build()
+                .also { instance = it }
+        }
 }
