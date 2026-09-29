@@ -1,9 +1,14 @@
 package org.techwithkaushik.formsnap.database
 
+import app.cash.sqldelight.coroutines.asFlow
+import app.cash.sqldelight.coroutines.mapToList
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+
 class LearningRepository(
-    private val database: LearningDatabase,
+    private val database: LearningDatabaseWrapper,
 ) {
-    private val queries = database.learningDatabaseQueries
+    private val queries = database.instance.learningDatabaseQueries
 
     fun record(
         timestamp: Long,
@@ -25,12 +30,25 @@ class LearningRepository(
         )
     }
 
-    fun allLogs(): List<UserCorrectionLog> =
-        queries.selectAllLogs().executeAsList()
+    fun allLogs(): Flow<List<UserCorrectionLog>> =
+        queries
+            .selectAllLogs()
+            .asFlow()
+            .mapToList(Dispatchers.Default)
 
     fun getParameter(parameterKey: String): Double? =
         queries.getParameter(parameterKey).executeAsOneOrNull()
 
     fun allParameters(): List<TunedParameters> =
         queries.selectAllParameters().executeAsList()
+
+    fun updateParameter(
+        parameterKey: String,
+        parameterValue: Double,
+    ) {
+        queries.updateParameter(
+            parameterKey = parameterKey,
+            parameterValue = parameterValue,
+        )
+    }
 }
