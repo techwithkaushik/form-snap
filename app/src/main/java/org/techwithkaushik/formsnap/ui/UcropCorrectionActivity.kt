@@ -51,10 +51,6 @@ class UcropCorrectionActivity : ComponentActivity() {
             setCompressionQuality(95)
             setShowCropGrid(true)
             setShowCropFrame(true)
-            setBrightnessEnabled(true)
-            setContrastEnabled(true)
-            setSaturationEnabled(true)
-            setSharpnessEnabled(true)
         }
 
         UCrop.of(
