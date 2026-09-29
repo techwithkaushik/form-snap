@@ -41,14 +41,22 @@ object UniversalPipeline {
         val adjustedCandidate = candidate.copy(bounds = application.bounds)
 
         val output = OutputNormalizer.normalize(source, adjustedCandidate, kind, dpi)
-        val appearanceApplied = AppearanceProcessor.apply(
-            output.image,
-            application.appearance,
-            kind,
-        )
-        output.image.release()
+        val appearanceApplied = try {
+            AppearanceProcessor.apply(
+                output.image,
+                application.appearance,
+                kind,
+            )
+        } finally {
+            output.image.release()
+        }
 
-        val quality = ImageQualityGate.evaluate(appearanceApplied, kind)
+        val quality = try {
+            ImageQualityGate.evaluate(appearanceApplied, kind)
+        } catch (t: Throwable) {
+            appearanceApplied.release()
+            throw t
+        }
 
         return PipelineStageOutput(
             detection = detection.copy(
