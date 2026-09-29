@@ -98,6 +98,20 @@ object DetectionEvaluation {
         }
     }
 
+    /**
+     * Fraction of labelled content retained inside a crop. 1.0 means the
+     * crop fully contains the content; values below 1.0 quantify clipping.
+     */
+    fun contentRetention(content: EvaluationBox, crop: EvaluationBox): Double {
+        val left = max(content.left, crop.left)
+        val top = max(content.top, crop.top)
+        val right = min(content.right, crop.right)
+        val bottom = min(content.bottom, crop.bottom)
+        if (right <= left || bottom <= top) return 0.0
+        val retainedArea = (right - left) * (bottom - top)
+        return (retainedArea / content.area).coerceIn(0.0, 1.0)
+    }
+
     fun intersectionOverUnion(first: EvaluationBox, second: EvaluationBox): Double {
         val intersectionWidth = max(0.0, min(first.right, second.right) - max(first.left, second.left))
         val intersectionHeight = max(0.0, min(first.bottom, second.bottom) - max(first.top, second.top))
