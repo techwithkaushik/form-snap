@@ -1,9 +1,7 @@
 package org.techwithkaushik.formSnap.pipeline
 
-import org.opencv.android.Utils
 import org.opencv.core.Mat
 import org.opencv.imgcodecs.Imgcodecs
-import android.graphics.BitmapFactory
 import java.io.File
 
 data class UniversalPipelineOutput(
@@ -49,10 +47,11 @@ object UniversalPipelineBatch {
     ): UniversalPipelineOutput {
         require(input.exists()) { "Input file does not exist" }
         val source = Imgcodecs.imread(input.absolutePath)
-        require(!source.empty()) { "Unable to decode input image" }
         return try {
+            require(!source.empty()) { "Unable to decode input image" }
             process(source, dpi, context)
         } finally {
+            // Release even when decoding fails, so failed imports cannot leak a native Mat.
             source.release()
         }
     }

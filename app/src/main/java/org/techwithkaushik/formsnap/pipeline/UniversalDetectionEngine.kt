@@ -51,7 +51,14 @@ object UniversalDetectionEngine {
                 source.copyTo(work)
             }
 
-            Imgproc.cvtColor(work, gray, Imgproc.COLOR_BGR2GRAY)
+            when (work.channels()) {
+                1 -> work.copyTo(gray)
+                3 -> Imgproc.cvtColor(work, gray, Imgproc.COLOR_BGR2GRAY)
+                4 -> Imgproc.cvtColor(work, gray, Imgproc.COLOR_BGRA2GRAY)
+                else -> throw IllegalArgumentException(
+                    "Unsupported image channel count: ${work.channels()}",
+                )
+            }
             Imgproc.GaussianBlur(gray, gray, org.opencv.core.Size(5.0, 5.0), 0.0)
             Imgproc.Canny(gray, edges, 45.0, 140.0)
 
@@ -59,8 +66,11 @@ object UniversalDetectionEngine {
                 Imgproc.MORPH_RECT,
                 org.opencv.core.Size(5.0, 5.0),
             )
-            Imgproc.morphologyEx(edges, morph, Imgproc.MORPH_CLOSE, kernel)
-            kernel.release()
+            try {
+                Imgproc.morphologyEx(edges, morph, Imgproc.MORPH_CLOSE, kernel)
+            } finally {
+                kernel.release()
+            }
 
             val candidates = collectCandidates(morph, gray)
             // Rejection bounds are stored in original-image coordinates, while
