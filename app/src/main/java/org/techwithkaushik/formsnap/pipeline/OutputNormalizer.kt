@@ -13,6 +13,8 @@ data class NormalizedOutput(
 )
 
 object OutputNormalizer {
+    private const val MAX_OUTPUT_PIXELS = 24_000_000L
+
     fun normalize(
         source: Mat,
         candidate: DetectionCandidate,
@@ -22,33 +24,52 @@ object OutputNormalizer {
         heightMm: Double? = null,
     ): NormalizedOutput {
         require(!source.empty()) { "Source image is empty" }
+        require(dpi in 72..1200) { "DPI must be between 72 and 1200" }
 
-        val widthPx = max(1, mmToPx(widthMm ?: defaultWidthMm(kind), dpi))
-        val heightPx = max(1, mmToPx(heightMm ?: defaultHeightMm(kind), dpi))
+        val requestedWidthMm = widthMm ?: defaultWidthMm(kind)
+        val requestedHeightMm = heightMm ?: defaultHeightMm(kind)
+        require(requestedWidthMm.isFinite() && requestedWidthMm > 0.0) {
+            "Output width must be a finite positive value"
+        }
+        require(requestedHeightMm.isFinite() && requestedHeightMm > 0.0) {
+            "Output height must be a finite positive value"
+        }
+
+        val widthPx = max(1, mmToPx(requestedWidthMm, dpi))
+        val heightPx = max(1, mmToPx(requestedHeightMm, dpi))
+        require(widthPx.toLong() * heightPx.toLong() <= MAX_OUTPUT_PIXELS) {
+            "Requested output is too large to process safely"
+        }
+
         val crop = CropEngine.crop(source, candidate)
-        val cleaned = BorderCleaner.clean(crop.image, kind)
-        crop.image.release()
+        var cleaned: Mat? = null
+        var resized: Mat? = null
+        try {
+            cleaned = BorderCleaner.clean(crop.image, kind)
+            val output = Mat()
+            resized = output
+            Imgproc.resize(
+                cleaned,
+                output,
+                Size(widthPx.toDouble(), heightPx.toDouble()),
+                0.0,
+                0.0,
+                if (kind == DetectionKind.PHOTO) Imgproc.INTER_AREA else Imgproc.INTER_CUBIC,
+            )
 
-        val resized = Mat()
-        Imgproc.resize(
-            cleaned,
-            resized,
-            Size(widthPx.toDouble(), heightPx.toDouble()),
-            0.0,
-            0.0,
-            if (kind == DetectionKind.PHOTO) Imgproc.INTER_AREA else Imgproc.INTER_CUBIC,
-        )
-        cleaned.release()
-
-        return NormalizedOutput(
-            image = resized,
-            bounds = RectF(
+            val outputBounds = RectF(
                 crop.bounds.left.toFloat(),
                 crop.bounds.top.toFloat(),
                 crop.bounds.right.toFloat(),
                 crop.bounds.bottom.toFloat(),
-            ),
-        )
+            )
+            resized = null // Ownership transfers to the caller on success.
+            return NormalizedOutput(image = output, bounds = outputBounds)
+        } finally {
+            resized?.release()
+            cleaned?.release()
+            crop.image.release()
+        }
     }
 
     private fun mmToPx(mm: Double, dpi: Int): Int =
