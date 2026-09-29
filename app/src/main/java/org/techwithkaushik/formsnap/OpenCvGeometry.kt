@@ -11,7 +11,6 @@ import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.hypot
 import kotlin.math.max
-import kotlin.math.min
 
 /**
  * Geometry operations kept in Kotlin so FormSnap does not depend on optional
@@ -93,7 +92,7 @@ object OpenCvGeometry {
             equations[i * 2] = doubleArrayOf(x, y, 1.0, 0.0, 0.0, 0.0, -u * x, -u * y, u)
             equations[i * 2 + 1] = doubleArrayOf(0.0, 0.0, 0.0, x, y, 1.0, -v * x, -v * y, v)
         }
-        val h = solve(equations) + 1.0
+        val h = solve(equations)
         val matrix = Mat(3, 3, CvType.CV_64F)
         matrix.put(0, 0, h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], 1.0)
         return matrix
