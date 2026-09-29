@@ -21,7 +21,7 @@ Roadmap source: 'FormSnap_2_0_Master_Development_Specification_UPDATED.pdf' (22 
 | 6 | Confidence and four presence combinations | Baseline implemented | Calibrate thresholds on held-out data; report photo/signature metrics separately |
 | 7 | Preview and manual correction | Source-coordinate editor implemented in this branch | CI and interactive device checks; confirm drag handles, reset/cancel and repeated edits |
 | 8 | Persistent folder and verified save | SAF root folder reuse, collision-safe names, JPEG photo and PNG signature implemented in this branch | Verify folder permission across cold start/revocation; test partial failures and read-back on Android |
-| 9 | Feedback and controlled learning | Versioned feedback store and persisted rejected candidates implemented | Verify Accept/Adjust/Reject across restart; verify Reset Learning clears user profiles without damaging baseline |
+| 9 | Feedback and controlled learning | Versioned feedback store and persisted rejected candidates implemented | Verify Accept/Adjust/Reject across restart; verify Reset Learning clears condition profiles, topology profiles and rejected-candidate memory without damaging baseline |
 | 10 | Portable .fsl import/export | Existing implementation | Round-trip, malformed, oversized, incompatible and interrupted-import tests |
 | 11 | Optional lightweight ML | Not enabled | Do not add until a held-out baseline shows a measurable gap and model benefit exceeds size/RAM cost |
 | 12 | Hardening and release | CI workflow and release signing configured | Current revision CI, target-device profiling, APK size, repeated-run memory/cache tests, no critical crash/data-loss defects |
@@ -43,7 +43,7 @@ Roadmap source: 'FormSnap_2_0_Master_Development_Specification_UPDATED.pdf' (22 
 - Normalized topology signature/matcher and a bounded profile store; the matcher gates pre-preview reuse at a measured similarity of at least 0.75. This is a first-release two-region signature, not the full segmented-component graph.
 - Learning profile version 3 stores normalized crop edge deltas; application converts them to pixels using the current candidate dimensions.
 - Added pure unit tests for normalized-delta scaling and output filename sanitization/collision suffixes.
-- Rejected candidate storage is persisted per source-file identity, bounded to ten regions per detection type.
+- Rejected candidate storage is persisted per source-file identity, bounded to ten regions per detection type, and included in Reset Learning.
 - One persisted output-folder URI is shared by photo and signature. Photo uses JPEG; signature defaults to PNG and can optionally use JPEG. Writes are read back and size-verified.
 
 ## Release decision
