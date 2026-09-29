@@ -3,6 +3,7 @@ package org.techwithkaushik.formSnap.pipeline
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -116,6 +117,9 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
 
             renderDetectedPreviews()
         } catch (t: Throwable) {
+            // Never turn lifecycle/job cancellation into a visible processing error.
+            // Propagating cancellation lets Compose stop obsolete work immediately.
+            if (t is CancellationException) throw t
             _state.value = PreviewProcessingState(
                 source = input,
                 error = t.message ?: "Preview failed",
@@ -338,6 +342,9 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
                 }
             },
             { error ->
+                // runCatching also catches CancellationException; restore structured
+                // concurrency by propagating it instead of publishing a stale error.
+                if (error is CancellationException) throw error
                 _state.value.copy(
                     processing = false,
                     error = error.message ?: "Preview failed",
