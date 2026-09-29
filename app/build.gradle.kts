@@ -16,10 +16,7 @@ android {
         versionName = "0.2.0"
 
         ndk {
-            abiFilters += setOf(
-                "arm64-v8a",
-                "armeabi-v7a",
-            )
+            abiFilters += setOf("armeabi-v7a")
         }
     }
 
@@ -31,10 +28,9 @@ android {
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
         jniLibs {
-            pickFirsts += setOf(
-                "lib/arm64-v8a/libc++_shared.so",
-                "lib/armeabi-v7a/libc++_shared.so",
-            )
+            excludes += "lib/arm64-v8a/**"
+            excludes += "lib/x86/**"
+            excludes += "lib/x86_64/**"
         }
     }
 
@@ -56,16 +52,10 @@ android {
             val storePassword = System.getenv("SIGNING_STORE_PASSWORD")
             val alias = System.getenv("SIGNING_KEY_ALIAS")
             val keyPassword = System.getenv("SIGNING_KEY_PASSWORD")
-
-            if (
-                !store.isNullOrBlank() &&
-                !storePassword.isNullOrBlank() &&
-                !alias.isNullOrBlank() &&
-                !keyPassword.isNullOrBlank()
+            if (!store.isNullOrBlank() && !storePassword.isNullOrBlank() &&
+                !alias.isNullOrBlank() && !keyPassword.isNullOrBlank()
             ) {
-                signingConfig = signingConfigs.create(
-                    "releaseSigning",
-                ) {
+                signingConfig = signingConfigs.create("releaseSigning") {
                     storeFile = file(store)
                     this.storePassword = storePassword
                     keyAlias = alias
