@@ -2,6 +2,8 @@ package org.techwithkaushik.formSnap.pipeline
 
 import android.graphics.Rect
 import org.opencv.core.Mat
+import kotlin.math.ceil
+import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 
@@ -14,20 +16,36 @@ object CropEngine {
 
     fun crop(source: Mat, candidate: DetectionCandidate): CropOutput {
         require(!source.empty()) { "Source image is empty" }
+        require(source.cols() > 0 && source.rows() > 0) { "Source image has invalid dimensions" }
 
-        val rawLeft = candidate.bounds.left.toInt()
-        val rawTop = candidate.bounds.top.toInt()
-        val rawRight = candidate.bounds.right.toInt()
-        val rawBottom = candidate.bounds.bottom.toInt()
+        val bounds = candidate.bounds
+        require(
+            bounds.left.isFinite() && bounds.top.isFinite() &&
+                bounds.right.isFinite() && bounds.bottom.isFinite(),
+        ) { "Candidate bounds must be finite" }
+        require(bounds.right > bounds.left && bounds.bottom > bounds.top) {
+            "Candidate bounds must have positive width and height"
+        }
 
-        val leftBase = max(0, min(source.cols() - 1, rawLeft))
-        val topBase = max(0, min(source.rows() - 1, rawTop))
-        val rightBase = max(leftBase + 1, min(source.cols(), rawRight))
-        val bottomBase = max(topBase + 1, min(source.rows(), rawBottom))
+        // Clip before integer conversion. A candidate completely outside the
+        // source must not silently turn into a one-pixel edge crop.
+        val clippedLeft = max(0f, bounds.left)
+        val clippedTop = max(0f, bounds.top)
+        val clippedRight = min(source.cols().toFloat(), bounds.right)
+        val clippedBottom = min(source.rows().toFloat(), bounds.bottom)
+        require(clippedRight > clippedLeft && clippedBottom > clippedTop) {
+            "Candidate bounds do not intersect the source image"
+        }
 
-        val rawWidth = max(1, rightBase - leftBase)
-        val rawHeight = max(1, bottomBase - topBase)
+        // Floor leading edges and ceil trailing edges to preserve fractional
+        // boundary pixels rather than accidentally clipping detected content.
+        val leftBase = floor(clippedLeft.toDouble()).toInt().coerceIn(0, source.cols() - 1)
+        val topBase = floor(clippedTop.toDouble()).toInt().coerceIn(0, source.rows() - 1)
+        val rightBase = ceil(clippedRight.toDouble()).toInt().coerceIn(leftBase + 1, source.cols())
+        val bottomBase = ceil(clippedBottom.toDouble()).toInt().coerceIn(topBase + 1, source.rows())
 
+        val rawWidth = rightBase - leftBase
+        val rawHeight = bottomBase - topBase
         val paddingX = max(4, (rawWidth * 0.06f).toInt())
         val paddingY = max(4, (rawHeight * 0.10f).toInt())
 
@@ -35,27 +53,31 @@ object CropEngine {
         val top = max(0, topBase - paddingY)
         val right = min(source.cols(), rightBase + paddingX)
         val bottom = min(source.rows(), bottomBase + paddingY)
+        val width = right - left
+        val height = bottom - top
 
-        val width = max(1, right - left)
-        val height = max(1, bottom - top)
-
-        val roi = source.submat(
-            org.opencv.core.Rect(left, top, width, height),
-        )
+        val roi = source.submat(org.opencv.core.Rect(left, top, width, height))
         val output = Mat()
-        roi.copyTo(output)
-        roi.release()
-
-        return CropOutput(
-            image = output,
-            bounds = Rect(left, top, right, bottom),
-        )
+        try {
+            roi.copyTo(output)
+            return CropOutput(output, Rect(left, top, right, bottom))
+        } catch (failure: Throwable) {
+            output.release()
+            throw failure
+        } finally {
+            roi.release()
+        }
     }
 
     fun normalizeOrientation(input: Mat): Mat {
         require(!input.empty()) { "Input image is empty" }
         val output = Mat()
-        input.copyTo(output)
-        return output
+        try {
+            input.copyTo(output)
+            return output
+        } catch (failure: Throwable) {
+            output.release()
+            throw failure
+        }
     }
 }
