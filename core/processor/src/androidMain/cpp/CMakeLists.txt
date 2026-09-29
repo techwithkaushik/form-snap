@@ -38,9 +38,9 @@ if(NOT EXISTS "${OPENCV_LIBRARY}")
     )
 endif()
 
-add_library(opencv_java4 SHARED IMPORTED GLOBAL)
+add_library(opencv_java5 SHARED IMPORTED GLOBAL)
 
-set_target_properties(opencv_java4 PROPERTIES
+set_target_properties(opencv_java5 PROPERTIES
     IMPORTED_LOCATION "${OPENCV_LIBRARY}"
     INTERFACE_INCLUDE_DIRECTORIES "${OPENCV_INCLUDE_DIR}"
 )
@@ -55,7 +55,7 @@ target_include_directories(formsnap_processor
 
 target_link_libraries(formsnap_processor
     PRIVATE
-        opencv_java4
+        opencv_java5
         android
         log
 )
