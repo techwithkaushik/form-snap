@@ -37,6 +37,7 @@ object CorrectionLearning {
      */
     fun sameConditionProfile(first: LearnedCorrection, second: LearnedCorrection): Boolean =
         first.kind == second.kind &&
+            first.version == second.version &&
             close(first.conditionAspectRatio, second.conditionAspectRatio, 0.15f) &&
             close(first.conditionBrightness, second.conditionBrightness, 0.15f) &&
             close(first.conditionContrast, second.conditionContrast, 0.20f) &&
@@ -138,6 +139,14 @@ object CorrectionLearning {
         if (correction.sampleCount !in 1..100) return false
         if (correction.confidence !in 0f..1f) return false
         if (correction.conditionAspectRatio !in 0.05f..20f) return false
+        val deltaLimit = if (correction.version >= 3) 0.35f else 1_000_000f
+        if (listOf(
+                correction.boundsDeltaLeft,
+                correction.boundsDeltaTop,
+                correction.boundsDeltaRight,
+                correction.boundsDeltaBottom,
+            ).any { abs(it) > deltaLimit }
+        ) return false
         val appearance = correction.appearance
         if (appearance.brightness !in -0.5f..0.5f) return false
         if (appearance.contrast !in 0.7f..1.5f) return false
@@ -164,12 +173,15 @@ object CorrectionLearning {
     ): LearnedCorrection {
         val corrected = correctedBounds ?: automatic.bounds
         val width = automatic.bounds.width().coerceAtLeast(1f)
+        val height = automatic.bounds.height().coerceAtLeast(1f)
         return LearnedCorrection(
             kind = automatic.kind,
-            boundsDeltaLeft = corrected.left - automatic.bounds.left,
-            boundsDeltaTop = corrected.top - automatic.bounds.top,
-            boundsDeltaRight = corrected.right - automatic.bounds.right,
-            boundsDeltaBottom = corrected.bottom - automatic.bounds.bottom,
+            // Version 3 stores edge offsets as fractions of the detected crop,
+            // not absolute pixels, so feedback remains valid across resolutions.
+            boundsDeltaLeft = (corrected.left - automatic.bounds.left) / width,
+            boundsDeltaTop = (corrected.top - automatic.bounds.top) / height,
+            boundsDeltaRight = (corrected.right - automatic.bounds.right) / width,
+            boundsDeltaBottom = (corrected.bottom - automatic.bounds.bottom) / height,
             appearance = appearance,
             conditionBrightness = sourceBrightness,
             conditionContrast = sourceContrast,
@@ -178,6 +190,7 @@ object CorrectionLearning {
             conditionAspectRatio = automatic.bounds.height() / width,
             sampleCount = 1,
             confidence = automatic.confidence,
+            version = 3,
         )
     }
 
