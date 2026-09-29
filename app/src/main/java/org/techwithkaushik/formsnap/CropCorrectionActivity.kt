@@ -37,7 +37,6 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.foundation.shape.RoundedCornerShape
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -48,6 +47,8 @@ import kotlin.math.roundToInt
  * original image's coordinate space, even though the preview bitmap is sampled.
  */
 class CropCorrectionActivity : ComponentActivity() {
+    private var editorBitmap: Bitmap? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val path = intent.getStringExtra(EXTRA_SOURCE_PATH)
@@ -75,6 +76,7 @@ class CropCorrectionActivity : ComponentActivity() {
             finish()
             return
         }
+        editorBitmap = bitmap
         val initial = RectF(
             intent.getFloatExtra(EXTRA_LEFT, 0f),
             intent.getFloatExtra(EXTRA_TOP, 0f),
@@ -104,7 +106,9 @@ class CropCorrectionActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        // The preview is a sampled bitmap owned by this Activity.
+        // Release the sampled preview bitmap when this editor is dismissed.
+        editorBitmap?.recycle()
+        editorBitmap = null
         super.onDestroy()
     }
 
