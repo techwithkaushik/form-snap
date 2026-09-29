@@ -18,6 +18,14 @@ class OutputFileNamingTest {
     }
 
     @Test
+    fun supportsOptionalJpegSignatureExtension() {
+        assertEquals(
+            "Arvind-Kaushik-sign.jpg",
+            OutputFileNaming.desiredName(DetectionKind.SIGNATURE, "Arvind Kaushik", signatureAsJpeg = true),
+        )
+    }
+
+    @Test
     fun addsCollisionSuffixBeforeExtension() {
         assertEquals("Arvind-photo_1.jpg", OutputFileNaming.withSuffix("Arvind-photo.jpg", 1))
         assertEquals("signature_2.png", OutputFileNaming.withSuffix("signature.png", 2))
