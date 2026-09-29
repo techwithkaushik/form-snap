@@ -13,8 +13,8 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    name: Build signed APK
+  run_unit_test:
+    name: Run unit tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -34,19 +34,126 @@ jobs:
           curl --fail --location --retry 5 --retry-all-errors \
             "https://github.com/opencv/opencv/releases/download/${OPENCV_VERSION}/opencv-${OPENCV_VERSION}-android-sdk.zip" \
             -o "$ZIP"
-          rm -rf "$ROOT"
-          mkdir -p "$ROOT"
+          rm -rf "$ROOT" opencv
+          mkdir -p "$ROOT" opencv
           unzip -q "$ZIP" -d "$ROOT"
           SDK_DIR="$(find "$ROOT" -type d -path '*/sdk' -print -quit)"
-          ls "$SDK_DIR"
           test -n "$SDK_DIR"
           test -d "$SDK_DIR/java"
-          rm -rf opencv
-          mkdir -p opencv
           cp -R "$SDK_DIR/." opencv/
-          echo "Selected complete OpenCV Android SDK (sdk module)."
-          echo "Java sources: opencv/java"
-          find opencv -maxdepth 2 -type f | sort | head -80
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: "9.6.0"
+          cache-provider: enhanced
+          validate-wrappers: false
+
+      - name: Run unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -x ./gradlew ]; then
+            ./gradlew :app:testDebugUnitTest --no-daemon --build-cache --stacktrace
+          else
+            gradle :app:testDebugUnitTest --no-daemon --build-cache --stacktrace
+          fi
+
+  run_connected_checks:
+    name: Run connected Android checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: feature/foundation-pipeline
+          fetch-depth: 1
+          submodules: false
+
+      - name: Download OpenCV Android SDK 5.0.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          OPENCV_VERSION="5.0.0"
+          ZIP="$RUNNER_TEMP/opencv-android-sdk.zip"
+          ROOT="$RUNNER_TEMP/opencv-sdk"
+          curl --fail --location --retry 5 --retry-all-errors \
+            "https://github.com/opencv/opencv/releases/download/${OPENCV_VERSION}/opencv-${OPENCV_VERSION}-android-sdk.zip" \
+            -o "$ZIP"
+          rm -rf "$ROOT" opencv
+          mkdir -p "$ROOT" opencv
+          unzip -q "$ZIP" -d "$ROOT"
+          SDK_DIR="$(find "$ROOT" -type d -path '*/sdk' -print -quit)"
+          test -n "$SDK_DIR"
+          test -d "$SDK_DIR/java"
+          cp -R "$SDK_DIR/." opencv/
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: "9.6.0"
+          cache-provider: enhanced
+          validate-wrappers: false
+
+      - name: Run connected Android checks on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            if [ -x ./gradlew ]; then
+              ./gradlew :app:connectedDebugAndroidTest --no-daemon --build-cache --stacktrace
+            else
+              gradle :app:connectedDebugAndroidTest --no-daemon --build-cache --stacktrace
+            fi
+
+  build:
+    name: Build signed APK
+    runs-on: ubuntu-latest
+    needs:
+      - run_unit_test
+      - run_connected_checks
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: feature/foundation-pipeline
+          fetch-depth: 1
+          submodules: false
+
+      - name: Download OpenCV Android SDK 5.0.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          OPENCV_VERSION="5.0.0"
+          ZIP="$RUNNER_TEMP/opencv-android-sdk.zip"
+          ROOT="$RUNNER_TEMP/opencv-sdk"
+          curl --fail --location --retry 5 --retry-all-errors \
+            "https://github.com/opencv/opencv/releases/download/${OPENCV_VERSION}/opencv-${OPENCV_VERSION}-android-sdk.zip" \
+            -o "$ZIP"
+          rm -rf "$ROOT" opencv
+          mkdir -p "$ROOT" opencv
+          unzip -q "$ZIP" -d "$ROOT"
+          SDK_DIR="$(find "$ROOT" -type d -path '*/sdk' -print -quit)"
+          test -n "$SDK_DIR"
+          test -d "$SDK_DIR/java"
+          cp -R "$SDK_DIR/." opencv/
 
       - name: Setup Java
         uses: actions/setup-java@v5
@@ -74,6 +181,7 @@ jobs:
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
           SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+        shell: bash
         run: |
           set -euo pipefail
           if [ -x ./gradlew ]; then
@@ -83,6 +191,7 @@ jobs:
           fi
 
       - name: Verify APK
+        shell: bash
         run: |
           set -euo pipefail
           APK="app/build/outputs/apk/release/app-release.apk"
