@@ -4,13 +4,22 @@ import android.content.Context
 import java.io.File
 import org.techwithkaushik.formSnap.foundation.ProcessingSession
 
+/**
+ * Result files remain available until the caller closes this result.
+ * Always consume with `use { result -> ... }` when possible to clean up promptly.
+ */
 data class ProcessedFileResult(
     val photoPath: String?,
     val signaturePath: String?,
     val photoQuality: QualityResult?,
     val signatureQuality: QualityResult?,
     val detection: DetectionResult,
-)
+    private val session: ProcessingSession,
+) : AutoCloseable {
+    override fun close() {
+        session.closeAndDelete()
+    }
+}
 
 object ProcessFileService {
     fun process(
@@ -41,10 +50,12 @@ object ProcessFileService {
                     photoQuality = result.photo?.quality,
                     signatureQuality = result.signature?.quality,
                     detection = result.detection,
+                    session = session,
                 )
             }
-        } finally {
+        } catch (t: Throwable) {
             session.closeAndDelete()
+            throw t
         }
     }
 }
