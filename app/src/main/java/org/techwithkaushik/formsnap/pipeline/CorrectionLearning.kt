@@ -53,8 +53,17 @@ object CorrectionLearning {
         )
         if (numericValues.any { !it.isFinite() }) return false
         if (correction.conditionAspectRatio <= 0f) return false
-        if (correction.sampleCount < 1) return false
+        if (correction.sampleCount !in 1..100) return false
         if (correction.confidence !in 0f..1f) return false
+        if (correction.conditionAspectRatio !in 0.05f..20f) return false
+        val appearance = correction.appearance
+        if (appearance.brightness !in -0.5f..0.5f) return false
+        if (appearance.contrast !in 0.7f..1.5f) return false
+        if (appearance.saturation !in 0.5f..1.5f) return false
+        if (appearance.sharpness !in 0f..1f) return false
+        if (appearance.denoise !in 0f..1f) return false
+        if (appearance.backgroundCleanup !in 0f..1f) return false
+        if (appearance.inkThreshold !in 80..220) return false
         if (correction.conditionBrightness !in -1f..1f) return false
         if (correction.conditionContrast !in 0f..4f) return false
         if (correction.conditionSaturation !in 0f..4f) return false
