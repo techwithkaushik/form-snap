@@ -37,7 +37,8 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
     private val _state = MutableStateFlow(PreviewProcessingState())
     val state: StateFlow<PreviewProcessingState> = _state
 
-    private val sessionDir = File(ProcessingPaths.root(context), "preview_session").apply { mkdirs() }
+    // Every preview gets an isolated temporary directory; parallel/reopened sessions cannot overwrite each other.
+    private val sessionDir = ProcessingPaths.session(context)
     private val previewScope = CoroutineScope(Dispatchers.Main.immediate)
     private var previewJob: Job? = null
     private val rejectedPhotoBounds = mutableSetOf<android.graphics.RectF>()
