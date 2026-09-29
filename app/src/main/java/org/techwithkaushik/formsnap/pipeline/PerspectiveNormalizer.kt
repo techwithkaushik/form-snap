@@ -62,13 +62,25 @@ object PerspectiveNormalizer {
             Point((width - 1).toDouble(), (height - 1).toDouble()),
             Point(0.0, (height - 1).toDouble()),
         )
-        val matrix = OpenCvGeometry.getPerspectiveTransform(src, dst)
+        var matrix: Mat? = null
         val output = Mat()
-        Imgproc.warpPerspective(source, output, matrix, org.opencv.core.Size(width.toDouble(), height.toDouble()))
-        matrix.release()
-        src.release()
-        dst.release()
-        return output
+        var keepOutput = false
+        try {
+            matrix = OpenCvGeometry.getPerspectiveTransform(src, dst)
+            Imgproc.warpPerspective(
+                source,
+                output,
+                matrix,
+                org.opencv.core.Size(width.toDouble(), height.toDouble()),
+            )
+            keepOutput = true
+            return output
+        } finally {
+            matrix?.release()
+            src.release()
+            dst.release()
+            if (!keepOutput) output.release()
+        }
     }
 
     private fun distance(a: Point, b: Point): Double {

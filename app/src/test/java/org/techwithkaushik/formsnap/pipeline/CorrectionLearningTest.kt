@@ -146,6 +146,19 @@ class CorrectionLearningTest {
     }
 
     @Test
+    fun conditionSimilarityHandlesExtremeRatiosWithoutNumericTypeErrors() {
+        val profile = LearnedCorrection(
+            kind = DetectionKind.PHOTO,
+            conditionAspectRatio = 1f,
+        )
+        assertEquals(
+            0f,
+            CorrectionLearning.conditionSimilarity(profile, aspectRatio = 100f),
+            0.0001f,
+        )
+    }
+
+    @Test
     fun blendKeepsConfidenceWithinValidRange() {
         val previous = LearnedCorrection(
             kind = DetectionKind.SIGNATURE,

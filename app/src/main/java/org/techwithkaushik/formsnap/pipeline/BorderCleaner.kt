@@ -10,6 +10,28 @@ import kotlin.math.min
 
 object BorderCleaner {
 
+    private fun copyRegion(
+        source: Mat,
+        target: Mat,
+        sourceRowStart: Int,
+        sourceRowEnd: Int,
+        targetRowStart: Int,
+        targetRowEnd: Int,
+        sourceColStart: Int,
+        sourceColEnd: Int,
+        targetColStart: Int,
+        targetColEnd: Int,
+    ) {
+        val sourceView = source.submat(sourceRowStart, sourceRowEnd, sourceColStart, sourceColEnd)
+        val targetView = target.submat(targetRowStart, targetRowEnd, targetColStart, targetColEnd)
+        try {
+            sourceView.copyTo(targetView)
+        } finally {
+            targetView.release()
+            sourceView.release()
+        }
+    }
+
     fun clean(input: Mat, kind: DetectionKind): Mat {
         require(!input.empty()) { "Image is empty" }
 
@@ -66,30 +88,30 @@ object BorderCleaner {
                 verticalKernel,
             )
 
-            horizontal.rowRange(0, min(edgeY, horizontal.rows()))
-                .copyTo(mask.rowRange(0, min(edgeY, mask.rows())))
-
-            horizontal.rowRange(
-                max(0, horizontal.rows() - edgeY),
-                horizontal.rows(),
-            ).copyTo(
-                mask.rowRange(
-                    max(0, mask.rows() - edgeY),
-                    mask.rows(),
-                ),
+            copyRegion(
+                horizontal, mask,
+                0, min(edgeY, horizontal.rows()), 0, min(edgeY, mask.rows()),
+                0, horizontal.cols(), 0, mask.cols(),
             )
 
-            vertical.colRange(0, min(edgeX, vertical.cols()))
-                .copyTo(mask.colRange(0, min(edgeX, mask.cols())))
+            copyRegion(
+                horizontal, mask,
+                max(0, horizontal.rows() - edgeY), horizontal.rows(),
+                max(0, mask.rows() - edgeY), mask.rows(),
+                0, horizontal.cols(), 0, mask.cols(),
+            )
 
-            vertical.colRange(
-                max(0, vertical.cols() - edgeX),
-                vertical.cols(),
-            ).copyTo(
-                mask.colRange(
-                    max(0, mask.cols() - edgeX),
-                    mask.cols(),
-                ),
+            copyRegion(
+                vertical, mask,
+                0, vertical.rows(), 0, mask.rows(),
+                0, min(edgeX, vertical.cols()), 0, min(edgeX, mask.cols()),
+            )
+
+            copyRegion(
+                vertical, mask,
+                0, vertical.rows(), 0, mask.rows(),
+                max(0, vertical.cols() - edgeX), vertical.cols(),
+                max(0, mask.cols() - edgeX), mask.cols(),
             )
 
             if (Core.countNonZero(mask) > 0) {
