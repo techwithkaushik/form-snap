@@ -19,7 +19,7 @@ jobs:
           submodules: false
           fetch-depth: 1
 
-      - name: Checkout OpenCV 4.10.0
+      - name: Checkout OpenCV 5.0.0
         env:
           OPENCV_COMMIT: 40738fb16ceddb5fb3fea747585f7ce6abb0605b
         run: |
