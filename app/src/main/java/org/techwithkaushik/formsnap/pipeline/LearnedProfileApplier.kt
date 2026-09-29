@@ -41,10 +41,29 @@ object LearnedProfileApplier {
         val b = candidate.bounds
         // v3 stores normalized edge deltas; v1/v2 profiles remain readable as
         // legacy pixel offsets and are never blended with normalized profiles.
-        val deltaLeft = if (learned.version >= 3) learned.boundsDeltaLeft * b.width() else learned.boundsDeltaLeft
-        val deltaRight = if (learned.version >= 3) learned.boundsDeltaRight * b.width() else learned.boundsDeltaRight
-        val deltaTop = if (learned.version >= 3) learned.boundsDeltaTop * b.height() else learned.boundsDeltaTop
-        val deltaBottom = if (learned.version >= 3) learned.boundsDeltaBottom * b.height() else learned.boundsDeltaBottom
+        val scaledDeltas = if (learned.version >= 3) {
+            CropDeltaNormalizer.toPixels(
+                NormalizedCropDeltas(
+                    learned.boundsDeltaLeft,
+                    learned.boundsDeltaTop,
+                    learned.boundsDeltaRight,
+                    learned.boundsDeltaBottom,
+                ),
+                b.width(),
+                b.height(),
+            )
+        } else {
+            NormalizedCropDeltas(
+                learned.boundsDeltaLeft,
+                learned.boundsDeltaTop,
+                learned.boundsDeltaRight,
+                learned.boundsDeltaBottom,
+            )
+        }
+        val deltaLeft = scaledDeltas.left
+        val deltaRight = scaledDeltas.right
+        val deltaTop = scaledDeltas.top
+        val deltaBottom = scaledDeltas.bottom
         val learnedBounds = RectF(
             b.left + deltaLeft,
             b.top + deltaTop,
