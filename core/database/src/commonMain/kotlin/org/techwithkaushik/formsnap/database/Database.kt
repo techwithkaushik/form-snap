@@ -3,11 +3,9 @@ package org.techwithkaushik.formsnap.database
 import app.cash.sqldelight.db.SqlDriver
 
 /**
- * Holds the platform SQLDelight driver together with the generated database.
+ * SQLDelight database wrapper shared by the application's repositories.
  *
- * This mirrors the PeopleInSpace pattern: the platform DI layer constructs the
- * driver and generated database together, while common code only depends on
- * this wrapper.
+ * The Android implementation supplies the concrete driver/database instance.
  */
 class LearningDatabaseWrapper(
     val driver: SqlDriver,
