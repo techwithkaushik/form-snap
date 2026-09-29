@@ -123,7 +123,13 @@ object PerspectiveNormalizer {
             }
 
             val quad = bestQuad ?: return source.clone()
-            return warp(source, quad) ?: source.clone()
+            return try {
+                warp(source, quad) ?: source.clone()
+            } catch (_: RuntimeException) {
+                // Geometry can be numerically degenerate even after contour checks.
+                // Keep the original crop rather than failing the entire extraction.
+                source.clone()
+            }
         } finally {
             contours.forEach { it.release() }
             kernel?.release()
