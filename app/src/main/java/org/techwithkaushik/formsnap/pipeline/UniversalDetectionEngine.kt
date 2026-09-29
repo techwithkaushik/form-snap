@@ -90,7 +90,6 @@ object UniversalDetectionEngine {
             )
             val signature = selectSignature(
                 signatureCandidates,
-                photo,
                 gray,
                 scaledRejectedSignatures,
             )
@@ -172,8 +171,8 @@ object UniversalDetectionEngine {
 
     /**
      * Finds horizontal ink groups independently of printed rectangles.
-     * The lower-page bias is a weak filter only; selection still checks aspect
-     * ratio, ink density, rejected regions, and position relative to a photo.
+     * Vertical position is only a weak scoring cue: signatures may appear
+     * above, below, or beside the photograph.
      */
     private fun collectInkCandidates(gray: Mat, edgeMap: Mat): List<ShapeCandidate> {
         val binary = Mat()
@@ -208,7 +207,6 @@ object UniversalDetectionEngine {
                 val rect = OpenCvGeometry.boundingRect(contour)
                 if (rect.width < 140 || rect.height < 18) continue
                 if (rect.height > max(90, (gray.rows() * 0.12).toInt())) continue
-                if (rect.y < gray.rows() * 0.30) continue
 
                 val ratio = rect.width.toDouble() / max(1, rect.height).toDouble()
                 if (ratio !in 1.45..6.0) continue
@@ -224,9 +222,9 @@ object UniversalDetectionEngine {
                 val edgeScore = min(1.0, edgeDensity(edgeMap, rect) / 0.28)
                 val score = (
                     ratioFit * 0.30 +
-                        min(1.0, ink * 4.0) * 0.30 +
+                        min(1.0, ink * 4.0) * 0.35 +
                         widthScore * 0.15 +
-                        lowerPageScore * 0.15 +
+                        lowerPageScore * 0.10 +
                         edgeScore * 0.10
                     ).coerceIn(0.0, 1.0)
 
@@ -307,12 +305,9 @@ object UniversalDetectionEngine {
 
     private fun selectSignature(
         candidates: List<ShapeCandidate>,
-        photo: ShapeCandidate?,
         gray: Mat,
         rejectedBounds: Set<android.graphics.RectF>,
     ): ShapeCandidate? {
-        val photoBottom = photo?.rect?.br()?.y ?: gray.rows() * 0.45
-
         return candidates
             .asSequence()
             .filter { candidate -> !isRejected(candidate.rect, rejectedBounds) }
@@ -327,7 +322,6 @@ object UniversalDetectionEngine {
                 it.rect.width.toDouble() * it.rect.height.toDouble() <=
                     gray.cols().toDouble() * gray.rows().toDouble() * 0.25
             }
-            .filter { it.rect.y + it.rect.height * 0.35 >= photoBottom * 0.55 }
             .filter { hasInk(gray, it.rect) }
             .maxByOrNull {
                 val ratio = it.rect.width.toDouble() / max(1, it.rect.height).toDouble()

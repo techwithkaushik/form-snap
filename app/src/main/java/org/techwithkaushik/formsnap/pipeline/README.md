@@ -28,3 +28,12 @@ validates bundle format, schema, entry names, payload size, and profile values
 before atomically persisting a merge. Compatible profiles are merged using their
 sample counts; incompatible conditions remain separate. Export/import runs on an
 IO dispatcher so it does not block the Compose UI.
+
+
+## Position-independent detection
+
+Photo and signature selection are independent. Signature candidates are not discarded
+because they occur above the photograph or outside a fixed lower-page band; vertical
+position contributes only a weak ranking cue. This is important for forms with different
+layouts. The detector still needs a labelled real-image corpus before accuracy can be
+claimed or thresholds can be tuned safely.
