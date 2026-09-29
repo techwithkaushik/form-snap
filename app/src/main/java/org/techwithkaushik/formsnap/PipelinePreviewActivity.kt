@@ -36,6 +36,7 @@ class PipelinePreviewActivity : ComponentActivity() {
         onExternalCorrection?.invoke(kind, File(resultPath))
     }
 
+    private var activePipelineViewModel: PipelinePreviewViewModel? = null
     private var onExternalCorrection: ((DetectionKind, File) -> Unit)? = null
 
     private var correctionKindForResult: DetectionKind? = null
@@ -44,7 +45,10 @@ class PipelinePreviewActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
             if (!ok) return@registerForActivityResult
             val uri = cameraUri
-            val file = File(cacheDir, "recapture_" + System.nanoTime() + ".jpg")
+            val file = File(
+                org.techwithkaushik.formSnap.foundation.ProcessingPaths.root(this@PipelinePreviewActivity),
+                "inputs/recapture_" + System.nanoTime() + ".jpg",
+            ).apply { parentFile?.mkdirs() }
             contentResolver.openInputStream(uri)?.use { input ->
                 file.outputStream().use { output -> input.copyTo(output) }
             }
@@ -54,7 +58,10 @@ class PipelinePreviewActivity : ComponentActivity() {
     private val importLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
             if (uri == null) return@registerForActivityResult
-            val file = File(cacheDir, "reimport_" + System.nanoTime() + ".jpg")
+            val file = File(
+                org.techwithkaushik.formSnap.foundation.ProcessingPaths.root(this@PipelinePreviewActivity),
+                "inputs/reimport_" + System.nanoTime() + ".jpg",
+            ).apply { parentFile?.mkdirs() }
             contentResolver.openInputStream(uri)?.use { input ->
                 file.outputStream().use { output -> input.copyTo(output) }
             }
@@ -64,7 +71,10 @@ class PipelinePreviewActivity : ComponentActivity() {
     private lateinit var cameraUri: Uri
 
     private fun launchRecapture() {
-        val file = File(cacheDir, "recapture_source_" + System.nanoTime() + ".jpg")
+        val file = File(
+            org.techwithkaushik.formSnap.foundation.ProcessingPaths.root(this),
+            "inputs/captures/recapture_source_" + System.nanoTime() + ".jpg",
+        ).apply { parentFile?.mkdirs() }
         cameraUri = androidx.core.content.FileProvider.getUriForFile(
             this,
             BuildConfig.APPLICATION_ID + ".fileprovider",
@@ -106,7 +116,11 @@ class PipelinePreviewActivity : ComponentActivity() {
         }
 
         setContent {
-            val viewModel = remember { PipelinePreviewViewModel(applicationContext) }
+            val viewModel = remember {
+                PipelinePreviewViewModel(applicationContext).also {
+                    activePipelineViewModel = it
+                }
+            }
             val state by viewModel.state.collectAsState()
             val scope = rememberCoroutineScope()
             val editKind = remember { mutableStateOf<DetectionKind?>(null) }
@@ -204,16 +218,21 @@ class PipelinePreviewActivity : ComponentActivity() {
                     viewModel.reject(DetectionKind.SIGNATURE)
                 },
                 onBack = {
-                    viewModel.close()
                     finish()
                 },
             )
         }
     }
 
+    override fun onDestroy() {
+        activePipelineViewModel?.close()
+        activePipelineViewModel = null
+        super.onDestroy()
+    }
+
     private fun openDetectedEditor(source: File, kind: DetectionKind) {
         val destination = File(
-            cacheDir,
+            org.techwithkaushik.formSnap.foundation.ProcessingPaths.root(this),
             "ucrop_" + System.nanoTime() + "_" + kind.name.lowercase() + ".jpg",
         )
 
