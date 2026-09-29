@@ -99,7 +99,7 @@ class PipelinePreviewActivity : ComponentActivity() {
     private fun recreatePipelineWithInput(file: File) {
         val launchIntent = android.content.Intent(this, PipelinePreviewActivity::class.java).apply {
             putExtra(EXTRA_INPUT_PATH, file.absolutePath)
-            putExtra(EXTRA_MAX_KB, intent.getDoubleExtra(EXTRA_MAX_KB, 50.0))
+            putExtra(EXTRA_MAX_KB, intent.getIntExtra(EXTRA_MAX_KB, 50))
             putExtra(EXTRA_DPI, intent.getDoubleExtra(EXTRA_DPI, 300.0))
             putExtra(EXTRA_PHOTO_WIDTH_MM, intent.getDoubleExtra(EXTRA_PHOTO_WIDTH_MM, 40.0))
             putExtra(EXTRA_PHOTO_HEIGHT_MM, intent.getDoubleExtra(EXTRA_PHOTO_HEIGHT_MM, 50.0))
@@ -337,8 +337,8 @@ class PipelinePreviewActivity : ComponentActivity() {
         sourcePath: String,
         treeUri: Uri,
     ): String = withContext(Dispatchers.IO) {
-        val maxKb = intent.getDoubleExtra(EXTRA_MAX_KB, 50.0)
-            .toInt().coerceIn(5, 2048)
+        val maxKb = intent.getIntExtra(EXTRA_MAX_KB, 50)
+            .coerceIn(5, 2048)
         val bytes = SavedImageEncoder.encodeWithinLimit(File(sourcePath), maxKb)
         val documentId = DocumentsContract.getTreeDocumentId(treeUri)
         val parent = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId)
