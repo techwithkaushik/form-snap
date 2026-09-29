@@ -51,9 +51,12 @@ jobs:
           python3 platforms/android/build_sdk.py \
             ../opencv-build \
             "$GITHUB_WORKSPACE/opencv2" \
+            --modules_list core,imgproc,calib3d,features2d,flann,ml,objdetect,photo,stitching,video,videoio,highgui \
             --ndk_path "$ANDROID_NDK_ROOT" \
             --sdk_path "$ANDROID_HOME" \
             --config platforms/android/ndk-25.config.py \
+            --no_kotlin \
+            --no_ccache \
             --no_samples_build
           test -f ../opencv-build/OpenCV-android-sdk/sdk/native/jni/include/opencv2/core.hpp
           test -f ../opencv-build/OpenCV-android-sdk/sdk/native/libs/arm64-v8a/libopencv_java4.so
