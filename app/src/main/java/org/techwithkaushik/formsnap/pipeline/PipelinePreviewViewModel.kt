@@ -109,11 +109,31 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
                         ),
                     )
 
-                    // Apply only validated, condition-compatible learning before the
-                    // first preview is rendered. The baseline detector bounds remain
-                    // in automaticBounds so subsequent feedback measures the correction.
+                    // Match the normalized spatial relationship of the detected
+                    // photo/signature pair first. A topology profile is applied only
+                    // when its measured match score is at least 0.75; otherwise fall
+                    // back to condition-aware correction learning.
+                    val topology = LayoutTopologyMatcher.signature(
+                        sourceWidth = source.cols(),
+                        sourceHeight = source.rows(),
+                        photoBounds = detection.photo?.bounds,
+                        signatureBounds = detection.signature?.bounds,
+                    )
                     fun learnedBounds(candidate: DetectionCandidate?): android.graphics.RectF? {
                         candidate ?: return null
+                        if (topology != null) {
+                            val topologyProfile = LayoutTopologyStore.best(context, topology, candidate.kind)
+                            if (topologyProfile != null) {
+                                val corrected = LayoutTopologyMatcher.apply(
+                                    bounds = candidate.bounds,
+                                    profile = topologyProfile,
+                                    actualSignature = topology,
+                                    sourceWidth = source.cols(),
+                                    sourceHeight = source.rows(),
+                                )
+                                if (corrected != null) return corrected
+                            }
+                        }
                         val features = ImageConditionFeatures.measure(source, candidate.bounds)
                         val aspect = candidate.bounds.height() /
                             candidate.bounds.width().coerceAtLeast(1f)
@@ -216,14 +236,43 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
                     }
                 }
             }
-            FeedbackRecorder.record(
-                context,
-                correction.correction(automatic).copy(
-                    accepted = true,
-                    conditionFeatures = features,
-                ),
+            val feedback = correction.correction(automatic).copy(
+                accepted = true,
+                conditionFeatures = features,
             )
-    
+            FeedbackRecorder.record(context, feedback)
+
+            // Record normalized layout topology only for an explicit manual edit;
+            // simply accepting an untouched detector crop must not teach a zero delta.
+            if (correction.dirty && FeedbackRecorder.isSafeFeedback(feedback)) {
+                val snapshot = _state.value
+                val topology = LayoutTopologyMatcher.signature(
+                    sourceWidth = correction.sourceWidth,
+                    sourceHeight = correction.sourceHeight,
+                    photoBounds = snapshot.photoState?.automaticBounds,
+                    signatureBounds = snapshot.signatureState?.automaticBounds,
+                )
+                if (topology != null) {
+                    val deltas = CropDeltaNormalizer.normalize(
+                        leftPixels = correction.currentBounds.left - automatic.bounds.left,
+                        topPixels = correction.currentBounds.top - automatic.bounds.top,
+                        rightPixels = correction.currentBounds.right - automatic.bounds.right,
+                        bottomPixels = correction.currentBounds.bottom - automatic.bounds.bottom,
+                        width = automatic.bounds.width().coerceAtLeast(1f),
+                        height = automatic.bounds.height().coerceAtLeast(1f),
+                    )
+                    LayoutTopologyStore.record(
+                        context,
+                        LayoutCorrectionProfile(
+                            kind = kind,
+                            signature = topology,
+                            deltas = deltas,
+                            sampleCount = 1,
+                            confidence = 1f,
+                        ),
+                    )
+                }
+            }
         }
         updateCorrectionState(kind, correction.accept())
     }
