@@ -26,6 +26,8 @@ object LearningStore {
             it.kind == safeCorrection.kind &&
                 close(it.conditionAspectRatio, safeCorrection.conditionAspectRatio, 0.15f) &&
                 close(it.conditionBrightness, safeCorrection.conditionBrightness, 0.15f) &&
+                close(it.conditionContrast, safeCorrection.conditionContrast, 0.20f) &&
+                close(it.conditionSaturation, safeCorrection.conditionSaturation, 0.20f) &&
                 close(it.conditionEdgeDensity, safeCorrection.conditionEdgeDensity, 0.15f)
         }
 
