@@ -1,5 +1,7 @@
 package org.techwithkaushik.formSnap
 
+import org.techwithkaushik.formsnap.BuildConfig
+
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
