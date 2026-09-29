@@ -64,6 +64,7 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
         photoHeightMm: Double = 50.0,
         signatureWidthMm: Double = 50.0,
         signatureHeightMm: Double = 20.0,
+        preserveRejectedCandidates: Boolean = false,
     ) {
         this.dpi = dpi.coerceAtLeast(72)
         this.photoWidthMm = photoWidthMm.coerceAtLeast(1.0)
@@ -73,7 +74,7 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
 
         previewJob?.cancel()
         clearCurrentResults()
-        clearRejectedCandidates()
+        if (!preserveRejectedCandidates) clearRejectedCandidates()
         _state.value = PreviewProcessingState(source = input, processing = true)
 
         try {
@@ -124,7 +125,6 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
     suspend fun redetect() {
         val input = _state.value.source ?: return
         clearCurrentResults()
-        clearRejectedCandidates()
         load(
             input = input,
             dpi = dpi,
@@ -132,6 +132,7 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
             photoHeightMm = photoHeightMm,
             signatureWidthMm = signatureWidthMm,
             signatureHeightMm = signatureHeightMm,
+            preserveRejectedCandidates = true,
         )
     }
 
