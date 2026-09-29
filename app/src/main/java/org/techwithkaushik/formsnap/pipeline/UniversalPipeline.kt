@@ -28,7 +28,15 @@ object UniversalPipeline {
             )
         }
 
-        val learned = context?.let { LearningStore.best(it, kind) }
+        val candidateAspectRatio =
+            candidate.bounds.height() / candidate.bounds.width().coerceAtLeast(1f)
+        val learned = context?.let {
+            LearningStore.best(
+                context = it,
+                kind = kind,
+                aspectRatio = candidateAspectRatio,
+            )
+        }
         val application = LearnedProfileApplier.apply(candidate, learned)
         val adjustedCandidate = candidate.copy(bounds = application.bounds)
 
