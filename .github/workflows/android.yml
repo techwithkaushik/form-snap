@@ -61,7 +61,7 @@ jobs:
         with:
           gradle-version: "9.6.0"
           cache-provider: enhanced
-          cache-read-only: false
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
           validate-wrappers: false
 
       - name: Run unit tests
@@ -124,7 +124,7 @@ jobs:
         with:
           gradle-version: "9.6.0"
           cache-provider: enhanced
-          cache-read-only: false
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
           validate-wrappers: false
 
       - name: Decode Keystore
