@@ -7,6 +7,18 @@ import org.junit.Test
 class CorrectionLearningTest {
 
     @Test
+    fun rejectsNonFiniteAndInvalidLearningProfiles() {
+        val valid = LearnedCorrection(kind = DetectionKind.PHOTO)
+
+        assertTrue(CorrectionLearning.isSafe(valid))
+        assertEquals(false, CorrectionLearning.isSafe(valid.copy(boundsDeltaLeft = Float.NaN)))
+        assertEquals(false, CorrectionLearning.isSafe(valid.copy(appearance = valid.appearance.copy(contrast = Float.POSITIVE_INFINITY))))
+        assertEquals(false, CorrectionLearning.isSafe(valid.copy(conditionAspectRatio = 0f)))
+        assertEquals(false, CorrectionLearning.isSafe(valid.copy(confidence = 1.1f)))
+        assertEquals(false, CorrectionLearning.isSafe(valid.copy(sampleCount = 0)))
+    }
+
+    @Test
     fun blendUsesPreviousSampleCountAsWeight() {
         val previous = LearnedCorrection(
             kind = DetectionKind.PHOTO,
