@@ -12,7 +12,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,29 +19,45 @@ jobs:
           submodules: false
           fetch-depth: 1
 
-      - name: Download OpenCV Android SDK
+      - name: Download official OpenCV Android SDK
         shell: bash
         run: |
           set -euxo pipefail
-          VERSION="5.0.0"
-          curl --fail --location --retry 3 \
-            "https://github.com/opencv/opencv/releases/download/${VERSION}/opencv-${VERSION}-android-sdk.zip" \
-            -o "$RUNNER_TEMP/opencv-android-sdk.zip"
-          rm -rf "$RUNNER_TEMP/opencv-sdk"
-          mkdir -p "$RUNNER_TEMP/opencv-sdk"
-          unzip -q "$RUNNER_TEMP/opencv-android-sdk.zip" -d "$RUNNER_TEMP/opencv-sdk"
-          SDK_JAVA="$(find "$RUNNER_TEMP/opencv-sdk" -type d -path "*/sdk/java" -print -quit)"
-          SDK_NATIVE="$(find "$RUNNER_TEMP/opencv-sdk" -type d -path "*/sdk/native" -print -quit)"
-          test -n "$SDK_JAVA"
-          test -n "$SDK_NATIVE"
-          rm -rf opencv/src/main
-          mkdir -p opencv/src/main
-          cp -R "$SDK_JAVA/src" opencv/src/main/java
-          cp -R "$SDK_JAVA/res" opencv/src/main/res
-          cp "$SDK_JAVA/AndroidManifest.xml" opencv/src/main/AndroidManifest.xml
-          echo "OpenCV Java SDK staged."
-          test -f opencv/src/main/java/org/opencv/android/OpenCVLoader.java
-          test -f "$SDK_NATIVE/libs/armeabi-v7a/libopencv_java5.so"
+          OPENCV_VERSION="5.0.0"
+          SDK_ZIP="$RUNNER_TEMP/opencv-android-sdk.zip"
+          SDK_ROOT="$RUNNER_TEMP/opencv-sdk"
+          curl --fail --location --retry 5 --retry-all-errors \
+            "https://github.com/opencv/opencv/releases/download/\${OPENCV_VERSION}/opencv-\${OPENCV_VERSION}-android-sdk.zip" \
+            -o "$SDK_ZIP"
+          rm -rf "$SDK_ROOT"
+          mkdir -p "$SDK_ROOT"
+          unzip -q "$SDK_ZIP" -d "$SDK_ROOT"
+          SDK_DIR="$(find "$SDK_ROOT" -type d -path '*/sdk' -print -quit)"
+          SDK_JAVA="$SDK_DIR/java"
+          test -d "$SDK_JAVA"
+          test -f "$SDK_JAVA/build.gradle"
+          test -f "$SDK_JAVA/src/main/java/org/opencv/android/OpenCVLoader.java"
+          test -f "$SDK_DIR/native/libs/armeabi-v7a/libopencv_java5.so"
+          rm -rf opencv
+          mkdir -p opencv
+          cp -R "$SDK_DIR/." opencv/
+          echo "Official OpenCV Android SDK staged."
+
+      - name: Configure OpenCV module path
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('settings.gradle.kts')
+          text = path.read_text()
+          old = 'project(":opencv").projectDir = file("opencv")'
+          new = 'project(":opencv").projectDir = file("opencv/java")'
+          if old not in text:
+              raise SystemExit('OpenCV project path entry not found')
+          path.write_text(text.replace(old, new))
+          PY
+          grep -n 'project(":opencv")' settings.gradle.kts
 
       - name: Setup Java
         uses: actions/setup-java@v5
@@ -71,7 +86,7 @@ jobs:
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
           SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
         run: |
-          set -e
+          set -euo pipefail
           if [ -x "./gradlew" ]; then
             ./gradlew :app:assembleRelease --no-daemon --build-cache
           else
@@ -81,7 +96,7 @@ jobs:
       - name: Verify APK
         if: github.event_name == "push"
         run: |
-          set -e
+          set -euo pipefail
           APK="app/build/outputs/apk/release/app-release.apk"
           test -f "$APK"
           ls -lh "$APK"
