@@ -25,13 +25,21 @@ object UniversalPipelineBatch {
     ): UniversalPipelineOutput {
         require(!source.empty()) { "Source image is empty" }
         val detection = UniversalDetectionEngine.detect(source)
-        val photo = if (detection.photo != null) {
-            processCandidate(source, detection, DetectionKind.PHOTO, dpi, context)
-        } else null
-        val signature = if (detection.signature != null) {
-            processCandidate(source, detection, DetectionKind.SIGNATURE, dpi, context)
-        } else null
-        return UniversalPipelineOutput(detection, photo, signature)
+        var photo: PipelineStageOutput? = null
+        var signature: PipelineStageOutput? = null
+        try {
+            photo = if (detection.photo != null) {
+                processCandidate(source, detection, DetectionKind.PHOTO, dpi, context)
+            } else null
+            signature = if (detection.signature != null) {
+                processCandidate(source, detection, DetectionKind.SIGNATURE, dpi, context)
+            } else null
+            return UniversalPipelineOutput(detection, photo, signature)
+        } catch (t: Throwable) {
+            photo?.close()
+            signature?.close()
+            throw t
+        }
     }
 
     fun processFile(
@@ -68,9 +76,17 @@ object UniversalPipelineBatch {
         val application = LearnedProfileApplier.apply(candidate, learned)
         val adjusted = candidate.copy(bounds = application.bounds)
         val normalized = OutputNormalizer.normalize(source, adjusted, kind, dpi)
-        val appearance = AppearanceProcessor.apply(normalized.image, application.appearance, kind)
-        normalized.image.release()
-        val quality = ImageQualityGate.evaluate(appearance, kind)
+        val appearance = try {
+            AppearanceProcessor.apply(normalized.image, application.appearance, kind)
+        } finally {
+            normalized.image.release()
+        }
+        val quality = try {
+            ImageQualityGate.evaluate(appearance, kind)
+        } catch (t: Throwable) {
+            appearance.release()
+            throw t
+        }
         return PipelineStageOutput(
             detection = detection.copy(
                 photo = if (kind == DetectionKind.PHOTO) adjusted else detection.photo,
