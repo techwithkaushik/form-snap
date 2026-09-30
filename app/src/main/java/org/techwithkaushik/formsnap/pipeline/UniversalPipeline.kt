@@ -2,6 +2,14 @@ package org.techwithkaushik.formSnap.pipeline
 
 import org.opencv.core.Mat
 
+/**
+ * Deterministic offline extraction pipeline.
+ *
+ * Crop geometry comes from OpenCV candidate detection only. The legacy profile
+ * learner is deliberately not allowed to move crop bounds or tune pixels:
+ * appearance/crop changes must be measurable and reproducible before any future
+ * trained model is allowed into this path.
+ */
 object UniversalPipeline {
     fun process(
         source: Mat,
@@ -28,81 +36,25 @@ object UniversalPipeline {
             )
         }
 
-        val candidateAspectRatio =
-            candidate.bounds.height() / candidate.bounds.width().coerceAtLeast(1f)
-        val features = ImageConditionFeatures.measure(source, candidate.bounds)
-        val learned = context?.let {
-            LearningStore.best(
-                context = it,
-                kind = kind,
-                conditionBrightness = features?.brightness,
-                conditionContrast = features?.contrast,
-                conditionSaturation = features?.saturation,
-                conditionEdgeDensity = features?.edgeDensity,
-                aspectRatio = features?.aspectRatio ?: candidateAspectRatio,
-            )
-        }
-        // Geometry corrections require a normalized layout match. Lighting,
-        // contrast or crop aspect alone may match an unrelated form, so the
-        // condition profile contributes appearance tuning but never moves bounds.
-        val topology = LayoutTopologyMatcher.signature(
-            sourceWidth = source.cols(),
-            sourceHeight = source.rows(),
-            photoBounds = detection.photo?.bounds,
-            signatureBounds = detection.signature?.bounds,
-        )
-        val topologyProfile = if (context != null && topology != null) {
-            LayoutTopologyStore.best(context, topology, kind)
-        } else null
-        val topologyAdjustedBounds = if (topologyProfile != null && topology != null) {
-            LayoutTopologyMatcher.apply(
-                bounds = candidate.bounds,
-                profile = topologyProfile,
-                actualSignature = topology,
-                sourceWidth = source.cols(),
-                sourceHeight = source.rows(),
-            )
-        } else null
-        val application = LearnedProfileApplier.apply(candidate, learned, features)
-        val adjustedCandidate = candidate.copy(
-            bounds = topologyAdjustedBounds ?: candidate.bounds,
-        )
-        val topologyBlend = if (topologyProfile != null && topology != null && topologyAdjustedBounds != null) {
-            LayoutTopologyMatcher.similarity(topologyProfile.signature, topology, kind)
-        } else 0f
-
-        val output = OutputNormalizer.normalize(source, adjustedCandidate, kind, dpi)
-        val appearanceApplied = try {
-            AppearanceProcessor.apply(
-                output.image,
-                application.appearance,
-                kind,
-            )
-        } finally {
-            output.image.release()
-        }
-
+        val output = OutputNormalizer.normalize(source, candidate, kind, dpi)
         val quality = try {
-            ImageQualityGate.evaluate(appearanceApplied, kind)
-        } catch (t: Throwable) {
-            appearanceApplied.release()
-            throw t
+            ImageQualityGate.evaluate(output.image, kind)
+        } catch (failure: Throwable) {
+            output.image.release()
+            throw failure
         }
 
         return PipelineStageOutput(
-            detection = detection.copy(
-                photo = if (kind == DetectionKind.PHOTO) adjustedCandidate else detection.photo,
-                signature = if (kind == DetectionKind.SIGNATURE) adjustedCandidate else detection.signature,
-            ),
+            detection = detection,
             kind = kind,
-            image = appearanceApplied,
+            image = output.image,
             quality = quality,
-            learnedBlend = topologyBlend,
-            learned = learned,
+            learnedBlend = 0f,
+            learned = null,
         )
     }
 }
-
+ 
 data class PipelineStageOutput(
     val detection: DetectionResult,
     val kind: DetectionKind,
