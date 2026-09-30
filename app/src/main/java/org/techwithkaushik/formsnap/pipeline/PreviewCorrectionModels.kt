@@ -2,6 +2,12 @@ package org.techwithkaushik.formSnap.pipeline
 
 import android.graphics.RectF
 
+enum class CorrectionAction {
+    ACCEPT,
+    ADJUST,
+    REJECT,
+}
+
 data class AppearanceAdjustments(
     val brightness: Float = 0f,
     val contrast: Float = 1f,
