@@ -224,7 +224,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                                 }
                             }
                         } else {
-                            saveMessage.value = "${kind.label()} folder selected."
+                            saveMessage.value = "Output folder selected. Both photo and signature will be saved here."
                         }
                     } catch (t: Exception) {
                         saveMessage.value = t.message ?: "Unable to remember folder permission."
