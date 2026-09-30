@@ -245,9 +245,10 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
         )
     }
 
-    suspend fun accept(kind: DetectionKind, recordFeedback: Boolean = true) {
-        val correction = stateFor(kind) ?: return
-        val automatic = candidateFor(kind) ?: return
+    suspend fun accept(kind: DetectionKind, recordFeedback: Boolean = true): Boolean {
+        val correction = stateFor(kind) ?: return false
+        val automatic = candidateFor(kind) ?: return false
+        var learningRecorded = false
 
         // Tapping Accept is an explicit human validation, even when the automatic
         // crop was already correct. Record zero-delta samples too: they teach the
@@ -270,7 +271,7 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
                 accepted = true,
                 conditionFeatures = features,
             )
-            FeedbackRecorder.record(context, feedback)
+            learningRecorded = FeedbackRecorder.record(context, feedback)
 
             val boundsChanged =
                 correction.currentBounds.left != automatic.bounds.left ||
@@ -311,6 +312,7 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
             }
         }
         updateCorrectionState(kind, correction.accept())
+        return learningRecorded
     }
 
     fun reject(kind: DetectionKind) {
