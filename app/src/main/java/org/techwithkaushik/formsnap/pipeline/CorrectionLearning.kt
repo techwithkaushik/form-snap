@@ -204,6 +204,12 @@ object CorrectionLearning {
     }
 
     fun blend(previous: LearnedCorrection, incoming: LearnedCorrection): LearnedCorrection {
+        require(previous.kind == incoming.kind && previous.version == incoming.version) {
+            "Only profiles with the same detection kind and coordinate version can be blended"
+        }
+        require(incoming.sampleCount == 1) {
+            "blend() accepts one new sample; use mergeWeighted() for aggregate profiles"
+        }
         val oldWeight = previous.sampleCount.toFloat().coerceAtLeast(1f)
         val total = oldWeight + 1f
 
