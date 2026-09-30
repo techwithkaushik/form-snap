@@ -15,7 +15,6 @@ data class AppearanceAdjustments(
     val sharpness: Float = 0f,
     val denoise: Float = 0f,
     val inkThreshold: Int = 150,
-    val backgroundCleanup: Float = 0f,
 )
 
 data class PreviewCorrectionState(
