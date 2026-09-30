@@ -43,7 +43,6 @@ object OutputNormalizer {
 
         val crop = CropEngine.crop(source, candidate)
         var rectified: Mat? = null
-        var cleaned: Mat? = null
         var resized: Mat? = null
         try {
             val bgrCrop = Mat()
@@ -58,14 +57,13 @@ object OutputNormalizer {
                 }
                 val rectifiedCrop = PerspectiveNormalizer.rectifyCrop(bgrCrop, kind)
                 rectified = rectifiedCrop
-                cleaned = BorderCleaner.clean(rectifiedCrop, kind)
             } finally {
                 bgrCrop.release()
             }
             val output = Mat()
             resized = output
             Imgproc.resize(
-                cleaned,
+                rectified,
                 output,
                 Size(widthPx.toDouble(), heightPx.toDouble()),
                 0.0,
@@ -83,7 +81,6 @@ object OutputNormalizer {
             return NormalizedOutput(image = output, bounds = outputBounds)
         } finally {
             resized?.release()
-            cleaned?.release()
             rectified?.release()
             crop.image.release()
         }
