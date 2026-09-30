@@ -451,8 +451,9 @@ object UniversalDetectionEngine {
             }
             if (heights.size < 2) {
                 // A continuous cursive stroke can be one connected component.
-                return clipped.width.toDouble() / max(1, clipped.height) >= 2.2 &&
-                    inkDensity in 0.015..0.32
+                return clipped.width >= 180 &&
+                    clipped.width.toDouble() / max(1, clipped.height) >= 2.7 &&
+                    inkDensity in 0.015..0.28
             }
 
             val meanHeight = heights.average().coerceAtLeast(1.0)
@@ -467,8 +468,10 @@ object UniversalDetectionEngine {
             }
             val ratio = clipped.width.toDouble() / max(1, clipped.height)
             return ratio >= 1.45 &&
-                (heightVariation >= 0.38 ||
-                    (distinctiveStrokes >= 2 && distinctiveStrokes.toDouble() / heights.size >= 0.18))
+                (heightVariation >= 0.48 && distinctiveStrokes >= 2 ||
+                    (distinctiveStrokes >= 2 &&
+                        distinctiveStrokes.toDouble() / heights.size >= 0.22 &&
+                        inkDensity in 0.012..0.36))
         } finally {
             centroids.release()
             stats.release()
