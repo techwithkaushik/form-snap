@@ -231,7 +231,10 @@ object CorrectionLearning {
             conditionAspectRatio = avg(previous.conditionAspectRatio, incoming.conditionAspectRatio),
             sampleCount = (previous.sampleCount + 1).coerceAtMost(100),
             confidence = avg(previous.confidence, incoming.confidence).coerceIn(0f, 1f),
-            version = 2,
+            // sameConditionProfile requires equal versions. Preserve that version:
+            // v3 deltas are normalized fractions, while v1/v2 deltas are pixels.
+            // Downgrading v3 here would reinterpret normalized fractions as pixels.
+            version = previous.version,
         )
     }
     /**
