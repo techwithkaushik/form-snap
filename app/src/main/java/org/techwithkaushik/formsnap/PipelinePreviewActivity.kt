@@ -294,8 +294,12 @@ class PipelinePreviewActivity : ComponentActivity() {
                     folderPicker.launch(null)
                 }
             }
-            onExternalCorrection = { kind, bounds ->
-                scope.launch { viewModel.applyExternalCorrection(kind, bounds) }
+            onExternalCorrection = { kind, bounds, brightness, contrast, sharpness, saturation, denoise ->
+                scope.launch {
+                    viewModel.applyExternalCorrection(
+                        kind, bounds, brightness, contrast, sharpness, saturation, denoise,
+                    )
+                }
             }
 
             LaunchedEffect(path) {
