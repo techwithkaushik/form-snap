@@ -601,8 +601,8 @@ class MainActivity : ComponentActivity() {
                 item {
                     Card(shape = RoundedCornerShape(18.dp)) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("Learning memory", fontWeight = FontWeight.Bold)
-                            Text("Back up validated corrections to a .fsl file, or restore them on another installation.")
+                            Text("Legacy learning backup", fontWeight = FontWeight.Bold)
+                            Text("Compatibility backup only. These old profiles no longer affect photo or signature detection; cropping now uses the OpenCV pipeline.")
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 OutlinedButton(
                                     onClick = onExportLearning,
@@ -616,7 +616,7 @@ class MainActivity : ComponentActivity() {
                             OutlinedButton(
                                 onClick = onResetLearning,
                                 modifier = Modifier.fillMaxWidth(),
-                            ) { Text("Reset learning memory") }
+                            ) { Text("Clear legacy backup data") }
                         }
                     }
                 }
