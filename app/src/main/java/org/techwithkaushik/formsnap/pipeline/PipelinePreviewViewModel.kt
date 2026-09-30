@@ -19,8 +19,8 @@ import kotlin.math.roundToInt
 
 private data class PreviewDetectionBundle(
     val detection: DetectionResult,
-    val learnedPhotoBounds: android.graphics.RectF?,
-    val learnedSignatureBounds: android.graphics.RectF?,
+    val learnedPhotoApplication: LearnedApplication?,
+    val learnedSignatureApplication: LearnedApplication?,
 )
 
 data class PreviewProcessingState(
@@ -53,6 +53,10 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
     private var previewJob: Job? = null
     private val rejectedPhotoBounds = mutableSetOf<android.graphics.RectF>()
     private val rejectedSignatureBounds = mutableSetOf<android.graphics.RectF>()
+
+    private companion object {
+        const val MIN_LEARNED_PROFILE_SIMILARITY = 0.68f
+    }
 
     private fun clearCurrentResults() {
         _state.value = PreviewProcessingState(
@@ -110,17 +114,17 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
                         ),
                     )
 
-                    // Match the normalized spatial relationship of the detected
-                    // photo/signature pair first. A topology profile is applied only
-                    // when its measured match score is at least 0.75; otherwise fall
-                    // back to condition-aware correction learning.
+                    // Apply learning in two conservative stages:
+                    // 1) same-layout profiles (strongest evidence),
+                    // 2) condition-aware correction profiles only when measured
+                    // image-region features are available and the match is strong.
                     val topology = LayoutTopologyMatcher.signature(
                         sourceWidth = source.cols(),
                         sourceHeight = source.rows(),
                         photoBounds = detection.photo?.bounds,
                         signatureBounds = detection.signature?.bounds,
                     )
-                    fun learnedBounds(candidate: DetectionCandidate?): android.graphics.RectF? {
+                    fun learnedApplication(candidate: DetectionCandidate?): LearnedApplication? {
                         candidate ?: return null
                         if (topology != null) {
                             val topologyProfile = LayoutTopologyStore.best(context, topology, candidate.kind)
@@ -132,19 +136,48 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
                                     sourceWidth = source.cols(),
                                     sourceHeight = source.rows(),
                                 )
-                                if (corrected != null) return corrected
+                                if (corrected != null) {
+                                    return LearnedApplication(
+                                        bounds = corrected,
+                                        appearance = AppearanceAdjustments(),
+                                        blend = 1f,
+                                    )
+                                }
                             }
                         }
-                        // Do not reuse a geometry-only profile based on lighting
-                        // or crop aspect alone: unrelated forms can share those features.
-                        // Without a topology match, retain the baseline candidate.
-                        return android.graphics.RectF(candidate.bounds)
+
+                        // Never select a condition-only profile without real measurements:
+                        // defaults such as brightness=0 are not evidence of a match.
+                        val features = ImageConditionFeatures.measure(source, candidate.bounds)
+                            ?: return null
+                        val profile = LearningStore.best(
+                            context = context,
+                            kind = candidate.kind,
+                            conditionBrightness = features.brightness,
+                            conditionContrast = features.contrast,
+                            conditionSaturation = features.saturation,
+                            conditionEdgeDensity = features.edgeDensity,
+                            aspectRatio = features.aspectRatio,
+                        ) ?: return null
+                        val similarity = CorrectionLearning.conditionSimilarity(
+                            profile = profile,
+                            conditionBrightness = features.brightness,
+                            conditionContrast = features.contrast,
+                            conditionSaturation = features.saturation,
+                            conditionEdgeDensity = features.edgeDensity,
+                            aspectRatio = features.aspectRatio,
+                        )
+                        // Conservative threshold prevents weakly related forms from
+                        // influencing the baseline detector's crop.
+                        if (similarity < MIN_LEARNED_PROFILE_SIMILARITY) return null
+                        return LearnedProfileApplier.apply(candidate, profile, features)
+                            .takeIf { it.blend > 0f }
                     }
 
                     PreviewDetectionBundle(
                         detection = detection,
-                        learnedPhotoBounds = learnedBounds(detection.photo),
-                        learnedSignatureBounds = learnedBounds(detection.signature),
+                        learnedPhotoApplication = learnedApplication(detection.photo),
+                        learnedSignatureApplication = learnedApplication(detection.signature),
                     )
                 } finally {
                     source.release()
@@ -161,8 +194,9 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
                         detection.sourceHeight,
                     ).copy(
                         currentBounds = android.graphics.RectF(
-                            loaded.learnedPhotoBounds ?: candidate.bounds,
+                            loaded.learnedPhotoApplication?.bounds ?: candidate.bounds,
                         ),
+                        appearance = loaded.learnedPhotoApplication?.appearance ?: AppearanceAdjustments(),
                     )
                 },
                 signatureState = detection.signature?.let { candidate ->
@@ -172,8 +206,9 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
                         detection.sourceHeight,
                     ).copy(
                         currentBounds = android.graphics.RectF(
-                            loaded.learnedSignatureBounds ?: candidate.bounds,
+                            loaded.learnedSignatureApplication?.bounds ?: candidate.bounds,
                         ),
+                        appearance = loaded.learnedSignatureApplication?.appearance ?: AppearanceAdjustments(),
                     )
                 },
                 photoConfidence = detection.photo?.confidence,
@@ -213,7 +248,10 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
         val correction = stateFor(kind) ?: return
         val automatic = candidateFor(kind) ?: return
 
-        if (recordFeedback) {
+        // Only explicit user corrections are training labels. Accepting an untouched
+        // automatic crop confirms this output for the current session, but is not a
+        // reliable target for correction learning and must not add zero-delta samples.
+        if (recordFeedback && correction.dirty) {
             val sourceFile = _state.value.source
             val features = sourceFile?.takeIf { it.isFile }?.let { file ->
                 withContext(Dispatchers.Default) {
