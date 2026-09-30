@@ -323,15 +323,20 @@ object UniversalDetectionEngine {
                 it.rect.width.toDouble() * it.rect.height.toDouble() <=
                     gray.cols().toDouble() * gray.rows().toDouble() * 0.30
             }
-            // Printed labels and ordinary text often have a wide aspect ratio
-            // and dark pixels, but their glyph heights are unusually uniform.
-            // Require irregular connected-stroke geometry before treating ink
-            // as a signature. A blank printed signature box is not a signature.
-            .filter { hasInk(gray, it.rect) && looksHandwritten(gray, it.rect) }
-            .maxByOrNull {
-                val ratio = it.rect.width.toDouble() / max(1, it.rect.height).toDouble()
-                val ratioFit = 1.0 - min(1.0, abs(ratio - 2.5) / 1.5)
-                it.score + ratioFit * 0.20 + min(0.20, inkScore(gray, it.rect))
+            .filter { hasInk(gray, it.rect) }
+            .let { inkCandidates ->
+                // Prefer handwriting-shaped ink, but keep a relaxed fallback for
+                // faint signatures, connected cursive strokes, and signatures
+                // partially touching a printed box. The old hard gate rejected
+                // these valid cases before ranking them.
+                val handwritten = inkCandidates.filter { looksHandwritten(gray, it.rect) }
+                val ranked = if (handwritten.isNotEmpty()) handwritten else inkCandidates
+                ranked.maxByOrNull {
+                    val ratio = it.rect.width.toDouble() / max(1, it.rect.height).toDouble()
+                    val ratioFit = 1.0 - min(1.0, abs(ratio - 2.5) / 1.5)
+                    val handwritingBonus = if (looksHandwritten(gray, it.rect)) 0.18 else 0.0
+                    it.score + ratioFit * 0.20 + min(0.20, inkScore(gray, it.rect)) + handwritingBonus
+                }
             }
     }
 
