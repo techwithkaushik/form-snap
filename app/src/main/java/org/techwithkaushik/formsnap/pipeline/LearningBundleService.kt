@@ -18,20 +18,29 @@ object LearningBundleService {
     private const val SCHEMA = 1
     private const val MANIFEST = "manifest.json"
     private const val PAYLOAD = "learning.json"
+    private const val LAYOUT_PAYLOAD = "layout-learning.json"
     private const val MAX_ENTRY_BYTES = 1_048_576
     private const val MAX_TOTAL_BYTES = 2_097_152
     private const val MAX_ENTRIES = 4
 
     fun export(context: Context, output: OutputStream) {
         val payload = LearningStore.exportJson(context).toByteArray(Charsets.UTF_8)
-        require(
-            JSONObject(String(payload, Charsets.UTF_8)).optJSONArray("profiles")?.length()?.let { it > 0 } == true,
-        ) { "There are no validated learning profiles to export yet" }
-        require(payload.size <= MAX_ENTRY_BYTES) { "Learning data is too large to export" }
+        val layoutPayload = LayoutTopologyStore.exportJson(context).toByteArray(Charsets.UTF_8)
+        val correctionCount = JSONObject(String(payload, Charsets.UTF_8))
+            .optJSONArray("profiles")?.length() ?: 0
+        val layoutCount = JSONObject(String(layoutPayload, Charsets.UTF_8))
+            .optJSONArray("profiles")?.length() ?: 0
+        require(correctionCount + layoutCount > 0) {
+            "No validated learning profiles are available yet. Adjust a detected crop and tap Accept, then try again."
+        }
+        require(payload.size <= MAX_ENTRY_BYTES && layoutPayload.size <= MAX_ENTRY_BYTES) {
+            "Learning data is too large to export"
+        }
         val manifest = JSONObject()
             .put("format", FORMAT)
             .put("schema", SCHEMA)
             .put("payload", PAYLOAD)
+            .put("layoutPayload", LAYOUT_PAYLOAD)
             .toString()
             .toByteArray(Charsets.UTF_8)
 
@@ -41,6 +50,9 @@ object LearningBundleService {
         zip.closeEntry()
         zip.putNextEntry(ZipEntry(PAYLOAD))
         zip.write(payload)
+        zip.closeEntry()
+        zip.putNextEntry(ZipEntry(LAYOUT_PAYLOAD))
+        zip.write(layoutPayload)
         zip.closeEntry()
         zip.finish()
         zip.flush()
@@ -56,7 +68,7 @@ object LearningBundleService {
             val entry = zip.nextEntry ?: break
             entryCount++
             require(entryCount <= MAX_ENTRIES) { "Learning bundle has too many entries" }
-            require(!entry.isDirectory && entry.name in setOf(MANIFEST, PAYLOAD)) {
+            require(!entry.isDirectory && entry.name in setOf(MANIFEST, PAYLOAD, LAYOUT_PAYLOAD)) {
                 "Unexpected learning bundle entry"
             }
             require(!entries.containsKey(entry.name)) { "Duplicate learning bundle entry" }
@@ -86,6 +98,28 @@ object LearningBundleService {
         require(manifest.optString("format") == FORMAT) { "Not a FormSnap learning bundle" }
         require(manifest.optInt("schema", -1) == SCHEMA) { "Unsupported learning bundle version" }
         require(manifest.optString("payload") == PAYLOAD) { "Invalid learning bundle payload" }
-        return LearningStore.importJson(context, String(payloadBytes, Charsets.UTF_8))
+        val layoutBytes = entries[LAYOUT_PAYLOAD]
+        val layoutName = manifest.optString("layoutPayload", "")
+        require(layoutName.isEmpty() || layoutName == LAYOUT_PAYLOAD) {
+            "Invalid layout learning payload"
+        }
+
+        val correctionCount = JSONObject(String(payloadBytes, Charsets.UTF_8))
+            .optJSONArray("profiles")?.length() ?: 0
+        var summary = if (correctionCount > 0) {
+            LearningStore.importJson(context, String(payloadBytes, Charsets.UTF_8))
+        } else {
+            LearningImportSummary(importedProfiles = 0, mergedProfiles = 0, rejectedProfiles = 0)
+        }
+        val layoutCount = layoutBytes?.let {
+            LayoutTopologyStore.importJson(context, String(it, Charsets.UTF_8))
+        } ?: 0
+        require(summary.importedProfiles + layoutCount > 0) {
+            "This backup contains no valid learning profiles"
+        }
+        if (layoutCount > 0) {
+            summary = summary.copy(importedProfiles = summary.importedProfiles + layoutCount)
+        }
+        return summary
     }
 }
