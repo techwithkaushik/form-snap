@@ -66,6 +66,7 @@ dependencies {
     testImplementation(libs.junit)
 
     implementation(libs.androidx.activity.compose)
+    implementation("com.github.jens-muenker:uCrop-n-Edit:4.1.1-non-native")
     implementation(libs.androidx.core)
     implementation(libs.androidx.compose.runtime)
     implementation(libs.androidx.compose.foundation)
