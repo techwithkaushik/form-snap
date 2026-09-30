@@ -58,10 +58,6 @@ private fun vectorIcon(
     viewportHeight = 24f,
 ).apply(draw).build()
 
-private fun strokePath(
-    draw: androidx.compose.ui.graphics.vector.PathBuilder.() -> Unit,
-) = Unit
-
 private val BackVector = vectorIcon("Back") {
     path(fill = null, stroke = SolidColor(Color.Black), strokeLineWidth = 2f, strokeLineCap = StrokeCap.Round, strokeLineJoin = StrokeJoin.Round) {
         moveTo(19f, 12f); lineTo(5f, 12f); moveTo(5f, 12f); lineTo(11f, 6f); moveTo(5f, 12f); lineTo(11f, 18f)
@@ -215,6 +211,9 @@ fun PipelinePreviewScreen(
                     .padding(horizontal = 20.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                IconButton(onClick = onBack, enabled = !saving) {
+                    Icon(BackVector, contentDescription = "Back", tint = MaterialTheme.colorScheme.primary)
+                }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
                         "FormSnap",
@@ -227,9 +226,6 @@ fun PipelinePreviewScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                }
-                IconButton(onClick = onBack, enabled = !saving) {
-                    Icon(BackVector, contentDescription = "Back", tint = MaterialTheme.colorScheme.primary)
                 }
                 StatusPill(
                     text = when {
