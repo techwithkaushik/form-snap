@@ -742,16 +742,6 @@ class MainActivity : ComponentActivity() {
                 }
                 
                 item {
-                    OutlinedTextField(
-                        value = personName,
-                        onValueChange = { personName = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        label = { Text("Name") },
-                        placeholder = { Text("Enter name") },
-                    )
-                }
-                item {
                     Row(
                         Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -788,6 +778,16 @@ class MainActivity : ComponentActivity() {
                             personName, onSave, onFolder,
                         )
                     }
+                }
+                item {
+                    OutlinedTextField(
+                        value = personName,
+                        onValueChange = { personName = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text("Person's name") },
+                        placeholder = { Text("Enter name to use in saved filenames") },
+                    )
                 }
             }
         }
