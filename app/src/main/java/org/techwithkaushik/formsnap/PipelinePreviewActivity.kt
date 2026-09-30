@@ -15,7 +15,6 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
 import com.yalantis.ucrop.UCrop
-import com.yalantis.ucrop.UCropActivity
 
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -39,6 +38,7 @@ import java.io.File
 class PipelinePreviewActivity : ComponentActivity() {
 
     private var pendingCropOutputFile: File? = null
+    private var pendingCropSourceFile: File? = null
 
     private val cropLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -46,8 +46,13 @@ class PipelinePreviewActivity : ComponentActivity() {
         val kind = correctionKindForResult
         correctionKindForResult = null
         val output = pendingCropOutputFile
+        val seed = pendingCropSourceFile
         pendingCropOutputFile = null
-        if (kind == null || output == null) return@registerForActivityResult
+        pendingCropSourceFile = null
+        if (kind == null || output == null) {
+            seed?.delete()
+            return@registerForActivityResult
+        }
 
         if (result.resultCode == RESULT_OK && output.isFile && output.length() > 0L) {
             ioScope.launch {
@@ -63,7 +68,9 @@ class PipelinePreviewActivity : ComponentActivity() {
                     ).show()
                 } finally {
                     output.delete()
+                    seed?.delete()
                 }
+            }
         } else if (result.resultCode == UCrop.RESULT_ERROR) {
             val error = result.data?.let(UCrop::getError)
             android.widget.Toast.makeText(
@@ -72,8 +79,10 @@ class PipelinePreviewActivity : ComponentActivity() {
                 android.widget.Toast.LENGTH_LONG,
             ).show()
             output.delete()
+            seed?.delete()
         } else {
             output.delete()
+            seed?.delete()
         }
     }
 
@@ -548,6 +557,8 @@ class PipelinePreviewActivity : ComponentActivity() {
                 editorSource = editorData.first
                 outputFile = editorData.second
                 withContext(Dispatchers.Main.immediate) {
+                    pendingCropSourceFile = if (editorData.first != existingPreview) editorData.first else null
+                    pendingCropOutputFile = editorData.second
                     val sourceUri = FileProvider.getUriForFile(
                         this@PipelinePreviewActivity,
                         BuildConfig.APPLICATION_ID + ".fileprovider",
@@ -578,20 +589,21 @@ class PipelinePreviewActivity : ComponentActivity() {
                         .start(this@PipelinePreviewActivity, cropLauncher)
                 }
             } catch (cancelled: CancellationException) {
+                outputFile?.delete()
+                if (editorSource != existingPreview) editorSource?.delete()
+                pendingCropSourceFile = null
+                pendingCropOutputFile = null
                 throw cancelled
             } catch (error: Exception) {
                 outputFile?.delete()
+                if (editorSource != existingPreview) editorSource?.delete()
+                pendingCropSourceFile = null
+                pendingCropOutputFile = null
                 android.widget.Toast.makeText(
                     this@PipelinePreviewActivity,
                     error.message ?: "Unable to open crop editor.",
                     android.widget.Toast.LENGTH_LONG,
                 ).show()
-            } finally {
-                // Seed files are temporary; uCrop reads the source URI before its
-                // activity returns, so cleanup is safe after the launch callback.
-                if (editorSource != null && editorSource != existingPreview) {
-                    editorSource.delete()
-                }
             }
         }
     }
