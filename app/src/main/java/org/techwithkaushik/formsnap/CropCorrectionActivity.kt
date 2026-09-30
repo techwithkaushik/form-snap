@@ -95,7 +95,9 @@ class CropCorrectionActivity : ComponentActivity() {
                     initialBrightness = intent.getFloatExtra(EXTRA_BRIGHTNESS, 0f),
                     initialContrast = intent.getFloatExtra(EXTRA_CONTRAST, 1f),
                     initialSharpness = intent.getFloatExtra(EXTRA_SHARPNESS, 0f),
-                    onConfirm = { crop, brightness, contrast, sharpness ->
+                    initialSaturation = intent.getFloatExtra(EXTRA_SATURATION, 1f),
+                    initialDenoise = intent.getFloatExtra(EXTRA_DENOISE, 0f),
+                    onConfirm = { crop, brightness, contrast, sharpness, saturation, denoise ->
                         setResult(RESULT_OK, intent.apply {
                             putExtra(EXTRA_LEFT, crop.left)
                             putExtra(EXTRA_TOP, crop.top)
@@ -104,6 +106,8 @@ class CropCorrectionActivity : ComponentActivity() {
                             putExtra(EXTRA_BRIGHTNESS, brightness)
                             putExtra(EXTRA_CONTRAST, contrast)
                             putExtra(EXTRA_SHARPNESS, sharpness)
+                            putExtra(EXTRA_SATURATION, saturation)
+                            putExtra(EXTRA_DENOISE, denoise)
                         })
                         finish()
                     },
@@ -129,6 +133,8 @@ class CropCorrectionActivity : ComponentActivity() {
         const val EXTRA_BRIGHTNESS = "formsnap.crop.brightness"
         const val EXTRA_CONTRAST = "formsnap.crop.contrast"
         const val EXTRA_SHARPNESS = "formsnap.crop.sharpness"
+        const val EXTRA_SATURATION = "formsnap.crop.saturation"
+        const val EXTRA_DENOISE = "formsnap.crop.denoise"
 
         private fun calculateSampleSize(width: Int, height: Int, maxDimension: Int): Int {
             var sample = 1
@@ -149,12 +155,16 @@ private fun CropEditorContent(
     initialBrightness: Float,
     initialContrast: Float,
     initialSharpness: Float,
+    initialSaturation: Float,
+    initialDenoise: Float,
     onCancel: () -> Unit,
-    onConfirm: (RectF, Float, Float, Float) -> Unit,
+    onConfirm: (RectF, Float, Float, Float, Float, Float) -> Unit,
 ) {
     var brightness by remember { mutableStateOf(initialBrightness.coerceIn(-0.5f, 0.5f)) }
     var contrast by remember { mutableStateOf(initialContrast.coerceIn(0.7f, 1.5f)) }
     var sharpness by remember { mutableStateOf(initialSharpness.coerceIn(0f, 1f)) }
+    var saturation by remember { mutableStateOf(initialSaturation.coerceIn(0.5f, 1.5f)) }
+    var denoise by remember { mutableStateOf(initialDenoise.coerceIn(0f, 1f)) }
     var crop by remember {
         mutableStateOf(RectF(initialBounds).apply {
             left = left.coerceIn(0f, sourceWidth - 1f)
@@ -321,6 +331,26 @@ private fun CropEditorContent(
                 )
                 Text("${(sharpness * 100).roundToInt()}%", color = Color.White, modifier = Modifier.width(42.dp), fontSize = 11.sp)
             }
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Text("Saturation", color = Color.White, modifier = Modifier.width(92.dp), fontSize = 12.sp)
+                Slider(
+                    value = saturation,
+                    onValueChange = { saturation = it },
+                    valueRange = 0.5f..1.5f,
+                    modifier = Modifier.weight(1f),
+                )
+                Text("${(saturation * 100).roundToInt()}%", color = Color.White, modifier = Modifier.width(42.dp), fontSize = 11.sp)
+            }
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Text("Denoise", color = Color.White, modifier = Modifier.width(92.dp), fontSize = 12.sp)
+                Slider(
+                    value = denoise,
+                    onValueChange = { denoise = it },
+                    valueRange = 0f..1f,
+                    modifier = Modifier.weight(1f),
+                )
+                Text("${(denoise * 100).roundToInt()}%", color = Color.White, modifier = Modifier.width(42.dp), fontSize = 11.sp)
+            }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) { Text("Cancel") }
@@ -330,12 +360,14 @@ private fun CropEditorContent(
                     brightness = initialBrightness.coerceIn(-0.5f, 0.5f)
                     contrast = initialContrast.coerceIn(0.7f, 1.5f)
                     sharpness = initialSharpness.coerceIn(0f, 1f)
+                    saturation = initialSaturation.coerceIn(0.5f, 1.5f)
+                    denoise = initialDenoise.coerceIn(0f, 1f)
                     dragMode = DragMode.NONE
                 },
                 modifier = Modifier.weight(1f),
             ) { Text("Reset") }
             Button(
-                onClick = { onConfirm(RectF(crop), brightness, contrast, sharpness) },
+                onClick = { onConfirm(RectF(crop), brightness, contrast, sharpness, saturation, denoise) },
                 modifier = Modifier.weight(1.2f),
             ) { Text("Apply") }
         }
