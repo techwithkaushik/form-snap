@@ -13,6 +13,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
+import com.yalantis.ucrop.UCrop
+import com.yalantis.ucrop.UCropActivity
 
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -35,40 +38,46 @@ import java.io.File
 
 class PipelinePreviewActivity : ComponentActivity() {
 
-    private val correctionLauncher = registerForActivityResult(
+    private var pendingCropOutputFile: File? = null
+
+    private val cropLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
-        val kind = correctionKindForResult ?: return@registerForActivityResult
+        val kind = correctionKindForResult
         correctionKindForResult = null
-        if (result.resultCode != RESULT_OK) return@registerForActivityResult
+        val output = pendingCropOutputFile
+        pendingCropOutputFile = null
+        if (kind == null || output == null) return@registerForActivityResult
 
-        val data = result.data ?: return@registerForActivityResult
-        val left = data.getFloatExtra(CropCorrectionActivity.EXTRA_LEFT, Float.NaN)
-        val top = data.getFloatExtra(CropCorrectionActivity.EXTRA_TOP, Float.NaN)
-        val right = data.getFloatExtra(CropCorrectionActivity.EXTRA_RIGHT, Float.NaN)
-        val bottom = data.getFloatExtra(CropCorrectionActivity.EXTRA_BOTTOM, Float.NaN)
-        val brightness = data.getFloatExtra(CropCorrectionActivity.EXTRA_BRIGHTNESS, 0f)
-        val contrast = data.getFloatExtra(CropCorrectionActivity.EXTRA_CONTRAST, 1f)
-        val sharpness = data.getFloatExtra(CropCorrectionActivity.EXTRA_SHARPNESS, 0f)
-        val saturation = data.getFloatExtra(CropCorrectionActivity.EXTRA_SATURATION, 1f)
-        val denoise = data.getFloatExtra(CropCorrectionActivity.EXTRA_DENOISE, 0f)
-        if (listOf(left, top, right, bottom, brightness, contrast, sharpness, saturation, denoise).all { it.isFinite() } &&
-            right > left && bottom > top
-        ) {
-            onExternalCorrection?.invoke(
-                kind,
-                RectF(left, top, right, bottom),
-                brightness.coerceIn(-0.5f, 0.5f),
-                contrast.coerceIn(0.7f, 1.5f),
-                sharpness.coerceIn(0f, 1f),
-                saturation.coerceIn(0.5f, 1.5f),
-                denoise.coerceIn(0f, 1f),
-            )
+        if (result.resultCode == RESULT_OK && output.isFile && output.length() > 0L) {
+            ioScope.launch {
+                try {
+                    activePipelineViewModel?.replacePreviewFromExternal(kind, output)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    android.widget.Toast.makeText(
+                        this@PipelinePreviewActivity,
+                        error.message ?: "Unable to apply crop.",
+                        android.widget.Toast.LENGTH_LONG,
+                    ).show()
+                } finally {
+                    output.delete()
+                }
+        } else if (result.resultCode == UCrop.RESULT_ERROR) {
+            val error = result.data?.let(UCrop::getError)
+            android.widget.Toast.makeText(
+                this,
+                error?.localizedMessage ?: "Crop failed. Please try again.",
+                android.widget.Toast.LENGTH_LONG,
+            ).show()
+            output.delete()
+        } else {
+            output.delete()
         }
     }
 
     private var activePipelineViewModel: PipelinePreviewViewModel? = null
-    private var onExternalCorrection: ((DetectionKind, RectF, Float, Float, Float, Float, Float) -> Unit)? = null
 
     private var correctionKindForResult: DetectionKind? = null
     private var pendingFolderKind: DetectionKind? = null
@@ -294,13 +303,6 @@ class PipelinePreviewActivity : ComponentActivity() {
                     folderPicker.launch(null)
                 }
             }
-            onExternalCorrection = { kind, bounds, brightness, contrast, sharpness, saturation, denoise ->
-                scope.launch {
-                    viewModel.applyExternalCorrection(
-                        kind, bounds, brightness, contrast, sharpness, saturation, denoise,
-                    )
-                }
-            }
 
             LaunchedEffect(path) {
                 viewModel.load(
@@ -521,26 +523,111 @@ class PipelinePreviewActivity : ComponentActivity() {
         if (this == DetectionKind.PHOTO) "Photo" else "Signature"
 
     private fun openDetectedEditor(source: File, kind: DetectionKind, bounds: RectF) {
-        val correction = when (kind) {
-            DetectionKind.PHOTO -> activePipelineViewModel?.state?.value?.photoState
-            DetectionKind.SIGNATURE -> activePipelineViewModel?.state?.value?.signatureState
+        val state = activePipelineViewModel?.state?.value
+        val existingPreview = when (kind) {
+            DetectionKind.PHOTO -> state?.photoPreviewPath
+            DetectionKind.SIGNATURE -> state?.signaturePreviewPath
+        }?.let(::File)?.takeIf { it.isFile && it.length() > 0L }
+
+        ioScope.launch {
+            var editorSource: File? = null
+            var outputFile: File? = null
+            try {
+                val editorData = withContext(Dispatchers.IO) {
+                    val root = org.techwithkaushik.formSnap.foundation.ProcessingPaths.root(this@PipelinePreviewActivity)
+                    val cropDir = File(root, "ucrop").apply { mkdirs() }
+                    val sourceForEdit = if (existingPreview != null) {
+                        existingPreview
+                    } else {
+                        createSeedCrop(source, bounds, kind, cropDir)
+                    }
+                    val destination = File(cropDir, "result_" + System.currentTimeMillis() + ".jpg")
+                    if (destination.exists()) destination.delete()
+                    sourceForEdit to destination
+                }
+                editorSource = editorData.first
+                outputFile = editorData.second
+                withContext(Dispatchers.Main.immediate) {
+                    val sourceUri = FileProvider.getUriForFile(
+                        this@PipelinePreviewActivity,
+                        BuildConfig.APPLICATION_ID + ".fileprovider",
+                        editorData.first,
+                    )
+                    val destinationUri = FileProvider.getUriForFile(
+                        this@PipelinePreviewActivity,
+                        BuildConfig.APPLICATION_ID + ".fileprovider",
+                        editorData.second,
+                    )
+                    val ratio = if (kind == DetectionKind.PHOTO) 40f / 50f else 50f / 20f
+                    val options = UCrop.Options().apply {
+                        setFreeStyleCropEnabled(true)
+                        setShowCropGrid(true)
+                        setShowCropFrame(true)
+                        setCompressionFormat(android.graphics.Bitmap.CompressFormat.JPEG)
+                        setCompressionQuality(96)
+                        setToolbarTitle(if (kind == DetectionKind.PHOTO) "Adjust photo" else "Adjust signature")
+                        setToolbarColor(android.graphics.Color.rgb(25, 38, 55))
+                        setStatusBarColor(android.graphics.Color.rgb(18, 28, 42))
+                        setActiveWidgetColor(android.graphics.Color.rgb(36, 160, 115))
+                        setToolbarWidgetColor(android.graphics.Color.WHITE)
+                    }
+                    UCrop.of(sourceUri, destinationUri)
+                        .withAspectRatio(ratio, 1f)
+                        .withMaxResultSize(4096, 4096)
+                        .withOptions(options)
+                        .start(this@PipelinePreviewActivity, cropLauncher)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                outputFile?.delete()
+                android.widget.Toast.makeText(
+                    this@PipelinePreviewActivity,
+                    error.message ?: "Unable to open crop editor.",
+                    android.widget.Toast.LENGTH_LONG,
+                ).show()
+            } finally {
+                // Seed files are temporary; uCrop reads the source URI before its
+                // activity returns, so cleanup is safe after the launch callback.
+                if (editorSource != null && editorSource != existingPreview) {
+                    editorSource.delete()
+                }
+            }
         }
-        val appearance = correction?.appearance
-            ?: org.techwithkaushik.formSnap.pipeline.AppearanceTuning.defaults(kind)
-        val cropIntent = Intent(this, CropCorrectionActivity::class.java).apply {
-            putExtra(CropCorrectionActivity.EXTRA_SOURCE_PATH, source.absolutePath)
-            putExtra(CropCorrectionActivity.EXTRA_KIND, kind.name)
-            putExtra(CropCorrectionActivity.EXTRA_LEFT, bounds.left)
-            putExtra(CropCorrectionActivity.EXTRA_TOP, bounds.top)
-            putExtra(CropCorrectionActivity.EXTRA_RIGHT, bounds.right)
-            putExtra(CropCorrectionActivity.EXTRA_BOTTOM, bounds.bottom)
-            putExtra(CropCorrectionActivity.EXTRA_BRIGHTNESS, appearance.brightness)
-            putExtra(CropCorrectionActivity.EXTRA_CONTRAST, appearance.contrast)
-            putExtra(CropCorrectionActivity.EXTRA_SHARPNESS, appearance.sharpness)
-            putExtra(CropCorrectionActivity.EXTRA_SATURATION, appearance.saturation)
-            putExtra(CropCorrectionActivity.EXTRA_DENOISE, appearance.denoise)
+    }
+
+    private fun createSeedCrop(
+        sourceFile: File,
+        bounds: RectF,
+        kind: DetectionKind,
+        directory: File,
+    ): File {
+        val source = org.opencv.imgcodecs.Imgcodecs.imread(sourceFile.absolutePath)
+        require(!source.empty()) { "Unable to open source image for cropping." }
+        try {
+            val width = source.cols()
+            val height = source.rows()
+            val minSide = if (kind == DetectionKind.PHOTO) 96f else 64f
+            val padX = maxOf(bounds.width() * 0.28f, minSide)
+            val padY = maxOf(bounds.height() * 0.28f, minSide * 0.5f)
+            val left = (bounds.left - padX).toInt().coerceIn(0, width - 1)
+            val top = (bounds.top - padY).toInt().coerceIn(0, height - 1)
+            val right = (bounds.right + padX).toInt().coerceIn(left + 1, width)
+            val bottom = (bounds.bottom + padY).toInt().coerceIn(top + 1, height)
+            val region = org.opencv.core.Rect(left, top, right - left, bottom - top)
+            val roi = source.submat(region)
+            val output = File(directory, "seed_" + System.currentTimeMillis() + ".jpg")
+            try {
+                check(org.opencv.imgcodecs.Imgcodecs.imwrite(output.absolutePath, roi)) {
+                    "Unable to prepare crop preview."
+                }
+            } finally {
+                roi.release()
+            }
+            return output
+        } finally {
+            source.release()
         }
-        correctionLauncher.launch(cropIntent)
     }
 
     companion object {
