@@ -40,6 +40,7 @@ class PipelinePreviewActivity : ComponentActivity() {
 
     private var pendingCropOutputFile: File? = null
     private var pendingCropSourceFile: File? = null
+    private var pendingCropSourceBounds: RectF? = null
 
     private val cropLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -48,8 +49,10 @@ class PipelinePreviewActivity : ComponentActivity() {
         correctionKindForResult = null
         val output = pendingCropOutputFile
         val seed = pendingCropSourceFile
+        val seedBounds = pendingCropSourceBounds
         pendingCropOutputFile = null
         pendingCropSourceFile = null
+        pendingCropSourceBounds = null
         if (kind == null || output == null) {
             seed?.delete()
             return@registerForActivityResult
@@ -58,7 +61,22 @@ class PipelinePreviewActivity : ComponentActivity() {
         if (result.resultCode == RESULT_OK && output.isFile && output.length() > 0L) {
             ioScope.launch {
                 try {
-                    activePipelineViewModel?.replacePreviewFromExternal(kind, output)
+                    val cropBounds = result.data?.let { data ->
+                        val offsetX = data.getIntExtra(UCrop.EXTRA_OUTPUT_OFFSET_X, -1)
+                        val offsetY = data.getIntExtra(UCrop.EXTRA_OUTPUT_OFFSET_Y, -1)
+                        val cropWidth = data.getIntExtra(UCrop.EXTRA_OUTPUT_IMAGE_WIDTH, -1)
+                        val cropHeight = data.getIntExtra(UCrop.EXTRA_OUTPUT_IMAGE_HEIGHT, -1)
+                        val origin = seedBounds
+                        if (origin != null && offsetX >= 0 && offsetY >= 0 &&
+                            cropWidth > 0 && cropHeight > 0
+                        ) RectF(
+                            origin.left + offsetX,
+                            origin.top + offsetY,
+                            origin.left + offsetX + cropWidth,
+                            origin.top + offsetY + cropHeight,
+                        ) else null
+                    }
+                    activePipelineViewModel?.replacePreviewFromExternal(kind, output, cropBounds)
                         ?: error("The preview processor is no longer available. Please reopen the crop editor.")
                 } catch (cancelled: CancellationException) {
                     throw cancelled
@@ -594,24 +612,17 @@ class PipelinePreviewActivity : ComponentActivity() {
     }
 
     private fun openDetectedEditor(source: File, kind: DetectionKind, bounds: RectF) {
-        val state = activePipelineViewModel?.state?.value
-        val existingPreview = when (kind) {
-            DetectionKind.PHOTO -> state?.photoPreviewPath
-            DetectionKind.SIGNATURE -> state?.signaturePreviewPath
-        }?.let(::File)?.takeIf { it.isFile && it.length() > 0L }
-
         ioScope.launch {
             var editorSource: File? = null
             var outputFile: File? = null
+            var seedBounds: RectF? = null
             try {
                 val editorData = withContext(Dispatchers.IO) {
                     val root = org.techwithkaushik.formSnap.foundation.ProcessingPaths.root(this@PipelinePreviewActivity)
                     val cropDir = File(root, "ucrop").apply { mkdirs() }
-                    val sourceForEdit = if (existingPreview != null) {
-                        existingPreview
-                    } else {
-                        createSeedCrop(source, bounds, kind, cropDir)
-                    }
+                    val seed = createSeedCrop(source, bounds, kind, cropDir)
+                    seedBounds = seed.sourceBounds
+                    seed.file
                     check(cropDir.isDirectory || cropDir.mkdirs()) {
                         "Cannot create the crop output directory."
                     }
@@ -630,7 +641,8 @@ class PipelinePreviewActivity : ComponentActivity() {
                 editorSource = editorData.first
                 outputFile = editorData.second
                 withContext(Dispatchers.Main.immediate) {
-                    pendingCropSourceFile = if (editorData.first != existingPreview) editorData.first else null
+                    pendingCropSourceFile = editorData.first
+                    pendingCropSourceBounds = seedBounds
                     pendingCropOutputFile = editorData.second
                     val sourceUri = FileProvider.getUriForFile(
                         this@PipelinePreviewActivity,
@@ -668,14 +680,16 @@ class PipelinePreviewActivity : ComponentActivity() {
                 }
             } catch (cancelled: CancellationException) {
                 outputFile?.delete()
-                if (editorSource != existingPreview) editorSource?.delete()
+                editorSource?.delete()
                 pendingCropSourceFile = null
+                pendingCropSourceBounds = null
                 pendingCropOutputFile = null
                 throw cancelled
             } catch (error: Exception) {
                 outputFile?.delete()
-                if (editorSource != existingPreview) editorSource?.delete()
+                editorSource?.delete()
                 pendingCropSourceFile = null
+                pendingCropSourceBounds = null
                 pendingCropOutputFile = null
                 android.widget.Toast.makeText(
                     this@PipelinePreviewActivity,
@@ -686,12 +700,14 @@ class PipelinePreviewActivity : ComponentActivity() {
         }
     }
 
+    private data class SeedCrop(val file: File, val sourceBounds: RectF)
+
     private fun createSeedCrop(
         sourceFile: File,
         bounds: RectF,
         kind: DetectionKind,
         directory: File,
-    ): File {
+    ): SeedCrop {
         val source = org.opencv.imgcodecs.Imgcodecs.imread(sourceFile.absolutePath)
         require(!source.empty()) { "Unable to open source image for cropping." }
         try {
@@ -714,7 +730,7 @@ class PipelinePreviewActivity : ComponentActivity() {
             } finally {
                 roi.release()
             }
-            return output
+            return SeedCrop(output, RectF(left.toFloat(), top.toFloat(), right.toFloat(), bottom.toFloat()))
         } finally {
             source.release()
         }
