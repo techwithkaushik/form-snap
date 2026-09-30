@@ -414,6 +414,7 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
     suspend fun replacePreviewFromExternal(
         kind: DetectionKind,
         correctedFile: File,
+        correctedBounds: android.graphics.RectF? = null,
     ) {
         require(correctedFile.isFile && correctedFile.length() > 0L) {
             "Corrected crop does not exist or is empty"
@@ -463,14 +464,28 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
         }
 
         val current = _state.value
+        val correction = stateFor(kind)
+        val mappedCorrection = correctedBounds?.let { bounds ->
+            correction?.let { state ->
+                val width = state.sourceWidth.toFloat().coerceAtLeast(1f)
+                val height = state.sourceHeight.toFloat().coerceAtLeast(1f)
+                val left = bounds.left.coerceIn(0f, width - 1f)
+                val top = bounds.top.coerceIn(0f, height - 1f)
+                val right = bounds.right.coerceIn(left + 1f, width)
+                val bottom = bounds.bottom.coerceIn(top + 1f, height)
+                state.withBounds(android.graphics.RectF(left, top, right, bottom))
+            }
+        }
         _state.value = when (kind) {
             DetectionKind.PHOTO -> current.copy(
+                photoState = mappedCorrection ?: current.photoState,
                 photoPreviewPath = previewTarget.absolutePath,
                 photoPreviewVersion = current.photoPreviewVersion + 1L,
                 processing = false,
                 error = null,
             )
             DetectionKind.SIGNATURE -> current.copy(
+                signatureState = mappedCorrection ?: current.signatureState,
                 signaturePreviewPath = previewTarget.absolutePath,
                 signaturePreviewVersion = current.signaturePreviewVersion + 1L,
                 processing = false,
