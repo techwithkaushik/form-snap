@@ -233,7 +233,9 @@ class PipelinePreviewActivity : ComponentActivity() {
             val state by viewModel.state.collectAsState()
             val scope = rememberCoroutineScope()
             val saveMessage = remember { mutableStateOf<String?>(null) }
-            val saving = remember { mutableStateOf(false) }
+            val savingKind = remember { mutableStateOf<DetectionKind?>(null) }
+            val photoSaved = remember { mutableStateOf(false) }
+            val signatureSaved = remember { mutableStateOf(false) }
             val prefs = remember {
                 getSharedPreferences("formsnap_storage", MODE_PRIVATE)
             }
@@ -265,15 +267,22 @@ class PipelinePreviewActivity : ComponentActivity() {
                         prefs.edit().putString("output_directory_uri", uri.toString()).apply()
                         if (pathToSave != null) {
                             scope.launch {
-                                saving.value = true
+                                savingKind.value = kind
                                 saveMessage.value = try {
                                     saveOutputToFolder(kind, pathToSave, uri, nameToSave, signatureJpegToSave)
+                                        .also { result ->
+                                            val succeeded = result.startsWith("${kind.label()} saved as")
+                                            if (kind == DetectionKind.PHOTO) photoSaved.value = succeeded
+                                            else signatureSaved.value = succeeded
+                                        }
                                 } catch (cancelled: CancellationException) {
                                     throw cancelled
                                 } catch (t: Exception) {
+                                    if (kind == DetectionKind.PHOTO) photoSaved.value = false
+                                    else signatureSaved.value = false
                                     t.message ?: "Save failed."
                                 } finally {
-                                    saving.value = false
+                                    savingKind.value = null
                                 }
                             }
                         } else {
@@ -307,15 +316,22 @@ class PipelinePreviewActivity : ComponentActivity() {
                     }
                 if (hasPermission && savedUri != null) {
                     scope.launch {
-                        saving.value = true
+                        savingKind.value = kind
                         saveMessage.value = try {
                             saveOutputToFolder(kind, path, savedUri, requiredName, signatureAsJpeg.value)
+                                .also { result ->
+                                    val succeeded = result.startsWith("${kind.label()} saved as")
+                                    if (kind == DetectionKind.PHOTO) photoSaved.value = succeeded
+                                    else signatureSaved.value = succeeded
+                                }
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (t: Exception) {
+                            if (kind == DetectionKind.PHOTO) photoSaved.value = false
+                            else signatureSaved.value = false
                             t.message ?: "Save failed."
                         } finally {
-                            saving.value = false
+                            savingKind.value = null
                         }
                     }
                 } else {
@@ -397,13 +413,19 @@ class PipelinePreviewActivity : ComponentActivity() {
                 personName = personName.value,
                 onPersonNameChange = { value ->
                     personName.value = value
+                    photoSaved.value = false
+                    signatureSaved.value = false
                 },
                 signatureAsJpeg = signatureAsJpeg.value,
                 onSignatureAsJpegChange = { enabled ->
                     signatureAsJpeg.value = enabled
                     prefs.edit().putBoolean("signature_as_jpeg", enabled).apply()
                 },
-                saving = saving.value,
+                saving = savingKind.value != null,
+                savingPhoto = savingKind.value == DetectionKind.PHOTO,
+                savingSignature = savingKind.value == DetectionKind.SIGNATURE,
+                photoSaved = photoSaved.value,
+                signatureSaved = signatureSaved.value,
                 onProcess = {
                     scope.launch {
                         viewModel.redetect()
@@ -412,6 +434,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                 onRecapture = { launchRecapture() },
                 onReimport = { launchImport() },
                 onEditPhoto = {
+                    photoSaved.value = false
                     val source = state.source
                     val bounds = state.photoState?.currentBounds
                         ?: source?.takeIf { it.isFile }?.let(::fullImageBounds)
@@ -428,9 +451,11 @@ class PipelinePreviewActivity : ComponentActivity() {
                     }
                 },
                 onRejectPhoto = {
+                    photoSaved.value = false
                     viewModel.reject(DetectionKind.PHOTO)
                 },
                 onEditSignature = {
+                    signatureSaved.value = false
                     val source = state.source
                     val bounds = state.signatureState?.currentBounds
                         ?: source?.takeIf { it.isFile }?.let(::fullImageBounds)
@@ -447,6 +472,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                     }
                 },
                 onRejectSignature = {
+                    signatureSaved.value = false
                     viewModel.reject(DetectionKind.SIGNATURE)
                 },
                 onSavePhoto = {
