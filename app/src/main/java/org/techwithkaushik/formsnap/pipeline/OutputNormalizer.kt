@@ -1,6 +1,5 @@
 package org.techwithkaushik.formSnap.pipeline
 
-import android.graphics.RectF
 import org.opencv.core.Core
 import org.opencv.core.Mat
 import org.opencv.core.Scalar
@@ -9,10 +8,7 @@ import org.opencv.imgproc.Imgproc
 import kotlin.math.max
 import kotlin.math.roundToInt
 
-data class NormalizedOutput(
-    val image: Mat,
-    val bounds: RectF,
-)
+data class NormalizedOutput(val image: Mat)
 
 internal data class FitDimensions(val width: Int, val height: Int)
 
@@ -116,14 +112,8 @@ object OutputNormalizer {
                 )
             }
 
-            val outputBounds = RectF(
-                crop.bounds.left.toFloat(),
-                crop.bounds.top.toFloat(),
-                crop.bounds.right.toFloat(),
-                crop.bounds.bottom.toFloat(),
-            )
             output = null // Ownership transfers to the caller on success.
-            return NormalizedOutput(image = fitted, bounds = outputBounds)
+            return NormalizedOutput(image = fitted)
         } finally {
             output?.release()
             fittedContent?.release()
