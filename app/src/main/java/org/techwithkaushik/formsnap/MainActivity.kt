@@ -162,6 +162,7 @@ class MainActivity : ComponentActivity() {
                     pipelineLauncher.launch(
                         Intent(this@MainActivity, PipelinePreviewActivity::class.java)
                             .putExtra(PipelinePreviewActivity.EXTRA_INPUT_PATH, input.absolutePath)
+                            .putExtra(PipelinePreviewActivity.EXTRA_CAPTURE_MODE, mode.name)
                             .putExtra(PipelinePreviewActivity.EXTRA_MAX_KB, settings.maxKb)
                             .putExtra(PipelinePreviewActivity.EXTRA_DPI, settings.dpi)
                             .putExtra(PipelinePreviewActivity.EXTRA_PHOTO_WIDTH_MM, settings.photoWidthMm)
