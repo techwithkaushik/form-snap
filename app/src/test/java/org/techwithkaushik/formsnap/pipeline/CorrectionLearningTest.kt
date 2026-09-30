@@ -260,4 +260,52 @@ class CorrectionLearningTest {
         )
     }
 
+    @Test
+    fun normalizedV3ProfileKeepsItsVersionAndNormalizedOffsetsWhenBlended() {
+        val previous = LearnedCorrection(
+            kind = DetectionKind.SIGNATURE,
+            boundsDeltaLeft = 0.10f,
+            boundsDeltaTop = -0.05f,
+            boundsDeltaRight = 0.08f,
+            boundsDeltaBottom = 0.04f,
+            sampleCount = 3,
+            confidence = 0.8f,
+            version = 3,
+        )
+        val incoming = previous.copy(
+            boundsDeltaLeft = 0.20f,
+            boundsDeltaTop = 0.05f,
+            boundsDeltaRight = 0.12f,
+            boundsDeltaBottom = 0.08f,
+            sampleCount = 1,
+            confidence = 1f,
+        )
+
+        val blended = CorrectionLearning.blend(previous, incoming)
+
+        assertEquals(3, blended.version)
+        assertEquals(0.125f, blended.boundsDeltaLeft, 0.0001f)
+        assertEquals(-0.025f, blended.boundsDeltaTop, 0.0001f)
+        assertEquals(4, blended.sampleCount)
+        assertTrue(CorrectionLearning.isSafe(blended))
+    }
+
+    @Test
+    fun differentCoordinateVersionsCannotShareOneLearningProfile() {
+        val legacy = LearnedCorrection(
+            kind = DetectionKind.PHOTO,
+            boundsDeltaLeft = 12f,
+            version = 2,
+        )
+        val normalized = LearnedCorrection(
+            kind = DetectionKind.PHOTO,
+            boundsDeltaLeft = 0.12f,
+            version = 3,
+        )
+
+        assertEquals(false, CorrectionLearning.sameConditionProfile(legacy, normalized))
+        val failure = runCatching { CorrectionLearning.blend(legacy, normalized) }.exceptionOrNull()
+        assertTrue(failure is IllegalArgumentException)
+    }
+
 }
