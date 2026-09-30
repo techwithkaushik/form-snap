@@ -205,13 +205,11 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
         )
     }
 
-    suspend fun accept(kind: DetectionKind): Boolean {
-        val correction = stateFor(kind) ?: return false
-        // The legacy learning system has been removed from the active pipeline.
-        // Accept confirms the current crop for this output only; it does not
+    suspend fun accept(kind: DetectionKind) {
+        val correction = stateFor(kind) ?: return
+        // Accept confirms the current crop for this output only. It does not
         // create a training profile or change future detections.
         updateCorrectionState(kind, correction.accept())
-        return false
     }
 
     fun reject(kind: DetectionKind) {
