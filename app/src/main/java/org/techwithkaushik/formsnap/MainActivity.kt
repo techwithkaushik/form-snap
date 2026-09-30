@@ -94,7 +94,7 @@ class MainActivity : ComponentActivity() {
                 ioScope.launch {
                     val imported = withContext(Dispatchers.IO) { uriToFile(uri, "camera") }
                     capturedFile.delete()
-                    if (imported != null) source?.takeIf { it != imported }?.delete()
+                    source?.takeIf { it != imported }?.delete()
                     source = imported
                     saveMessage = if (imported == null) {
                         "Could not read the captured image. Please capture again."
