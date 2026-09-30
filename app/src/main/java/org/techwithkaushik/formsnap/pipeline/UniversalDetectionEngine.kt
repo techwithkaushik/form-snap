@@ -2,6 +2,7 @@ package org.techwithkaushik.formSnap.pipeline
 
 import org.techwithkaushik.formSnap.OpenCvGeometry
 import org.opencv.core.Core
+import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
 import org.opencv.core.Rect
@@ -322,11 +323,15 @@ object UniversalDetectionEngine {
                 it.rect.width.toDouble() * it.rect.height.toDouble() <=
                     gray.cols().toDouble() * gray.rows().toDouble() * 0.25
             }
-            .filter { hasInk(gray, it.rect) }
+            // Printed labels and ordinary text often have a wide aspect ratio
+            // and dark pixels, but their glyph heights are unusually uniform.
+            // Require irregular connected-stroke geometry before treating ink
+            // as a signature. A blank printed signature box is not a signature.
+            .filter { hasInk(gray, it.rect) && looksHandwritten(gray, it.rect) }
             .maxByOrNull {
                 val ratio = it.rect.width.toDouble() / max(1, it.rect.height).toDouble()
                 val ratioFit = 1.0 - min(1.0, abs(ratio - 2.5) / 1.5)
-                it.score + ratioFit * 0.25 + min(0.25, inkScore(gray, it.rect))
+                it.score + ratioFit * 0.20 + min(0.20, inkScore(gray, it.rect))
             }
     }
 
@@ -403,6 +408,72 @@ object UniversalDetectionEngine {
             Core.countNonZero(roi).toDouble() /
                 max(1.0, clipped.width.toDouble() * clipped.height.toDouble())
         } finally {
+            roi.release()
+        }
+    }
+
+    /**
+     * Lightweight handwriting-vs-printed-text gate. Printed labels generally
+     * contain many similarly sized glyphs; a signature tends to contain
+     * connected strokes with a wider spread of component heights and widths.
+     * This is a conservative heuristic, not an OCR or identity classifier.
+     */
+    private fun looksHandwritten(gray: Mat, rect: Rect): Boolean {
+        val clipped = clip(rect, gray)
+        if (clipped.width < 80 || clipped.height < 16) return false
+        val roi = gray.submat(clipped)
+        val binary = Mat()
+        val labels = Mat()
+        val stats = Mat()
+        val centroids = Mat()
+        try {
+            Imgproc.threshold(
+                roi, binary, 0.0, 255.0,
+                Imgproc.THRESH_BINARY_INV or Imgproc.THRESH_OTSU,
+            )
+            val inkDensity = Core.countNonZero(binary).toDouble() /
+                max(1.0, clipped.width.toDouble() * clipped.height.toDouble())
+            if (inkDensity !in 0.008..0.48) return false
+
+            val count = Imgproc.connectedComponentsWithStats(
+                binary, labels, stats, centroids, 8, CvType.CV_32S,
+            )
+            val widths = ArrayList<Int>()
+            val heights = ArrayList<Int>()
+            for (i in 1 until count) {
+                val area = stats.get(i, Imgproc.CC_STAT_AREA)?.firstOrNull()?.toInt() ?: 0
+                if (area < 4) continue
+                val width = stats.get(i, Imgproc.CC_STAT_WIDTH)?.firstOrNull()?.toInt() ?: 0
+                val height = stats.get(i, Imgproc.CC_STAT_HEIGHT)?.firstOrNull()?.toInt() ?: 0
+                if (width < 2 || height < 2) continue
+                widths += width
+                heights += height
+            }
+            if (heights.size < 2) {
+                // A continuous cursive stroke can be one connected component.
+                return clipped.width.toDouble() / max(1, clipped.height) >= 2.2 &&
+                    inkDensity in 0.015..0.32
+            }
+
+            val meanHeight = heights.average().coerceAtLeast(1.0)
+            val variance = heights.sumOf { (it - meanHeight) * (it - meanHeight) } /
+                heights.size.toDouble()
+            val heightVariation = kotlin.math.sqrt(variance) / meanHeight
+            val medianHeight = heights.sorted()[heights.size / 2].coerceAtLeast(1)
+            val medianWidth = widths.sorted()[widths.size / 2].coerceAtLeast(1)
+            val distinctiveStrokes = heights.indices.count { index ->
+                heights[index] >= medianHeight * 1.65 ||
+                    widths[index] >= medianWidth * 2.8
+            }
+            val ratio = clipped.width.toDouble() / max(1, clipped.height)
+            return ratio >= 1.45 &&
+                (heightVariation >= 0.38 ||
+                    (distinctiveStrokes >= 2 && distinctiveStrokes.toDouble() / heights.size >= 0.18))
+        } finally {
+            centroids.release()
+            stats.release()
+            labels.release()
+            binary.release()
             roi.release()
         }
     }
