@@ -5,35 +5,12 @@ import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
-import org.opencv.core.Rect
 import org.opencv.imgproc.Imgproc
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
 object PerspectiveNormalizer {
-    /**
-     * Applies a conservative deskew when a candidate has a strong quadrilateral.
-     * Otherwise the source is copied unchanged; we never guess a perspective warp
-     * from weak geometry.
-     */
-    fun normalize(source: Mat, candidate: DetectionCandidate): Mat {
-        require(!source.empty()) { "Source image is empty" }
-
-        val b = candidate.bounds
-        val left = max(0.0f, b.left).toDouble()
-        val top = max(0.0f, b.top).toDouble()
-        val right = min(source.cols().toFloat(), b.right).toDouble()
-        val bottom = min(source.rows().toFloat(), b.bottom).toDouble()
-
-        if (right <= left || bottom <= top) return source.clone()
-
-        val output = Mat()
-        source.copyTo(output)
-        return output
-    }
-
-
     /**
      * Conservatively rectifies a photo crop only when a strong four-corner
      * contour occupies most of the crop. Signature crops are left untouched:
