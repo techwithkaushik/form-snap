@@ -270,9 +270,15 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
             )
             FeedbackRecorder.record(context, feedback)
 
-            // Record normalized layout topology only for an explicit manual edit;
-            // simply accepting an untouched detector crop must not teach a zero delta.
-            if (correction.dirty && FeedbackRecorder.isSafeFeedback(feedback)) {
+            val boundsChanged =
+                correction.currentBounds.left != automatic.bounds.left ||
+                    correction.currentBounds.top != automatic.bounds.top ||
+                    correction.currentBounds.right != automatic.bounds.right ||
+                    correction.currentBounds.bottom != automatic.bounds.bottom
+
+            // Appearance-only edits must not create zero-delta layout profiles.
+            // Topology memory is reserved for actual, validated geometry changes.
+            if (boundsChanged && FeedbackRecorder.isSafeFeedback(feedback)) {
                 val snapshot = _state.value
                 val topology = LayoutTopologyMatcher.signature(
                     sourceWidth = correction.sourceWidth,
