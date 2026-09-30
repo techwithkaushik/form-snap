@@ -73,15 +73,4 @@ object CropEngine {
         }
     }
 
-    fun normalizeOrientation(input: Mat): Mat {
-        require(!input.empty()) { "Input image is empty" }
-        val output = Mat()
-        try {
-            input.copyTo(output)
-            return output
-        } catch (failure: Throwable) {
-            output.release()
-            throw failure
-        }
-    }
 }
