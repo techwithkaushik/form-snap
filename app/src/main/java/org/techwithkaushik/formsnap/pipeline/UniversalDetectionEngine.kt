@@ -130,7 +130,7 @@ object UniversalDetectionEngine {
             for (contour in contours) {
                 val rect = OpenCvGeometry.boundingRect(contour)
                 val rectArea = rect.width.toDouble() * rect.height.toDouble()
-                if (rectArea < imageArea * 0.003) {
+                if (rectArea < imageArea * 0.0015) {
                     continue
                 }
 
@@ -297,7 +297,13 @@ object UniversalDetectionEngine {
                 val ratio = it.rect.width.toDouble() / max(1, it.rect.height).toDouble()
                 ratio in 0.55..1.15
             }
-            .filter { it.rect.width >= 120 && it.rect.height >= 120 }
+            // The working image is capped at 1600px, but forms can be very wide
+            // or very tall. Scale the minimum dimensions with the image instead
+            // of rejecting valid small photo boxes using a fixed 120px cutoff.
+            .filter {
+                it.rect.width >= max(36, (imageWidth * 0.035).toInt()) &&
+                    it.rect.height >= max(36, (imageHeight * 0.035).toInt())
+            }
             .maxByOrNull {
                 val ratio = it.rect.width.toDouble() / max(1, it.rect.height).toDouble()
                 it.score +
