@@ -463,15 +463,11 @@ class PipelinePreviewActivity : ComponentActivity() {
                 },
                 onAcceptPhoto = {
                     if (state.photoState == null && state.photoPreviewPath != null) {
-                        saveMessage.value = "Manual photo crop is ready. Automatic detection found no candidate, so this crop cannot be learned yet. Save it when satisfied."
+                        saveMessage.value = "Manual photo crop is ready. Automatic detection did not find a candidate; review the crop before saving."
                     } else {
                         scope.launch {
-                            val learned = viewModel.accept(DetectionKind.PHOTO)
-                            saveMessage.value = if (learned) {
-                                "Photo accepted and added to learning memory."
-                            } else {
-                                "Photo accepted for this session, but not learned. Try a smaller crop adjustment within the detected area."
-                            }
+                            viewModel.accept(DetectionKind.PHOTO)
+                            saveMessage.value = "Photo crop accepted. OpenCV detection will be used for future images."
                         }
                     }
                 },
@@ -491,15 +487,11 @@ class PipelinePreviewActivity : ComponentActivity() {
                 },
                 onAcceptSignature = {
                     if (state.signatureState == null && state.signaturePreviewPath != null) {
-                        saveMessage.value = "Manual signature crop is ready. Automatic detection found no candidate, so this crop cannot be learned yet. Save it when satisfied."
+                        saveMessage.value = "Manual signature crop is ready. Automatic detection did not find a candidate; review the crop before saving."
                     } else {
                         scope.launch {
-                            val learned = viewModel.accept(DetectionKind.SIGNATURE)
-                            saveMessage.value = if (learned) {
-                                "Signature accepted and added to learning memory."
-                            } else {
-                                "Signature accepted for this session, but not learned. Try a smaller crop adjustment within the detected area."
-                            }
+                            viewModel.accept(DetectionKind.SIGNATURE)
+                            saveMessage.value = "Signature crop accepted. OpenCV detection will be used for future images."
                         }
                     }
                 },
