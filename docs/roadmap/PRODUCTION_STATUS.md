@@ -59,3 +59,8 @@ Do **not** mark FormSnap 2.0 fully production-ready until:
 5. release APK/AAB size and low-memory performance are measured on target-class devices.
 
 A successful build is necessary, but not sufficient, evidence for production readiness.
+
+- Camera crash fix: FileProvider now exposes the actual `cacheDir/formsnap_temp/` capture root; capture uses the delegated system camera without an unnecessary app CAMERA permission gate, validates output files, handles launch errors, and restores pending capture URI/file state.
+- Signature candidate filtering now removes outer frame bands before measuring ink and requires irregular connected-stroke geometry, reducing false positives from printed labels. This remains a heuristic and must be measured against labeled handwriting/printed-text examples.
+- Crop editor uses the same display-to-source geometry for drawing and pointer handling, ignores gestures in image letterboxing, and exposes brightness, contrast, sharpness, saturation, and denoise controls that are applied by the OpenCV preview pipeline.
+- The person-name input in the legacy preview flow is positioned after photo/signature output cards; the pipeline preview already keeps naming below the detected output cards.
