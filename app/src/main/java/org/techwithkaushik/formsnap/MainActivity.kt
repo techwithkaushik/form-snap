@@ -3,10 +3,8 @@ package org.techwithkaushik.formSnap
 
 import org.techwithkaushik.formsnap.BuildConfig
 
-import android.Manifest
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -32,7 +30,6 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -120,12 +117,6 @@ class MainActivity : ComponentActivity() {
                 capturedFile?.delete()
                 if (ok) saveMessage = "Camera did not return a usable image. Please try again."
             }
-        }
-
-        val requestCamera = rememberLauncherForActivityResult(
-            ActivityResultContracts.RequestPermission(),
-        ) { granted ->
-            if (granted) launchCamera(openCamera)
         }
 
         val openDocument = rememberLauncherForActivityResult(
@@ -247,15 +238,9 @@ class MainActivity : ComponentActivity() {
                 onResetLearning = { resetLearningConfirm = true },
                 onCamera = { selected ->
                     mode = selected
-                    if (ContextCompat.checkSelfPermission(
-                            this@MainActivity,
-                            Manifest.permission.CAMERA,
-                        ) == PackageManager.PERMISSION_GRANTED
-                    ) {
-                        launchCamera(openCamera)
-                    } else {
-                        requestCamera.launch(Manifest.permission.CAMERA)
-                    }
+                    // TakePicture delegates capture to the installed camera app;
+                    // this app does not open Camera APIs and needs no CAMERA grant.
+                    launchCamera(openCamera)
                 },
                 onImport = {
                     importKeepsCurrentMode = false
@@ -269,17 +254,7 @@ class MainActivity : ComponentActivity() {
                 settings = settings,
                 onSettings = { settingsOpen = true },
                 onBack = { source = null },
-                onCaptureAgain = {
-                    if (ContextCompat.checkSelfPermission(
-                            this@MainActivity,
-                            Manifest.permission.CAMERA,
-                        ) == PackageManager.PERMISSION_GRANTED
-                    ) {
-                        launchCamera(openCamera)
-                    } else {
-                        requestCamera.launch(Manifest.permission.CAMERA)
-                    }
-                },
+                onCaptureAgain = { launchCamera(openCamera) },
                 onImportAgain = {
                     importKeepsCurrentMode = true
                     openDocument.launch(arrayOf("image/*"))
