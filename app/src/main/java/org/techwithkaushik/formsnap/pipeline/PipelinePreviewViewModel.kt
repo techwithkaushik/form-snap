@@ -15,6 +15,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.techwithkaushik.formSnap.foundation.ProcessingPaths
 import java.io.File
+import kotlin.math.roundToInt
 
 private data class PreviewDetectionBundle(
     val detection: DetectionResult,
@@ -369,36 +370,63 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
         kind: DetectionKind,
         correctedFile: File,
     ) {
-        require(correctedFile.exists()) { "Corrected crop does not exist" }
+        require(correctedFile.isFile && correctedFile.length() > 0L) {
+            "Corrected crop does not exist or is empty"
+        }
 
+        val widthMm = if (kind == DetectionKind.PHOTO) photoWidthMm else signatureWidthMm
+        val heightMm = if (kind == DetectionKind.PHOTO) photoHeightMm else signatureHeightMm
+        val widthPx = (widthMm * dpi / 25.4).roundToInt().coerceAtLeast(1)
+        val heightPx = (heightMm * dpi / 25.4).roundToInt().coerceAtLeast(1)
+        require(widthPx.toLong() * heightPx.toLong() <= 24_000_000L) {
+            "Requested output dimensions are too large"
+        }
+
+        val previewTarget = File(
+            sessionDir,
+            if (kind == DetectionKind.PHOTO) "photo_preview.jpg" else "signature_preview.jpg",
+        )
         withContext(Dispatchers.Default) {
-            val target = File(
-                sessionDir,
-                if (kind == DetectionKind.PHOTO) "photo_ucrop.jpg" else "signature_ucrop.jpg",
+            val source = org.opencv.imgcodecs.Imgcodecs.imread(correctedFile.absolutePath)
+            require(!source.empty()) { "Unable to decode the adjusted crop" }
+            val resized = org.opencv.core.Mat()
+            val params = org.opencv.core.MatOfInt(
+                org.opencv.imgcodecs.Imgcodecs.IMWRITE_JPEG_QUALITY,
+                96,
             )
-            correctedFile.inputStream().use { input ->
-                target.outputStream().use { output -> input.copyTo(output) }
-            }
-
-            val previewTarget = File(
-                sessionDir,
-                if (kind == DetectionKind.PHOTO) "photo_preview.jpg" else "signature_preview.jpg",
-            )
-            target.inputStream().use { input ->
-                previewTarget.outputStream().use { output -> input.copyTo(output) }
+            try {
+                org.opencv.imgproc.Imgproc.resize(
+                    source,
+                    resized,
+                    org.opencv.core.Size(widthPx.toDouble(), heightPx.toDouble()),
+                    0.0,
+                    0.0,
+                    if (kind == DetectionKind.PHOTO) {
+                        org.opencv.imgproc.Imgproc.INTER_AREA
+                    } else {
+                        org.opencv.imgproc.Imgproc.INTER_CUBIC
+                    },
+                )
+                check(org.opencv.imgcodecs.Imgcodecs.imwrite(previewTarget.absolutePath, resized, params)) {
+                    "Unable to save the adjusted crop preview"
+                }
+            } finally {
+                params.release()
+                resized.release()
+                source.release()
             }
         }
 
         val current = _state.value
         _state.value = when (kind) {
             DetectionKind.PHOTO -> current.copy(
-                photoPreviewPath = File(sessionDir, "photo_preview.jpg").absolutePath,
+                photoPreviewPath = previewTarget.absolutePath,
                 photoPreviewVersion = current.photoPreviewVersion + 1L,
                 processing = false,
                 error = null,
             )
             DetectionKind.SIGNATURE -> current.copy(
-                signaturePreviewPath = File(sessionDir, "signature_preview.jpg").absolutePath,
+                signaturePreviewPath = previewTarget.absolutePath,
                 signaturePreviewVersion = current.signaturePreviewVersion + 1L,
                 processing = false,
                 error = null,
