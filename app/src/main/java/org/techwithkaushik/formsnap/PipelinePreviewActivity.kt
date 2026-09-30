@@ -406,7 +406,11 @@ class PipelinePreviewActivity : ComponentActivity() {
                     }
                 },
                 onAcceptPhoto = {
-                    scope.launch { viewModel.accept(DetectionKind.PHOTO) }
+                    if (state.photoState == null && state.photoPreviewPath != null) {
+                        saveMessage.value = "Manual photo crop is ready. Save it when satisfied."
+                    } else {
+                        scope.launch { viewModel.accept(DetectionKind.PHOTO) }
+                    }
                 },
                 onRejectPhoto = {
                     viewModel.reject(DetectionKind.PHOTO)
@@ -421,7 +425,11 @@ class PipelinePreviewActivity : ComponentActivity() {
                     }
                 },
                 onAcceptSignature = {
-                    scope.launch { viewModel.accept(DetectionKind.SIGNATURE) }
+                    if (state.signatureState == null && state.signaturePreviewPath != null) {
+                        saveMessage.value = "Manual signature crop is ready. Save it when satisfied."
+                    } else {
+                        scope.launch { viewModel.accept(DetectionKind.SIGNATURE) }
+                    }
                 },
                 onRejectSignature = {
                     viewModel.reject(DetectionKind.SIGNATURE)
