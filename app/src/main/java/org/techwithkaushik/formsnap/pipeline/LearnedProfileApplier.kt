@@ -28,13 +28,15 @@ object LearnedProfileApplier {
             conditionEdgeDensity = conditionFeatures?.edgeDensity,
             aspectRatio = conditionFeatures?.aspectRatio ?: aspect,
         )
-        val strength = (
-            learned.confidence *
-                (learned.sampleCount.coerceIn(2, 20) / 20f) *
-                conditionMatch
-            ).coerceIn(0f, 0.60f)
+        // Human-approved corrections are useful after the first sample.
+        // Grow influence gradually with repeated samples instead of dividing sample
+        // count by 20 (which made early learning effectively invisible).
+        val sampleStrength = 0.16f + (learned.sampleCount.coerceIn(1, 10) - 1) * 0.045f
+        val maxStrength = if (learned.sampleCount <= 1) 0.22f else 0.60f
+        val strength = (learned.confidence * sampleStrength * conditionMatch)
+            .coerceIn(0f, maxStrength)
 
-        if (strength < 0.08f) {
+        if (strength < 0.04f) {
             return LearnedApplication(candidate.bounds, AppearanceAdjustments(), 0f)
         }
 
