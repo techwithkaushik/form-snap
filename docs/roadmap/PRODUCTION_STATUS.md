@@ -29,7 +29,7 @@ Roadmap source: 'FormSnap_2_0_Master_Development_Specification_UPDATED.pdf' (22 
 ## Delta-update acceptance gates
 
 - Candidate geometry and feedback must use a documented coordinate space.
-- Current topology matching uses normalized photo/signature candidate boxes plus source aspect ratio. The full segmented-component topology graph described in the delta specification is still a gap; it must not be reported as complete.
+- Current topology matching uses normalized photo/signature candidate boxes plus source aspect ratio, with unit coverage for normalized scaling and missing-counterpart rejection. The full segmented-component topology graph described in the delta specification is still a gap; it must not be reported as complete.
 - Crop offsets recorded by new profiles are normalized against candidate width/height, so similar crops can transfer across source resolutions. Legacy v1/v2 profiles remain interpreted as pixel offsets and are not merged with v3 normalized profiles.
 - The manual crop editor edits the original source coordinate space rather than editing only the already-cropped output.
 - Rejected candidate regions persist per source identity and are bounded in count.
@@ -45,6 +45,9 @@ Roadmap source: 'FormSnap_2_0_Master_Development_Specification_UPDATED.pdf' (22 
 - Added pure unit tests for normalized-delta scaling and output filename sanitization/collision suffixes.
 - Rejected candidate storage is persisted per source-file identity, bounded to ten regions per detection type, and included in Reset Learning.
 - One persisted output-folder URI is shared by photo and signature. Photo uses JPEG; signature defaults to PNG and can optionally use JPEG. Writes are read back and size-verified.
+- Preview UI redesigned with Material 3 cards, clearer capture/import actions, detection states, crop-review controls, saving progress, accessible image descriptions, and explicit lossless-vs-lossy signature messaging.
+- Source image import/capture file copying runs off the main thread; imports are written to a temporary file and atomically finalized. HEIC/HEIF input is normalized to JPEG where Android can decode it.
+- Coroutine cancellation is propagated through preview save/import/export/extraction paths instead of being treated as an ordinary failure.
 
 ## Release decision
 
