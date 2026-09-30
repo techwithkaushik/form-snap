@@ -527,10 +527,10 @@ private fun OutputPreviewCard(
                 ) { Text("Reject") }
                 OutlinedButton(
                     onClick = onEdit,
-                    enabled = detected && !processing && !saving,
+                    enabled = !processing && !saving,
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(12.dp),
-                ) { Text("Adjust crop") }
+                ) { Text(if (detected) "Adjust crop" else "Select crop") }
                 Button(
                     onClick = onAccept,
                     enabled = detected && !processing && !saving,
