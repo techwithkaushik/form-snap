@@ -188,19 +188,14 @@ private fun CropEditorContent(
         Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
             Canvas(
                 Modifier.fillMaxSize().pointerInput(bitmap, sourceWidth, sourceHeight) {
-                    fun geometry(): Geometry {
-                        val fit = min(size.width.toFloat() / bitmap.width, size.height.toFloat() / bitmap.height)
-                        val width = bitmap.width * fit
-                        val height = bitmap.height * fit
-                        val left = (size.width - width) / 2f
-                        val top = (size.height - height) / 2f
-                        return Geometry(
-                            left, top, fit,
-                            bitmap.width.toFloat() / sourceWidth * fit,
-                            bitmap.height.toFloat() / sourceHeight * fit,
-                            width, height,
-                        )
-                    }
+                    fun geometry(): Geometry = calculateGeometry(
+                        size.width.toFloat(),
+                        size.height.toFloat(),
+                        bitmap.width,
+                        bitmap.height,
+                        sourceWidth,
+                        sourceHeight,
+                    )
                     fun toSource(point: Offset, g: Geometry): Offset = Offset(
                         ((point.x - g.left) / g.sourceScaleX).coerceIn(0f, sourceWidth.toFloat()),
                         ((point.y - g.top) / g.sourceScaleY).coerceIn(0f, sourceHeight.toFloat()),
@@ -208,29 +203,35 @@ private fun CropEditorContent(
                     detectDragGestures(
                         onDragStart = { point ->
                             val g = geometry()
-                            val p = toSource(point, g)
-                            val tolerance = 28.dp.toPx()
-                            val sx = g.sourceScaleX
-                            val sy = g.sourceScaleY
-                            val dxL = abs(p.x - crop.left) * sx
-                            val dxR = abs(p.x - crop.right) * sx
-                            val dyT = abs(p.y - crop.top) * sy
-                            val dyB = abs(p.y - crop.bottom) * sy
-                            val nearL = dxL <= tolerance
-                            val nearR = dxR <= tolerance
-                            val nearT = dyT <= tolerance
-                            val nearB = dyB <= tolerance
-                            dragMode = when {
-                                nearL && nearT -> DragMode.TOP_LEFT
-                                nearR && nearT -> DragMode.TOP_RIGHT
-                                nearL && nearB -> DragMode.BOTTOM_LEFT
-                                nearR && nearB -> DragMode.BOTTOM_RIGHT
-                                nearL && p.y in crop.top..crop.bottom -> DragMode.LEFT
-                                nearR && p.y in crop.top..crop.bottom -> DragMode.RIGHT
-                                nearT && p.x in crop.left..crop.right -> DragMode.TOP
-                                nearB && p.x in crop.left..crop.right -> DragMode.BOTTOM
-                                p.x in crop.left..crop.right && p.y in crop.top..crop.bottom -> DragMode.MOVE
-                                else -> DragMode.NONE
+                            val insideImage = point.x in g.left..(g.left + g.width) &&
+                                point.y in g.top..(g.top + g.height)
+                            if (!insideImage) {
+                                dragMode = DragMode.NONE
+                            } else {
+                                val p = toSource(point, g)
+                                val tolerance = 28.dp.toPx()
+                                val sx = g.sourceScaleX
+                                val sy = g.sourceScaleY
+                                val dxL = abs(p.x - crop.left) * sx
+                                val dxR = abs(p.x - crop.right) * sx
+                                val dyT = abs(p.y - crop.top) * sy
+                                val dyB = abs(p.y - crop.bottom) * sy
+                                val nearL = dxL <= tolerance
+                                val nearR = dxR <= tolerance
+                                val nearT = dyT <= tolerance
+                                val nearB = dyB <= tolerance
+                                dragMode = when {
+                                    nearL && nearT -> DragMode.TOP_LEFT
+                                    nearR && nearT -> DragMode.TOP_RIGHT
+                                    nearL && nearB -> DragMode.BOTTOM_LEFT
+                                    nearR && nearB -> DragMode.BOTTOM_RIGHT
+                                    nearL && p.y in crop.top..crop.bottom -> DragMode.LEFT
+                                    nearR && p.y in crop.top..crop.bottom -> DragMode.RIGHT
+                                    nearT && p.x in crop.left..crop.right -> DragMode.TOP
+                                    nearB && p.x in crop.left..crop.right -> DragMode.BOTTOM
+                                    p.x in crop.left..crop.right && p.y in crop.top..crop.bottom -> DragMode.MOVE
+                                    else -> DragMode.NONE
+                                }
                             }
                         },
                         onDragEnd = { dragMode = DragMode.NONE },
