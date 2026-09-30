@@ -79,6 +79,7 @@ class MainActivity : ComponentActivity() {
             settingsOpen = false
         }
         BackHandler(enabled = source != null && !settingsOpen) {
+            source?.delete()
             source = null
         }
 
@@ -93,6 +94,7 @@ class MainActivity : ComponentActivity() {
                 ioScope.launch {
                     val imported = withContext(Dispatchers.IO) { uriToFile(uri, "camera") }
                     capturedFile.delete()
+                    if (imported != null) source?.takeIf { it != imported }?.delete()
                     source = imported
                     saveMessage = if (imported == null) {
                         "Could not read the captured image. Please capture again."
@@ -113,6 +115,7 @@ class MainActivity : ComponentActivity() {
                     if (imported == null) {
                         saveMessage = "Could not open this image. Try a different file."
                     } else {
+                        source?.takeIf { it != imported }?.delete()
                         source = imported
                         saveMessage = null
                         if (!importKeepsCurrentMode) mode = CaptureMode.WHOLE_FORM
@@ -151,7 +154,7 @@ class MainActivity : ComponentActivity() {
                 file = source!!,
                 mode = mode,
                 onSettings = { settingsOpen = true },
-                onBack = { source = null },
+                onBack = { source?.delete(); source = null },
                 onCaptureAgain = { launchCamera(openCamera) },
                 onImportAgain = {
                     importKeepsCurrentMode = true
