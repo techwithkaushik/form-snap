@@ -14,8 +14,8 @@ data class CorrectionFeedback(
 )
 
 object FeedbackRecorder {
-    fun record(context: Context, feedback: CorrectionFeedback) {
-        if (!feedback.accepted || !isSafeFeedback(feedback)) return
+    fun record(context: Context, feedback: CorrectionFeedback): Boolean {
+        if (!feedback.accepted || !isSafeFeedback(feedback)) return false
 
         val learned = CorrectionLearning.fromCorrection(
             automatic = feedback.automatic,
@@ -31,7 +31,9 @@ object FeedbackRecorder {
             // of the user's corrected target; carrying it forward suppressed learning.
             confidence = 1f,
         )
+        if (!CorrectionLearning.isSafe(learned)) return false
         LearningStore.record(context, learned)
+        return true
     }
 
     /**
