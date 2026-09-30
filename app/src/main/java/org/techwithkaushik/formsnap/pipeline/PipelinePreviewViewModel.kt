@@ -41,6 +41,7 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
     private var photoHeightMm: Double = 50.0
     private var signatureWidthMm: Double = 50.0
     private var signatureHeightMm: Double = 20.0
+    private var activeForcedKind: DetectionKind? = null
 
     private val _state = MutableStateFlow(PreviewProcessingState())
     val state: StateFlow<PreviewProcessingState> = _state
@@ -84,6 +85,10 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
         this.photoHeightMm = photoHeightMm.coerceAtLeast(1.0)
         this.signatureWidthMm = signatureWidthMm.coerceAtLeast(1.0)
         this.signatureHeightMm = signatureHeightMm.coerceAtLeast(1.0)
+        if (!preserveRejectedCandidates || forcedKind != null) {
+            activeForcedKind = forcedKind
+        }
+        val effectiveForcedKind = activeForcedKind
 
         previewJob?.cancel()
         clearCurrentResults()
@@ -95,13 +100,13 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
                 val source = org.opencv.imgcodecs.Imgcodecs.imread(input.absolutePath)
                 require(!source.empty()) { "Unable to decode input image" }
                 try {
-                    val detection = if (forcedKind != null) {
+                    val detection = if (effectiveForcedKind != null) {
                         // Close-up capture mode means the user has already framed
                         // the requested subject. Treat the full source as the crop
                         // rather than asking the form detector to find a box inside
                         // an image that may contain no printed frame at all.
                         val candidate = DetectionCandidate(
-                            kind = forcedKind,
+                            kind = effectiveForcedKind,
                             bounds = android.graphics.RectF(
                                 0f,
                                 0f,
@@ -114,8 +119,8 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
                         DetectionResult(
                             sourceWidth = source.cols(),
                             sourceHeight = source.rows(),
-                            photo = candidate.takeIf { forcedKind == DetectionKind.PHOTO },
-                            signature = candidate.takeIf { forcedKind == DetectionKind.SIGNATURE },
+                            photo = candidate.takeIf { effectiveForcedKind == DetectionKind.PHOTO },
+                            signature = candidate.takeIf { effectiveForcedKind == DetectionKind.SIGNATURE },
                             detectorVersion = "opencv-close-capture-v1",
                         )
                     } else {
