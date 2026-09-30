@@ -237,9 +237,8 @@ class PipelinePreviewActivity : ComponentActivity() {
             val prefs = remember {
                 getSharedPreferences("formsnap_storage", MODE_PRIVATE)
             }
-            val personName = remember {
-                mutableStateOf(prefs.getString("person_name", "") ?: "")
-            }
+            // Person name is session-specific and intentionally resets for every imported image.
+            val personName = remember(path) { mutableStateOf("") }
             val signatureAsJpeg = remember {
                 mutableStateOf(prefs.getBoolean("signature_as_jpeg", false))
             }
@@ -369,12 +368,13 @@ class PipelinePreviewActivity : ComponentActivity() {
 
             val detectionMessage = when {
                 state.processing -> null
-                state.photoState == null && state.signatureState == null ->
-                    "No photo or signature was confidently detected. Try a clearer, closer image with even lighting."
-                state.photoState != null && state.signatureState == null ->
-                    "Photo detected. No signature was confidently detected."
-                state.photoState == null && state.signatureState != null ->
-                    "Signature detected. No photo was confidently detected."
+                state.photoState == null && state.signatureState == null &&
+                    state.photoPreviewPath == null && state.signaturePreviewPath == null ->
+                    "No photo or signature was confidently detected. Select a crop manually if automatic detection misses either region."
+                state.photoPreviewPath != null && state.signaturePreviewPath == null ->
+                    "Photo ready. No signature was confidently detected; use Select crop to choose it manually."
+                state.photoPreviewPath == null && state.signaturePreviewPath != null ->
+                    "Signature ready. No photo was confidently detected; use Select crop to choose it manually."
                 else -> null
             }
 
@@ -382,8 +382,9 @@ class PipelinePreviewActivity : ComponentActivity() {
                 inputPreview = inputBitmap,
                 photoPreview = photoBitmap,
                 signaturePreview = signatureBitmap,
-                photoDetected = state.photoState != null && state.photoPreviewPath != null,
-                signatureDetected = state.signatureState != null && state.signaturePreviewPath != null,
+                // A manually selected crop is a valid output even without an automatic detection state.
+                photoDetected = state.photoPreviewPath != null,
+                signatureDetected = state.signaturePreviewPath != null,
                 photoConfidence = state.photoConfidence,
                 signatureConfidence = state.signatureConfidence,
                 processing = state.processing,
@@ -391,7 +392,6 @@ class PipelinePreviewActivity : ComponentActivity() {
                 personName = personName.value,
                 onPersonNameChange = { value ->
                     personName.value = value
-                    prefs.edit().putString("person_name", value).apply()
                 },
                 signatureAsJpeg = signatureAsJpeg.value,
                 onSignatureAsJpegChange = { enabled ->
