@@ -494,8 +494,12 @@ object UniversalDetectionEngine {
             val sparseHandwriting = inkDensity in 0.006..0.30
             return ratio >= 1.15 &&
                 sparseHandwriting &&
-                ((heightVariation >= 0.30 && distinctiveStrokes >= 1) ||
-                    (heightVariation >= 0.22 && irregularStrokeRatio >= 0.14))
+                (
+                    (heightVariation >= 0.38 && distinctiveStrokes >= 2) ||
+                    (heightVariation >= 0.30 &&
+                        irregularStrokeRatio >= 0.18 &&
+                        inkDensity <= 0.24)
+                )
         } finally {
             centroids.release()
             stats.release()
