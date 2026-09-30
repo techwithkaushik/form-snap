@@ -324,6 +324,7 @@ object UniversalDetectionEngine {
                     gray.cols().toDouble() * gray.rows().toDouble() * 0.30
             }
             .filter { hasInk(gray, it.rect) }
+            .toList()
             .let { inkCandidates ->
                 // Prefer handwriting-shaped ink, but keep a relaxed fallback for
                 // faint signatures, connected cursive strokes, and signatures
