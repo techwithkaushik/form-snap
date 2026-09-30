@@ -14,6 +14,23 @@ data class NormalizedOutput(
     val bounds: RectF,
 )
 
+internal data class FitDimensions(val width: Int, val height: Int)
+
+internal fun fitDimensions(
+    sourceWidth: Int,
+    sourceHeight: Int,
+    targetWidth: Int,
+    targetHeight: Int,
+): FitDimensions {
+    require(sourceWidth > 0 && sourceHeight > 0)
+    require(targetWidth > 0 && targetHeight > 0)
+    val scale = minOf(targetWidth.toDouble() / sourceWidth, targetHeight.toDouble() / sourceHeight)
+    return FitDimensions(
+        width = (sourceWidth * scale).roundToInt().coerceIn(1, targetWidth),
+        height = (sourceHeight * scale).roundToInt().coerceIn(1, targetHeight),
+    )
+}
+
 object OutputNormalizer {
     private const val MAX_OUTPUT_PIXELS = 24_000_000L
 
@@ -66,12 +83,11 @@ object OutputNormalizer {
             val content = Mat()
             fittedContent = content
             val normalized = rectified ?: throw IllegalStateException("Crop normalization failed")
-            val scale = minOf(
-                widthPx.toDouble() / normalized.cols(),
-                heightPx.toDouble() / normalized.rows(),
+            val fittedSize = fitDimensions(
+                normalized.cols(), normalized.rows(), widthPx, heightPx,
             )
-            val contentWidth = (normalized.cols() * scale).roundToInt().coerceIn(1, widthPx)
-            val contentHeight = (normalized.rows() * scale).roundToInt().coerceIn(1, heightPx)
+            val contentWidth = fittedSize.width
+            val contentHeight = fittedSize.height
             Imgproc.resize(
                 normalized,
                 content,
