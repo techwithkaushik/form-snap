@@ -57,7 +57,9 @@ object LearningStore {
         conditionSaturation: Float? = null,
         conditionEdgeDensity: Float? = null,
         aspectRatio: Float? = null,
+        minimumSimilarity: Float = MIN_PROFILE_SIMILARITY,
     ): LearnedCorrection? {
+        if (!minimumSimilarity.isFinite() || minimumSimilarity !in 0f..1f) return null
         val candidates = read(context).filter {
             it.kind == kind && CorrectionLearning.isSafe(it)
         }
@@ -77,7 +79,7 @@ object LearningStore {
                 val score = similarity * 0.70f + profile.confidence * 0.20f + usage * 0.10f
                 Triple(profile, similarity, score)
             }
-            .filter { (_, similarity, _) -> similarity >= MIN_PROFILE_SIMILARITY }
+            .filter { (_, similarity, _) -> similarity >= minimumSimilarity }
             .maxByOrNull { (_, _, score) -> score }
             ?.first
             ?.takeIf { it.sampleCount >= 2 || it.confidence >= 0.70f }
