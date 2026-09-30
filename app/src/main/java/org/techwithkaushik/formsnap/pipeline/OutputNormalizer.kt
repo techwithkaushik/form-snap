@@ -106,7 +106,7 @@ object OutputNormalizer {
             if (kind == DetectionKind.PHOTO) {
                 // Replicate edge pixels for portrait crops instead of distorting
                 // faces or clipping content to force the requested aspect ratio.
-                Core.copyMakeBorder(content, fitted, top, bottom, left, right, Core.BORDER_REPLICATE)
+                Core.copyMakeBorder(content, fitted, top, bottom, left, right, Core.BORDER_REPLICATE, Scalar())
             } else {
                 // A clean white canvas prevents stretched ink and keeps signature
                 // strokes intact when the detected region is not exactly 5:2.
