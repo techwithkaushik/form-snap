@@ -343,8 +343,7 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
         val top = bounds.top.coerceIn(0f, height - 1f)
         val right = bounds.right.coerceIn(left + 1f, width)
         val bottom = bounds.bottom.coerceIn(top + 1f, height)
-        val updated = current.copy(
-            currentBounds = android.graphics.RectF(left, top, right, bottom),
+        val updated = current.withBounds(android.graphics.RectF(left, top, right, bottom)).copy(
             appearance = current.appearance.copy(
                 brightness = brightness ?: current.appearance.brightness,
                 contrast = contrast ?: current.appearance.contrast,
