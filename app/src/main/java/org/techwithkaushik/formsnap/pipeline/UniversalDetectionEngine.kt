@@ -431,8 +431,28 @@ object UniversalDetectionEngine {
                 roi, binary, 0.0, 255.0,
                 Imgproc.THRESH_BINARY_INV or Imgproc.THRESH_OTSU,
             )
+            // Ignore the outer frame band: otherwise a printed box border
+            // becomes one giant connected component and looks like handwriting.
+            val marginX = max(2, clipped.width / 24)
+            val marginY = max(2, clipped.height / 12)
+            binary.rowRange(0, marginY).apply {
+                setTo(org.opencv.core.Scalar(0.0))
+                release()
+            }
+            binary.rowRange(clipped.height - marginY, clipped.height).apply {
+                setTo(org.opencv.core.Scalar(0.0))
+                release()
+            }
+            binary.colRange(0, marginX).apply {
+                setTo(org.opencv.core.Scalar(0.0))
+                release()
+            }
+            binary.colRange(clipped.width - marginX, clipped.width).apply {
+                setTo(org.opencv.core.Scalar(0.0))
+                release()
+            }
             val inkDensity = Core.countNonZero(binary).toDouble() /
-                max(1.0, clipped.width.toDouble() * clipped.height.toDouble())
+                max(1.0, (clipped.width - 2 * marginX).toDouble() * (clipped.height - 2 * marginY))
             if (inkDensity !in 0.008..0.48) return false
 
             val count = Imgproc.connectedComponentsWithStats(
