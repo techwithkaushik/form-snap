@@ -65,6 +65,7 @@ private data class Outputs(
 class MainActivity : ComponentActivity() {
     private val prefs by lazy { getSharedPreferences("formsnap_storage", MODE_PRIVATE) }
     private var cameraUri: Uri? = null
+    private var cameraOutputFile: File? = null
     private var pendingFolderType = "photo"
     private var pendingSaveType: String? = null
     private var pendingSavePath: String? = null
@@ -103,14 +104,21 @@ class MainActivity : ComponentActivity() {
             ActivityResultContracts.TakePicture(),
         ) { ok ->
             val uri = cameraUri
-            if (ok && uri != null) {
+            val capturedFile = cameraOutputFile
+            cameraUri = null
+            cameraOutputFile = null
+            if (ok && uri != null && capturedFile?.isFile == true && capturedFile.length() > 0L) {
                 ioScope.launch {
                     val imported = withContext(Dispatchers.IO) { uriToFile(uri, "camera") }
+                    capturedFile.delete()
                     source = imported
                     saveMessage = if (imported == null) {
                         "Could not read the captured image. Please capture again."
                     } else null
                 }
+            } else {
+                capturedFile?.delete()
+                if (ok) saveMessage = "Camera did not return a usable image. Please try again."
             }
         }
 
@@ -380,18 +388,44 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun launchCamera(launcher: ActivityResultLauncher<Uri>) {
-        val dir = File(
-            org.techwithkaushik.formSnap.foundation.ProcessingPaths.root(this),
-            "inputs/captures",
-        ).apply { mkdirs() }
-        val file = File(dir, "capture_${System.currentTimeMillis()}.jpg")
-        val uri = FileProvider.getUriForFile(
-            this,
-            "${BuildConfig.APPLICATION_ID}.fileprovider",
-            file,
-        )
-        cameraUri = uri
-        launcher.launch(uri)
+        try {
+            val dir = File(
+                org.techwithkaushik.formSnap.foundation.ProcessingPaths.root(this),
+                "inputs/captures",
+            ).apply {
+                check(isDirectory || mkdirs()) { "Cannot create the camera output directory." }
+            }
+            val file = File(dir, "capture_" + System.currentTimeMillis() + ".jpg")
+            check(!file.exists() || file.delete()) { "Cannot prepare the camera output file." }
+            val uri = FileProvider.getUriForFile(
+                this,
+                BuildConfig.APPLICATION_ID + ".fileprovider",
+                file,
+            )
+            cameraOutputFile = file
+            cameraUri = uri
+            launcher.launch(uri)
+        } catch (error: Exception) {
+            cameraUri = null
+            cameraOutputFile?.delete()
+            cameraOutputFile = null
+            android.widget.Toast.makeText(
+                this,
+                error.message ?: "Unable to open the camera. Check camera permission and try again.",
+                android.widget.Toast.LENGTH_LONG,
+            ).show()
+        }
+    }
+
+    override fun onSaveInstanceState(outState: android.os.Bundle) {
+        outState.putString(STATE_CAMERA_URI, cameraUri?.toString())
+        outState.putString(STATE_CAMERA_FILE, cameraOutputFile?.absolutePath)
+        super.onSaveInstanceState(outState)
+    }
+
+    companion object {
+        private const val STATE_CAMERA_URI = "formsnap.camera.uri"
+        private const val STATE_CAMERA_FILE = "formsnap.camera.file"
     }
 
     private fun uriToFile(uri: Uri, prefix: String): File? {
