@@ -595,7 +595,6 @@ class PipelinePreviewActivity : ComponentActivity() {
                         setToolbarTitle(if (kind == DetectionKind.PHOTO) "Adjust photo" else "Adjust signature")
                         setToolbarColor(android.graphics.Color.rgb(25, 38, 55))
                         setStatusBarColor(android.graphics.Color.rgb(18, 28, 42))
-                        setActiveWidgetColor(android.graphics.Color.rgb(36, 160, 115))
                         setToolbarWidgetColor(android.graphics.Color.WHITE)
                     }
                     UCrop.of(sourceUri, destinationUri)
