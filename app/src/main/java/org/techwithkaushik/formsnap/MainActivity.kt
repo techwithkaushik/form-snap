@@ -395,17 +395,49 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun uriToFile(uri: Uri, prefix: String): File? {
+        var temporary: File? = null
         return try {
             val dir = File(
                 org.techwithkaushik.formSnap.foundation.ProcessingPaths.root(this),
                 "inputs",
-            ).apply { mkdirs() }
-            val file = File(dir, "${prefix}_${System.currentTimeMillis()}.jpg")
-            contentResolver.openInputStream(uri)?.use { input ->
-                FileOutputStream(file).use { output -> input.copyTo(output) }
-            } ?: return null
+            ).apply { check(isDirectory || mkdirs()) { "Cannot create the input cache." } }
+            val mime = contentResolver.getType(uri)?.lowercase(Locale.ROOT)
+            val extension = when (mime) {
+                "image/png" -> "png"
+                "image/webp" -> "webp"
+                "image/heic", "image/heif" -> "jpg"
+                else -> "jpg"
+            }
+            val file = File(dir, "${prefix}_${System.currentTimeMillis()}.$extension")
+            temporary = File(dir, ".${file.name}.part")
+
+            val input = contentResolver.openInputStream(uri) ?: return null
+            input.use { source ->
+                if (mime == "image/heic" || mime == "image/heif") {
+                    val bitmap = BitmapFactory.decodeStream(source)
+                        ?: error("This HEIC image could not be decoded on this device.")
+                    try {
+                        FileOutputStream(temporary!!).use { output ->
+                            check(bitmap.compress(Bitmap.CompressFormat.JPEG, 95, output)) {
+                                "Could not convert the HEIC image."
+                            }
+                            output.fd.sync()
+                        }
+                    } finally {
+                        bitmap.recycle()
+                    }
+                } else {
+                    FileOutputStream(temporary!!).use { output ->
+                        source.copyTo(output)
+                        output.fd.sync()
+                    }
+                }
+            }
+            check(temporary!!.length() > 0L) { "The selected image is empty." }
+            check(temporary!!.renameTo(file)) { "Could not finalize the imported image." }
             file
         } catch (_: Exception) {
+            temporary?.delete()
             null
         }
     }
