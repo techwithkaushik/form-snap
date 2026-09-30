@@ -150,7 +150,6 @@ class MainActivity : ComponentActivity() {
             EditorScreen(
                 file = source!!,
                 mode = mode,
-                settings = settings,
                 onSettings = { settingsOpen = true },
                 onBack = { source = null },
                 onCaptureAgain = { launchCamera(openCamera) },
