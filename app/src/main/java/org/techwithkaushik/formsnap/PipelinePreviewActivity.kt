@@ -47,15 +47,24 @@ class PipelinePreviewActivity : ComponentActivity() {
         val top = data.getFloatExtra(CropCorrectionActivity.EXTRA_TOP, Float.NaN)
         val right = data.getFloatExtra(CropCorrectionActivity.EXTRA_RIGHT, Float.NaN)
         val bottom = data.getFloatExtra(CropCorrectionActivity.EXTRA_BOTTOM, Float.NaN)
-        if (listOf(left, top, right, bottom).all { it.isFinite() } &&
+        val brightness = data.getFloatExtra(CropCorrectionActivity.EXTRA_BRIGHTNESS, 0f)
+        val contrast = data.getFloatExtra(CropCorrectionActivity.EXTRA_CONTRAST, 1f)
+        val sharpness = data.getFloatExtra(CropCorrectionActivity.EXTRA_SHARPNESS, 0f)
+        if (listOf(left, top, right, bottom, brightness, contrast, sharpness).all { it.isFinite() } &&
             right > left && bottom > top
         ) {
-            onExternalCorrection?.invoke(kind, RectF(left, top, right, bottom))
+            onExternalCorrection?.invoke(
+                kind,
+                RectF(left, top, right, bottom),
+                brightness.coerceIn(-0.5f, 0.5f),
+                contrast.coerceIn(0.7f, 1.5f),
+                sharpness.coerceIn(0f, 1f),
+            )
         }
     }
 
     private var activePipelineViewModel: PipelinePreviewViewModel? = null
-    private var onExternalCorrection: ((DetectionKind, RectF) -> Unit)? = null
+    private var onExternalCorrection: ((DetectionKind, RectF, Float, Float, Float) -> Unit)? = null
 
     private var correctionKindForResult: DetectionKind? = null
     private var pendingFolderKind: DetectionKind? = null
@@ -491,6 +500,12 @@ class PipelinePreviewActivity : ComponentActivity() {
         if (this == DetectionKind.PHOTO) "Photo" else "Signature"
 
     private fun openDetectedEditor(source: File, kind: DetectionKind, bounds: RectF) {
+        val correction = when (kind) {
+            DetectionKind.PHOTO -> activePipelineViewModel?.state?.value?.photoState
+            DetectionKind.SIGNATURE -> activePipelineViewModel?.state?.value?.signatureState
+        }
+        val appearance = correction?.appearance
+            ?: org.techwithkaushik.formSnap.pipeline.AppearanceTuning.defaults(kind)
         val cropIntent = Intent(this, CropCorrectionActivity::class.java).apply {
             putExtra(CropCorrectionActivity.EXTRA_SOURCE_PATH, source.absolutePath)
             putExtra(CropCorrectionActivity.EXTRA_KIND, kind.name)
@@ -498,6 +513,9 @@ class PipelinePreviewActivity : ComponentActivity() {
             putExtra(CropCorrectionActivity.EXTRA_TOP, bounds.top)
             putExtra(CropCorrectionActivity.EXTRA_RIGHT, bounds.right)
             putExtra(CropCorrectionActivity.EXTRA_BOTTOM, bounds.bottom)
+            putExtra(CropCorrectionActivity.EXTRA_BRIGHTNESS, appearance.brightness)
+            putExtra(CropCorrectionActivity.EXTRA_CONTRAST, appearance.contrast)
+            putExtra(CropCorrectionActivity.EXTRA_SHARPNESS, appearance.sharpness)
         }
         correctionLauncher.launch(cropIntent)
     }
