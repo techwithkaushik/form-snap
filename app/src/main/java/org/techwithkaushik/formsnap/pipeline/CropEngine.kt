@@ -46,8 +46,12 @@ object CropEngine {
 
         val rawWidth = rightBase - leftBase
         val rawHeight = bottomBase - topBase
-        val paddingX = max(4, (rawWidth * 0.06f).toInt())
-        val paddingY = max(4, (rawHeight * 0.10f).toInt())
+        // Printed-frame candidates have already been inset from the detected
+        // border. Padding them would reintroduce the very border we removed.
+        // Unframed signature/photo candidates get a small safety margin so thin
+        // strokes and edge-adjacent image content are not clipped.
+        val paddingX = if (candidate.hasPrintedFrame) 0 else max(2, (rawWidth * 0.025f).toInt())
+        val paddingY = if (candidate.hasPrintedFrame) 0 else max(2, (rawHeight * 0.04f).toInt())
 
         val left = max(0, leftBase - paddingX)
         val top = max(0, topBase - paddingY)
