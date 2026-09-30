@@ -1,23 +1,35 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
+  "extends": [
+    "config:recommended"
+  ],
   "dependencyDashboard": true,
   "timezone": "Asia/Kolkata",
-  "schedule": ["before 5am on monday"],
+  "schedule": [
+    "before 5am on monday"
+  ],
   "prConcurrentLimit": 5,
   "prHourlyLimit": 2,
   "rebaseWhen": "behind-base-branch",
   "rangeStrategy": "bump",
-  "labels": ["dependencies", "renovate"],
+  "labels": [
+    "dependencies",
+    "renovate"
+  ],
   "vulnerabilityAlerts": {
     "enabled": true,
-    "labels": ["security", "dependencies"]
+    "labels": [
+      "security",
+      "dependencies"
+    ]
   },
   "customManagers": [
     {
       "customType": "regex",
       "description": "Keep the Gradle version used by the Android CI workflow up to date",
-      "managerFilePatterns": ["/^\\.github/workflows/.*\\.ya?ml$/"],
+      "managerFilePatterns": [
+        "/^\\.github/workflows/.*\\.ya?ml$/"
+      ],
       "matchStrings": [
         "gradle-version:\\s*\"(?<currentValue>[^\"]+)\""
       ],
@@ -28,29 +40,61 @@
   "packageRules": [
     {
       "description": "Group non-major Gradle wrapper updates",
-      "matchManagers": ["gradle-wrapper"],
-      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "matchManagers": [
+        "gradle-wrapper"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest"
+      ],
       "groupName": "Gradle wrapper updates",
-      "addLabels": ["gradle"]
+      "addLabels": [
+        "gradle"
+      ]
     },
     {
       "description": "Group non-major GitHub Actions updates",
-      "matchManagers": ["github-actions"],
-      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest"
+      ],
       "groupName": "GitHub Actions minor and patch updates",
-      "addLabels": ["ci"]
+      "addLabels": [
+        "ci"
+      ]
     },
     {
       "description": "Group non-major Android and Kotlin dependencies",
-      "matchManagers": ["gradle"],
-      "matchUpdateTypes": ["minor", "patch"],
+      "matchManagers": [
+        "gradle"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
       "groupName": "Android and Kotlin dependency updates",
-      "addLabels": ["android", "kotlin"]
+      "addLabels": [
+        "android",
+        "kotlin"
+      ]
     },
     {
       "description": "Flag major dependency updates for manual review",
-      "matchUpdateTypes": ["major"],
-      "addLabels": ["major-update"]
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "addLabels": [
+        "major-update"
+      ]
     }
+  ],
+  "baseBranches": [
+    "main",
+    "feature/foundation-pipeline"
   ]
 }
