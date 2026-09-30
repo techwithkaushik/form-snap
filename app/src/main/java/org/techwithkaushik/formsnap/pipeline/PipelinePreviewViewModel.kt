@@ -249,10 +249,11 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
         val correction = stateFor(kind) ?: return
         val automatic = candidateFor(kind) ?: return
 
-        // Only explicit user corrections are training labels. Accepting an untouched
-        // automatic crop confirms this output for the current session, but is not a
-        // reliable target for correction learning and must not add zero-delta samples.
-        if (recordFeedback && correction.dirty) {
+        // Tapping Accept is an explicit human validation, even when the automatic
+        // crop was already correct. Record zero-delta samples too: they teach the
+        // system that this crop/condition was reviewed and should not be changed.
+        // Layout-topology profiles below remain restricted to actual geometry edits.
+        if (recordFeedback) {
             val sourceFile = _state.value.source
             val features = sourceFile?.takeIf { it.isFile }?.let { file ->
                 withContext(Dispatchers.Default) {
