@@ -64,43 +64,20 @@ object UniversalPipelineBatch {
         context: android.content.Context?,
     ): PipelineStageOutput {
         val candidate = if (kind == DetectionKind.PHOTO) detection.photo!! else detection.signature!!
-        val aspectRatio = candidate.bounds.height() / candidate.bounds.width().coerceAtLeast(1f)
-        val features = ImageConditionFeatures.measure(source, candidate.bounds)
-        val learned = context?.let {
-            LearningStore.best(
-                context = it,
-                kind = kind,
-                conditionBrightness = features?.brightness,
-                conditionContrast = features?.contrast,
-                conditionSaturation = features?.saturation,
-                conditionEdgeDensity = features?.edgeDensity,
-                aspectRatio = features?.aspectRatio ?: aspectRatio,
-            )
-        }
-        val application = LearnedProfileApplier.apply(candidate, learned, features)
-        val adjusted = candidate.copy(bounds = application.bounds)
-        val normalized = OutputNormalizer.normalize(source, adjusted, kind, dpi)
-        val appearance = try {
-            AppearanceProcessor.apply(normalized.image, application.appearance, kind)
-        } finally {
-            normalized.image.release()
-        }
+        val normalized = OutputNormalizer.normalize(source, candidate, kind, dpi)
         val quality = try {
-            ImageQualityGate.evaluate(appearance, kind)
-        } catch (t: Throwable) {
-            appearance.release()
-            throw t
+            ImageQualityGate.evaluate(normalized.image, kind)
+        } catch (failure: Throwable) {
+            normalized.image.release()
+            throw failure
         }
         return PipelineStageOutput(
-            detection = detection.copy(
-                photo = if (kind == DetectionKind.PHOTO) adjusted else detection.photo,
-                signature = if (kind == DetectionKind.SIGNATURE) adjusted else detection.signature,
-            ),
+            detection = detection,
             kind = kind,
-            image = appearance,
+            image = normalized.image,
             quality = quality,
-            learnedBlend = application.blend,
-            learned = learned,
+            learnedBlend = 0f,
+            learned = null,
         )
     }
 }
