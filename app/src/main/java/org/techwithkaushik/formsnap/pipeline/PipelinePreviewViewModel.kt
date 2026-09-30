@@ -77,6 +77,7 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
         signatureWidthMm: Double = 50.0,
         signatureHeightMm: Double = 20.0,
         preserveRejectedCandidates: Boolean = false,
+        forcedKind: DetectionKind? = null,
     ) {
         this.dpi = dpi.coerceAtLeast(72)
         this.photoWidthMm = photoWidthMm.coerceAtLeast(1.0)
@@ -94,23 +95,48 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
                 val source = org.opencv.imgcodecs.Imgcodecs.imread(input.absolutePath)
                 require(!source.empty()) { "Unable to decode input image" }
                 try {
-                    val detection = UniversalDetectionEngine.detect(
-                        source = source,
-                        rejectedPhotoBounds = rejectedPhotoBounds + RejectedDetectionStore.load(
-                            context,
-                            input,
-                            DetectionKind.PHOTO,
-                            source.cols(),
-                            source.rows(),
-                        ),
-                        rejectedSignatureBounds = rejectedSignatureBounds + RejectedDetectionStore.load(
-                            context,
-                            input,
-                            DetectionKind.SIGNATURE,
-                            source.cols(),
-                            source.rows(),
-                        ),
-                    )
+                    val detection = if (forcedKind != null) {
+                        // Close-up capture mode means the user has already framed
+                        // the requested subject. Treat the full source as the crop
+                        // rather than asking the form detector to find a box inside
+                        // an image that may contain no printed frame at all.
+                        val candidate = DetectionCandidate(
+                            kind = forcedKind,
+                            bounds = android.graphics.RectF(
+                                0f,
+                                0f,
+                                source.cols().toFloat(),
+                                source.rows().toFloat(),
+                            ),
+                            confidence = 1f,
+                            source = "opencv-close-capture",
+                        )
+                        DetectionResult(
+                            sourceWidth = source.cols(),
+                            sourceHeight = source.rows(),
+                            photo = candidate.takeIf { forcedKind == DetectionKind.PHOTO },
+                            signature = candidate.takeIf { forcedKind == DetectionKind.SIGNATURE },
+                            detectorVersion = "opencv-close-capture-v1",
+                        )
+                    } else {
+                        UniversalDetectionEngine.detect(
+                            source = source,
+                            rejectedPhotoBounds = rejectedPhotoBounds + RejectedDetectionStore.load(
+                                context,
+                                input,
+                                DetectionKind.PHOTO,
+                                source.cols(),
+                                source.rows(),
+                            ),
+                            rejectedSignatureBounds = rejectedSignatureBounds + RejectedDetectionStore.load(
+                                context,
+                                input,
+                                DetectionKind.SIGNATURE,
+                                source.cols(),
+                                source.rows(),
+                            ),
+                        )
+                    }
 
                     PreviewDetectionBundle(detection = detection)
                 } finally {
