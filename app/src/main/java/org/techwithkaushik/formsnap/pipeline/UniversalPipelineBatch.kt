@@ -19,7 +19,6 @@ object UniversalPipelineBatch {
     fun process(
         source: Mat,
         dpi: Int = 300,
-        context: android.content.Context? = null,
     ): UniversalPipelineOutput {
         require(!source.empty()) { "Source image is empty" }
         val detection = UniversalDetectionEngine.detect(source)
@@ -27,10 +26,10 @@ object UniversalPipelineBatch {
         var signature: PipelineStageOutput? = null
         try {
             photo = if (detection.photo != null) {
-                processCandidate(source, detection, DetectionKind.PHOTO, dpi, context)
+                processCandidate(source, detection, DetectionKind.PHOTO, dpi)
             } else null
             signature = if (detection.signature != null) {
-                processCandidate(source, detection, DetectionKind.SIGNATURE, dpi, context)
+                processCandidate(source, detection, DetectionKind.SIGNATURE, dpi)
             } else null
             return UniversalPipelineOutput(detection, photo, signature)
         } catch (t: Throwable) {
@@ -43,13 +42,12 @@ object UniversalPipelineBatch {
     fun processFile(
         input: File,
         dpi: Int = 300,
-        context: android.content.Context? = null,
     ): UniversalPipelineOutput {
         require(input.exists()) { "Input file does not exist" }
         val source = Imgcodecs.imread(input.absolutePath)
         return try {
             require(!source.empty()) { "Unable to decode input image" }
-            process(source, dpi, context)
+            process(source, dpi)
         } finally {
             // Release even when decoding fails, so failed imports cannot leak a native Mat.
             source.release()
@@ -61,7 +59,6 @@ object UniversalPipelineBatch {
         detection: DetectionResult,
         kind: DetectionKind,
         dpi: Int,
-        context: android.content.Context?,
     ): PipelineStageOutput {
         val candidate = if (kind == DetectionKind.PHOTO) detection.photo!! else detection.signature!!
         val normalized = OutputNormalizer.normalize(source, candidate, kind, dpi)
@@ -76,8 +73,6 @@ object UniversalPipelineBatch {
             kind = kind,
             image = normalized.image,
             quality = quality,
-            learnedBlend = 0f,
-            learned = null,
         )
     }
 }
