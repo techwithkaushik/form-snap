@@ -4,7 +4,7 @@ object AppearanceTuning {
     fun defaults(kind: DetectionKind): AppearanceAdjustments = when (kind) {
         DetectionKind.PHOTO -> AppearanceAdjustments(
             brightness = 0f, contrast = 1f, saturation = 1f, sharpness = 0f, denoise = 0f,
-            inkThreshold = 150, backgroundCleanup = 0f,
+            inkThreshold = 150,
         )
         DetectionKind.SIGNATURE -> AppearanceAdjustments(
             brightness = 0f, contrast = 1f, saturation = 1f, sharpness = 0f, denoise = 0f,
@@ -20,6 +20,5 @@ object AppearanceTuning {
             sharpness = adjustments.sharpness.coerceIn(0f, 1f),
             denoise = adjustments.denoise.coerceIn(0f, 1f),
             inkThreshold = adjustments.inkThreshold.coerceIn(80, 220),
-            backgroundCleanup = adjustments.backgroundCleanup.coerceIn(0f, 1f),
         )
 }
