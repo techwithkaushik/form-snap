@@ -187,7 +187,7 @@ class CorrectionLearningTest {
             confidence = 0.95f,
             sampleCount = 2,
         )
-        val incoming = previous.copy(confidence = 1.5f)
+        val incoming = previous.copy(confidence = 1.5f, sampleCount = 1)
 
         val blended = CorrectionLearning.blend(previous, incoming)
 
