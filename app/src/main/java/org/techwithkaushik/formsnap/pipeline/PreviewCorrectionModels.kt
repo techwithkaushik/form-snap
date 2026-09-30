@@ -26,20 +26,18 @@ data class PreviewCorrectionState(
     val currentBounds: RectF,
     val appearance: AppearanceAdjustments = AppearanceAdjustments(),
     val action: CorrectionAction = CorrectionAction.ADJUST,
-    val dirty: Boolean = false,
 ) {
     fun withBounds(bounds: RectF): PreviewCorrectionState =
-        copy(currentBounds = bounds, action = CorrectionAction.ADJUST, dirty = true)
+        copy(currentBounds = bounds, action = CorrectionAction.ADJUST)
 
     fun withAppearance(adjustments: AppearanceAdjustments): PreviewCorrectionState =
-        copy(appearance = adjustments, action = CorrectionAction.ADJUST, dirty = true)
+        copy(appearance = adjustments, action = CorrectionAction.ADJUST)
 
     fun accept(): PreviewCorrectionState =
         copy(action = CorrectionAction.ACCEPT)
 
     fun reject(): PreviewCorrectionState =
         copy(action = CorrectionAction.REJECT)
-
 }
 
 object PreviewCorrectionStateFactory {
