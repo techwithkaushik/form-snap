@@ -212,7 +212,9 @@ class PipelinePreviewActivity : ComponentActivity() {
                                 saving.value = true
                                 saveMessage.value = try {
                                     saveOutputToFolder(kind, pathToSave, uri, nameToSave, signatureJpegToSave)
-                                } catch (t: Throwable) {
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (t: Exception) {
                                     t.message ?: "Save failed."
                                 } finally {
                                     saving.value = false
