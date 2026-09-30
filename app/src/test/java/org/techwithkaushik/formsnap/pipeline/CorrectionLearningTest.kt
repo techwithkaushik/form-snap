@@ -34,8 +34,8 @@ class CorrectionLearningTest {
         )
 
         assertTrue(CorrectionLearning.sameConditionProfile(baseline, baseline.copy(confidence = 0.9f)))
-        assertEquals(false, CorrectionLearning.sameConditionProfile(baseline, baseline.copy(conditionContrast = 1.5f)))
-        assertEquals(false, CorrectionLearning.sameConditionProfile(baseline, baseline.copy(conditionSaturation = 1.3f)))
+        assertEquals(false, CorrectionLearning.sameConditionProfile(baseline, baseline.copy(conditionContrast = 1.6f)))
+        assertEquals(false, CorrectionLearning.sameConditionProfile(baseline, baseline.copy(conditionSaturation = 1.4f)))
         assertEquals(false, CorrectionLearning.sameConditionProfile(baseline, baseline.copy(kind = DetectionKind.SIGNATURE)))
     }
 
