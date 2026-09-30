@@ -63,7 +63,7 @@ object OutputNormalizer {
             val output = Mat()
             resized = output
             Imgproc.resize(
-                rectified,
+                rectified ?: throw IllegalStateException("Crop normalization failed"),
                 output,
                 Size(widthPx.toDouble(), heightPx.toDouble()),
                 0.0,
