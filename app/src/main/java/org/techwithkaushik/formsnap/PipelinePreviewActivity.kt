@@ -59,12 +59,13 @@ class PipelinePreviewActivity : ComponentActivity() {
             ioScope.launch {
                 try {
                     activePipelineViewModel?.replacePreviewFromExternal(kind, output)
+                        ?: error("The preview processor is no longer available. Please reopen the crop editor.")
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Exception) {
                     android.widget.Toast.makeText(
                         this@PipelinePreviewActivity,
-                        error.message ?: "Unable to apply crop.",
+                        error.localizedMessage ?: "Unable to apply crop.",
                         android.widget.Toast.LENGTH_LONG,
                     ).show()
                 } finally {
@@ -72,6 +73,14 @@ class PipelinePreviewActivity : ComponentActivity() {
                     seed?.delete()
                 }
             }
+        } else if (result.resultCode == RESULT_OK) {
+            android.widget.Toast.makeText(
+                this,
+                "Crop completed without an output file. Please adjust the crop and tap the checkmark again.",
+                android.widget.Toast.LENGTH_LONG,
+            ).show()
+            output.delete()
+            seed?.delete()
         } else if (result.resultCode == UCrop.RESULT_ERROR) {
             val error = result.data?.let { UCrop.getError(it) }
             android.widget.Toast.makeText(
@@ -568,8 +577,19 @@ class PipelinePreviewActivity : ComponentActivity() {
                     } else {
                         createSeedCrop(source, bounds, kind, cropDir)
                     }
+                    check(cropDir.isDirectory || cropDir.mkdirs()) {
+                        "Cannot create the crop output directory."
+                    }
                     val destination = File(cropDir, "result_" + System.currentTimeMillis() + ".jpg")
-                    if (destination.exists()) destination.delete()
+                    if (destination.exists()) check(destination.delete()) {
+                        "Cannot replace the previous crop output."
+                    }
+                    // uCrop-n-Edit's crop worker writes to the destination's filesystem path.
+                    // A FileProvider content:// URI can be misread as a path by this fork,
+                    // causing ENOENT and leaving its toolbar crop action hidden while loading.
+                    check(destination.createNewFile()) {
+                        "Cannot create the crop output file."
+                    }
                     sourceForEdit to destination
                 }
                 editorSource = editorData.first
@@ -582,34 +602,32 @@ class PipelinePreviewActivity : ComponentActivity() {
                         BuildConfig.APPLICATION_ID + ".fileprovider",
                         editorData.first,
                     )
-                    val destinationUri = FileProvider.getUriForFile(
-                        this@PipelinePreviewActivity,
-                        BuildConfig.APPLICATION_ID + ".fileprovider",
-                        editorData.second,
-                    )
                     val ratio = if (kind == DetectionKind.PHOTO) 40f / 50f else 50f / 20f
                     val options = UCrop.Options().apply {
                         setShowCropGrid(true)
                         setShowCropFrame(true)
+                        setFreeStyleCropEnabled(true)
+                        setHideBottomControls(false)
                         setCompressionFormat(android.graphics.Bitmap.CompressFormat.JPEG)
                         setCompressionQuality(96)
                         setToolbarTitle(if (kind == DetectionKind.PHOTO) "Adjust photo" else "Adjust signature")
                         setToolbarColor(android.graphics.Color.rgb(25, 38, 55))
                         setStatusBarColor(android.graphics.Color.rgb(18, 28, 42))
                         setToolbarWidgetColor(android.graphics.Color.WHITE)
+                        setToolbarCropDrawable(com.yalantis.ucrop.R.drawable.ucrop_ic_done)
                     }
+                    // uCrop's supported pattern is a file:// destination URI. Keep the
+                    // source as a FileProvider URI, but do not pass a content:// output URI
+                    // to this non-native fork's filesystem-based crop worker.
+                    val destinationUri = Uri.fromFile(editorData.second)
                     val cropIntent = UCrop.of(sourceUri, destinationUri)
                         .withAspectRatio(ratio, 1f)
                         .withMaxResultSize(4096, 4096)
                         .withOptions(options)
                         .getIntent(this@PipelinePreviewActivity)
                         .apply {
-                            // Explicitly grant uCrop access to both FileProvider URIs.
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                                Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-                            clipData = ClipData.newRawUri("FormSnap crop source", sourceUri).apply {
-                                addItem(ClipData.Item(destinationUri))
-                            }
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            clipData = ClipData.newRawUri("FormSnap crop source", sourceUri)
                         }
                     cropLauncher.launch(cropIntent)
                 }
