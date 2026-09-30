@@ -177,6 +177,10 @@ fun PipelinePreviewScreen(
     signatureAsJpeg: Boolean,
     onSignatureAsJpegChange: (Boolean) -> Unit,
     saving: Boolean = false,
+    savingPhoto: Boolean = false,
+    savingSignature: Boolean = false,
+    photoSaved: Boolean = false,
+    signatureSaved: Boolean = false,
     onProcess: () -> Unit,
     onRecapture: () -> Unit,
     onReimport: () -> Unit,
@@ -230,7 +234,12 @@ fun PipelinePreviewScreen(
                 StatusPill(
                     text = when {
                         processing -> "Analyzing"
+                        savingPhoto -> "Saving photo"
+                        savingSignature -> "Saving signature"
                         saving -> "Saving"
+                        photoSaved && signatureSaved -> "Both saved"
+                        photoSaved -> "Photo saved"
+                        signatureSaved -> "Signature saved"
                         detectedCount == 2 -> "2 ready"
                         detectedCount == 1 -> "1 ready"
                         else -> "Ready"
@@ -402,6 +411,8 @@ fun PipelinePreviewScreen(
                     confidence = photoConfidence,
                     processing = processing,
                     saving = saving,
+                    savingThisOutput = savingPhoto,
+                    saved = photoSaved,
                     nameRequired = personName.isNotBlank(),
                     onEdit = onEditPhoto,
                     onAccept = onAcceptPhoto,
@@ -420,6 +431,8 @@ fun PipelinePreviewScreen(
                     confidence = signatureConfidence,
                     processing = processing,
                     saving = saving,
+                    savingThisOutput = savingSignature,
+                    saved = signatureSaved,
                     nameRequired = personName.isNotBlank(),
                     onEdit = onEditSignature,
                     onAccept = onAcceptSignature,
@@ -535,6 +548,8 @@ private fun OutputPreviewCard(
     confidence: Float?,
     processing: Boolean,
     saving: Boolean,
+    savingThisOutput: Boolean,
+    saved: Boolean,
     nameRequired: Boolean,
     onEdit: () -> Unit,
     onAccept: () -> Unit,
@@ -635,11 +650,19 @@ private fun OutputPreviewCard(
                     modifier = Modifier.weight(1f),
                 )
                 IconActionItem(
-                    label = if (saving) "Saving" else "Save",
-                    description = if (saving) "Saving output file" else "Save output file",
+                    label = when {
+                        savingThisOutput -> "Saving"
+                        saved -> "Saved"
+                        else -> "Save"
+                    },
+                    description = when {
+                        savingThisOutput -> "Saving output file"
+                        saved -> "Output file saved successfully"
+                        else -> "Save output file"
+                    },
                     image = SaveVector,
                     onClick = onSave,
-                    enabled = detected && preview != null && nameRequired && !saving,
+                    enabled = detected && preview != null && nameRequired && !saving && !saved,
                     modifier = Modifier.weight(1f),
                     emphasized = true,
                 )
