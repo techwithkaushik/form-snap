@@ -13,10 +13,6 @@
             android:screenOrientation="portrait"
             android:theme="@style/Theme.AppCompat.Light.NoActionBar" />
         <activity
-            android:name="org.techwithkaushik.formSnap.CropCorrectionActivity"
-            android:exported="false"
-            android:screenOrientation="portrait" />
-        <activity
             android:name="org.techwithkaushik.formSnap.PipelinePreviewActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
