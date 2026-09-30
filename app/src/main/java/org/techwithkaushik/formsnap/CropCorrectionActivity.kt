@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -91,12 +92,18 @@ class CropCorrectionActivity : ComponentActivity() {
                     sourceHeight = originalHeight,
                     initialBounds = initial,
                     onCancel = { finish() },
-                    onConfirm = { crop ->
+                    initialBrightness = intent.getFloatExtra(EXTRA_BRIGHTNESS, 0f),
+                    initialContrast = intent.getFloatExtra(EXTRA_CONTRAST, 1f),
+                    initialSharpness = intent.getFloatExtra(EXTRA_SHARPNESS, 0f),
+                    onConfirm = { crop, brightness, contrast, sharpness ->
                         setResult(RESULT_OK, intent.apply {
                             putExtra(EXTRA_LEFT, crop.left)
                             putExtra(EXTRA_TOP, crop.top)
                             putExtra(EXTRA_RIGHT, crop.right)
                             putExtra(EXTRA_BOTTOM, crop.bottom)
+                            putExtra(EXTRA_BRIGHTNESS, brightness)
+                            putExtra(EXTRA_CONTRAST, contrast)
+                            putExtra(EXTRA_SHARPNESS, sharpness)
                         })
                         finish()
                     },
@@ -119,6 +126,9 @@ class CropCorrectionActivity : ComponentActivity() {
         const val EXTRA_RIGHT = "formsnap.crop.right"
         const val EXTRA_BOTTOM = "formsnap.crop.bottom"
         const val EXTRA_KIND = "formsnap.crop.kind"
+        const val EXTRA_BRIGHTNESS = "formsnap.crop.brightness"
+        const val EXTRA_CONTRAST = "formsnap.crop.contrast"
+        const val EXTRA_SHARPNESS = "formsnap.crop.sharpness"
 
         private fun calculateSampleSize(width: Int, height: Int, maxDimension: Int): Int {
             var sample = 1
@@ -136,9 +146,15 @@ private fun CropEditorContent(
     sourceWidth: Int,
     sourceHeight: Int,
     initialBounds: RectF,
+    initialBrightness: Float,
+    initialContrast: Float,
+    initialSharpness: Float,
     onCancel: () -> Unit,
-    onConfirm: (RectF) -> Unit,
+    onConfirm: (RectF, Float, Float, Float) -> Unit,
 ) {
+    var brightness by remember { mutableStateOf(initialBrightness.coerceIn(-0.5f, 0.5f)) }
+    var contrast by remember { mutableStateOf(initialContrast.coerceIn(0.7f, 1.5f)) }
+    var sharpness by remember { mutableStateOf(initialSharpness.coerceIn(0f, 1f)) }
     var crop by remember {
         mutableStateOf(RectF(initialBounds).apply {
             left = left.coerceIn(0f, sourceWidth - 1f)
@@ -274,15 +290,54 @@ private fun CropEditorContent(
                 }
             }
         }
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Text("Brightness", color = Color.White, modifier = Modifier.width(92.dp), fontSize = 12.sp)
+                Slider(
+                    value = brightness,
+                    onValueChange = { brightness = it },
+                    valueRange = -0.5f..0.5f,
+                    modifier = Modifier.weight(1f),
+                )
+                Text("${(brightness * 100).roundToInt()}%", color = Color.White, modifier = Modifier.width(42.dp), fontSize = 11.sp)
+            }
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Text("Contrast", color = Color.White, modifier = Modifier.width(92.dp), fontSize = 12.sp)
+                Slider(
+                    value = contrast,
+                    onValueChange = { contrast = it },
+                    valueRange = 0.7f..1.5f,
+                    modifier = Modifier.weight(1f),
+                )
+                Text("${(contrast * 100).roundToInt()}%", color = Color.White, modifier = Modifier.width(42.dp), fontSize = 11.sp)
+            }
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Text("Sharpness", color = Color.White, modifier = Modifier.width(92.dp), fontSize = 12.sp)
+                Slider(
+                    value = sharpness,
+                    onValueChange = { sharpness = it },
+                    valueRange = 0f..1f,
+                    modifier = Modifier.weight(1f),
+                )
+                Text("${(sharpness * 100).roundToInt()}%", color = Color.White, modifier = Modifier.width(42.dp), fontSize = 11.sp)
+            }
+        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) { Text("Cancel") }
             OutlinedButton(
-                onClick = { crop = RectF(initialBounds); dragMode = DragMode.NONE },
+                onClick = {
+                    crop = RectF(initialBounds)
+                    brightness = initialBrightness.coerceIn(-0.5f, 0.5f)
+                    contrast = initialContrast.coerceIn(0.7f, 1.5f)
+                    sharpness = initialSharpness.coerceIn(0f, 1f)
+                    dragMode = DragMode.NONE
+                },
                 modifier = Modifier.weight(1f),
             ) { Text("Reset") }
-            Button(onClick = { onConfirm(RectF(crop)) }, modifier = Modifier.weight(1.2f)) {
-                Text("Apply crop")
-            }
+            Button(
+                onClick = { onConfirm(RectF(crop), brightness, contrast, sharpness) },
+                modifier = Modifier.weight(1.2f),
+            ) { Text("Apply") }
         }
     }
 }
