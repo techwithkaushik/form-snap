@@ -72,7 +72,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                 }
             }
         } else if (result.resultCode == UCrop.RESULT_ERROR) {
-            val error = result.data?.let(UCrop::getError)
+            val error = result.data?.let { UCrop.getError(it) }
             android.widget.Toast.makeText(
                 this,
                 error?.localizedMessage ?: "Crop failed. Please try again.",
@@ -571,7 +571,6 @@ class PipelinePreviewActivity : ComponentActivity() {
                     )
                     val ratio = if (kind == DetectionKind.PHOTO) 40f / 50f else 50f / 20f
                     val options = UCrop.Options().apply {
-                        setFreeStyleCropEnabled(true)
                         setShowCropGrid(true)
                         setShowCropFrame(true)
                         setCompressionFormat(android.graphics.Bitmap.CompressFormat.JPEG)
