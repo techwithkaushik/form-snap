@@ -622,7 +622,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                     val cropDir = File(root, "ucrop").apply { mkdirs() }
                     val seed = createSeedCrop(source, bounds, kind, cropDir)
                     seedBounds = seed.sourceBounds
-                    seed.file
+                    val sourceForEdit = seed.file
                     check(cropDir.isDirectory || cropDir.mkdirs()) {
                         "Cannot create the crop output directory."
                     }
