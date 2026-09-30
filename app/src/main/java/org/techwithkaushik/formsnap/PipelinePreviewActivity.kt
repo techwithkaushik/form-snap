@@ -286,6 +286,11 @@ class PipelinePreviewActivity : ComponentActivity() {
             }
 
             fun saveOrChooseFolder(kind: DetectionKind, path: String?) {
+                val requiredName = personName.value.trim()
+                if (requiredName.isBlank()) {
+                    saveMessage.value = "Enter the person's name before saving the photo or signature."
+                    return
+                }
                 if (path.isNullOrBlank() || !File(path).isFile) {
                     saveMessage.value = "No processed ${kind.label().lowercase()} is available to save."
                     return
@@ -304,7 +309,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                     scope.launch {
                         saving.value = true
                         saveMessage.value = try {
-                            saveOutputToFolder(kind, path, savedUri, personName.value, signatureAsJpeg.value)
+                            saveOutputToFolder(kind, path, savedUri, requiredName, signatureAsJpeg.value)
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (t: Exception) {
@@ -316,7 +321,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                 } else {
                     pendingFolderKind = kind
                     pendingSavePath = path
-                    pendingPersonName = personName.value
+                    pendingPersonName = requiredName
                     pendingSignatureAsJpeg = signatureAsJpeg.value
                     folderPicker.launch(null)
                 }
@@ -493,6 +498,10 @@ class PipelinePreviewActivity : ComponentActivity() {
         personName: String,
         signatureAsJpeg: Boolean,
     ): String = withContext(Dispatchers.IO) {
+        val requiredName = personName.trim()
+        require(requiredName.isNotBlank()) {
+            "Enter the person's name before saving the photo or signature."
+        }
         val maxKb = intent.getIntExtra(EXTRA_MAX_KB, 50).coerceIn(5, 2048)
         val isSignature = kind == DetectionKind.SIGNATURE
         val usePng = isSignature && !signatureAsJpeg
@@ -515,7 +524,7 @@ class PipelinePreviewActivity : ComponentActivity() {
             val nameColumn = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
             while (cursor.moveToNext()) existingNames += cursor.getString(nameColumn)
         }
-        val baseName = OutputFileNaming.desiredName(kind, personName, signatureAsJpeg)
+        val baseName = OutputFileNaming.desiredName(kind, requiredName, signatureAsJpeg)
         var fileName = baseName
         var suffix = 1
         while (fileName in existingNames) fileName = OutputFileNaming.withSuffix(baseName, suffix++)
