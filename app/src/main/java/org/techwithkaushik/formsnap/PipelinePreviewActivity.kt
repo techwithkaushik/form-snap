@@ -141,14 +141,27 @@ class PipelinePreviewActivity : ComponentActivity() {
         val file = File(
             org.techwithkaushik.formSnap.foundation.ProcessingPaths.root(this),
             "inputs/captures/recapture_source_" + System.nanoTime() + ".jpg",
-        ).apply { parentFile?.mkdirs() }
-        cameraSourceFile = file
-        cameraUri = androidx.core.content.FileProvider.getUriForFile(
-            this,
-            BuildConfig.APPLICATION_ID + ".fileprovider",
-            file,
         )
-        cameraLauncher.launch(cameraUri)
+        try {
+            check(file.parentFile?.isDirectory == true || file.parentFile?.mkdirs() == true) {
+                "Cannot create the camera output directory."
+            }
+            cameraSourceFile = file
+            cameraUri = androidx.core.content.FileProvider.getUriForFile(
+                this,
+                BuildConfig.APPLICATION_ID + ".fileprovider",
+                file,
+            )
+            cameraLauncher.launch(cameraUri)
+        } catch (error: Exception) {
+            cameraSourceFile = null
+            file.delete()
+            android.widget.Toast.makeText(
+                this,
+                error.message ?: "Unable to open the camera. Please try again.",
+                android.widget.Toast.LENGTH_LONG,
+            ).show()
+        }
     }
 
     private fun launchImport() {
