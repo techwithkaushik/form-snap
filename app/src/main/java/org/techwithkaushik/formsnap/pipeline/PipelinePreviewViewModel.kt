@@ -53,10 +53,6 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
     private val rejectedPhotoBounds = mutableSetOf<android.graphics.RectF>()
     private val rejectedSignatureBounds = mutableSetOf<android.graphics.RectF>()
 
-    private companion object {
-        const val MIN_LEARNED_PROFILE_SIMILARITY = 0.68f
-    }
-
     private fun clearCurrentResults() {
         _state.value = PreviewProcessingState(
             source = _state.value.source,
@@ -209,7 +205,7 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
         )
     }
 
-    suspend fun accept(kind: DetectionKind, recordFeedback: Boolean = true): Boolean {
+    suspend fun accept(kind: DetectionKind): Boolean {
         val correction = stateFor(kind) ?: return false
         // The legacy learning system has been removed from the active pipeline.
         // Accept confirms the current crop for this output only; it does not
