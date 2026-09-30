@@ -206,16 +206,16 @@ object UniversalDetectionEngine {
             val result = ArrayList<ShapeCandidate>()
             for (contour in contours) {
                 val rect = OpenCvGeometry.boundingRect(contour)
-                if (rect.width < 140 || rect.height < 18) continue
-                if (rect.height > max(90, (gray.rows() * 0.12).toInt())) continue
+                if (rect.width < 55 || rect.height < 8) continue
+                if (rect.height > max(180, (gray.rows() * 0.18).toInt())) continue
 
                 val ratio = rect.width.toDouble() / max(1, rect.height).toDouble()
-                if (ratio !in 1.45..6.0) continue
+                if (ratio !in 1.15..8.0) continue
                 val rectArea = rect.width.toDouble() * rect.height.toDouble()
-                if (rectArea > imageArea * 0.25) continue
+                if (rectArea > imageArea * 0.30) continue
 
                 val ink = inkScore(gray, rect)
-                if (ink < 0.012) continue
+                if (ink < 0.004) continue
 
                 val ratioFit = 1.0 - min(1.0, abs(ratio - 2.6) / 3.4)
                 val widthScore = min(1.0, rect.width / max(1.0, gray.cols() * 0.35))
@@ -314,14 +314,14 @@ object UniversalDetectionEngine {
             .filter { candidate -> !isRejected(candidate.rect, rejectedBounds) }
             .filter {
                 val ratio = it.rect.width.toDouble() / max(1, it.rect.height).toDouble()
-                ratio in 1.55..4.2
+                ratio in 1.15..8.0
             }
-            .filter { it.rect.width >= 140 && it.rect.height >= 20 }
+            .filter { it.rect.width >= 55 && it.rect.height >= 8 }
             // Reject page-sized and large table regions; signatures occupy a
             // comparatively small area even when there is no printed frame.
             .filter {
                 it.rect.width.toDouble() * it.rect.height.toDouble() <=
-                    gray.cols().toDouble() * gray.rows().toDouble() * 0.25
+                    gray.cols().toDouble() * gray.rows().toDouble() * 0.30
             }
             // Printed labels and ordinary text often have a wide aspect ratio
             // and dark pixels, but their glyph heights are unusually uniform.
@@ -420,7 +420,7 @@ object UniversalDetectionEngine {
      */
     private fun looksHandwritten(gray: Mat, rect: Rect): Boolean {
         val clipped = clip(rect, gray)
-        if (clipped.width < 80 || clipped.height < 16) return false
+        if (clipped.width < 48 || clipped.height < 7) return false
         val roi = gray.submat(clipped)
         val binary = Mat()
         val labels = Mat()
@@ -453,7 +453,7 @@ object UniversalDetectionEngine {
             }
             val inkDensity = Core.countNonZero(binary).toDouble() /
                 max(1.0, (clipped.width - 2 * marginX).toDouble() * (clipped.height - 2 * marginY))
-            if (inkDensity !in 0.008..0.48) return false
+            if (inkDensity !in 0.004..0.44) return false
 
             val count = Imgproc.connectedComponentsWithStats(
                 binary, labels, stats, centroids, 8, CvType.CV_32S,
@@ -471,9 +471,9 @@ object UniversalDetectionEngine {
             }
             if (heights.size < 2) {
                 // A continuous cursive stroke can be one connected component.
-                return clipped.width >= 180 &&
-                    clipped.width.toDouble() / max(1, clipped.height) >= 2.7 &&
-                    inkDensity in 0.015..0.28
+                return clipped.width >= 72 &&
+                    clipped.width.toDouble() / max(1, clipped.height) >= 2.0 &&
+                    inkDensity in 0.006..0.30
             }
 
             val meanHeight = heights.average().coerceAtLeast(1.0)
@@ -487,11 +487,15 @@ object UniversalDetectionEngine {
                     widths[index] >= medianWidth * 2.8
             }
             val ratio = clipped.width.toDouble() / max(1, clipped.height)
-            return ratio >= 1.45 &&
-                (heightVariation >= 0.48 && distinctiveStrokes >= 2 ||
-                    (distinctiveStrokes >= 2 &&
-                        distinctiveStrokes.toDouble() / heights.size >= 0.22 &&
-                        inkDensity in 0.012..0.36))
+            // Printed text usually has compact, similarly sized glyphs.
+            // Require irregular strokes and sparse-to-moderate ink to avoid
+            // classifying ordinary labels as signatures.
+            val irregularStrokeRatio = distinctiveStrokes.toDouble() / heights.size
+            val sparseHandwriting = inkDensity in 0.006..0.30
+            return ratio >= 1.15 &&
+                sparseHandwriting &&
+                ((heightVariation >= 0.30 && distinctiveStrokes >= 1) ||
+                    (heightVariation >= 0.22 && irregularStrokeRatio >= 0.14))
         } finally {
             centroids.release()
             stats.release()
