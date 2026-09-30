@@ -7,6 +7,7 @@ import android.graphics.RectF
 import android.net.Uri
 import android.os.Bundle
 import android.content.Intent
+import android.content.ClipData
 import android.provider.DocumentsContract
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -597,11 +598,20 @@ class PipelinePreviewActivity : ComponentActivity() {
                         setStatusBarColor(android.graphics.Color.rgb(18, 28, 42))
                         setToolbarWidgetColor(android.graphics.Color.WHITE)
                     }
-                    UCrop.of(sourceUri, destinationUri)
+                    val cropIntent = UCrop.of(sourceUri, destinationUri)
                         .withAspectRatio(ratio, 1f)
                         .withMaxResultSize(4096, 4096)
                         .withOptions(options)
-                        .start(this@PipelinePreviewActivity, cropLauncher)
+                        .getIntent(this@PipelinePreviewActivity)
+                        .apply {
+                            // Explicitly grant uCrop access to both FileProvider URIs.
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                                Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                            clipData = ClipData.newRawUri("FormSnap crop source", sourceUri).apply {
+                                addItem(ClipData.Item(destinationUri))
+                            }
+                        }
+                    cropLauncher.launch(cropIntent)
                 }
             } catch (cancelled: CancellationException) {
                 outputFile?.delete()
