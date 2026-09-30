@@ -142,7 +142,7 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
                         currentBounds = android.graphics.RectF(
                             candidate.bounds,
                         ),
-                        appearance = loaded.learnedSignatureApplication?.appearance ?: AppearanceAdjustments(),
+                        appearance = AppearanceAdjustments(),
                     )
                 },
                 photoConfidence = detection.photo?.confidence,
