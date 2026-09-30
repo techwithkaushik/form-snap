@@ -248,6 +248,9 @@ object CorrectionLearning {
      * learning bundles are imported from another installation.
      */
     fun mergeWeighted(previous: LearnedCorrection, incoming: LearnedCorrection): LearnedCorrection {
+        require(previous.kind == incoming.kind && previous.version == incoming.version) {
+            "Only profiles with the same detection kind and coordinate version can be merged"
+        }
         val oldWeight = previous.sampleCount.coerceAtLeast(1).toDouble()
         val newWeight = incoming.sampleCount.coerceAtLeast(1).toDouble()
         val total = oldWeight + newWeight
