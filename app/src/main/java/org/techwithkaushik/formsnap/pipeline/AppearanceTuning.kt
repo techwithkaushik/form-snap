@@ -1,17 +1,6 @@
 package org.techwithkaushik.formSnap.pipeline
 
 object AppearanceTuning {
-    fun defaults(kind: DetectionKind): AppearanceAdjustments = when (kind) {
-        DetectionKind.PHOTO -> AppearanceAdjustments(
-            brightness = 0f, contrast = 1f, saturation = 1f, sharpness = 0f, denoise = 0f,
-            inkThreshold = 150,
-        )
-        DetectionKind.SIGNATURE -> AppearanceAdjustments(
-            brightness = 0f, contrast = 1f, saturation = 1f, sharpness = 0f, denoise = 0f,
-            inkThreshold = 150, backgroundCleanup = 0f,
-        )
-    }
-
     fun clamp(adjustments: AppearanceAdjustments): AppearanceAdjustments =
         adjustments.copy(
             brightness = adjustments.brightness.coerceIn(-0.5f, 0.5f),
