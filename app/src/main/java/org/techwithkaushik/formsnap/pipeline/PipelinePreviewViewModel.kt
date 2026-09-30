@@ -158,6 +158,7 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
                             conditionSaturation = features.saturation,
                             conditionEdgeDensity = features.edgeDensity,
                             aspectRatio = features.aspectRatio,
+                            minimumSimilarity = MIN_LEARNED_PROFILE_SIMILARITY,
                         ) ?: return null
                         val similarity = CorrectionLearning.conditionSimilarity(
                             profile = profile,
