@@ -14,6 +14,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
+import org.opencv.android.OpenCVLoader
 import androidx.core.content.FileProvider
 import com.yalantis.ucrop.UCrop
 
@@ -230,6 +231,16 @@ class PipelinePreviewActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        if (!OpenCVLoader.initLocal()) {
+            android.widget.Toast.makeText(
+                this,
+                "OpenCV initialization failed. Please restart FormSnap.",
+                android.widget.Toast.LENGTH_LONG,
+            ).show()
+            finish()
+            return
+        }
 
         val path = intent.getStringExtra(EXTRA_INPUT_PATH)
         val forcedKind = when (intent.getStringExtra(EXTRA_CAPTURE_MODE)) {
