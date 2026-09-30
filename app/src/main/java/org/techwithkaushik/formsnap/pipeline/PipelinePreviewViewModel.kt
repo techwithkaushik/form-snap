@@ -19,8 +19,6 @@ import kotlin.math.roundToInt
 
 private data class PreviewDetectionBundle(
     val detection: DetectionResult,
-    val learnedPhotoApplication: LearnedApplication?,
-    val learnedSignatureApplication: LearnedApplication?,
 )
 
 data class PreviewProcessingState(
@@ -114,72 +112,7 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
                         ),
                     )
 
-                    // Apply learning in two conservative stages:
-                    // 1) same-layout profiles (strongest evidence),
-                    // 2) condition-aware correction profiles only when measured
-                    // image-region features are available and the match is strong.
-                    val topology = LayoutTopologyMatcher.signature(
-                        sourceWidth = source.cols(),
-                        sourceHeight = source.rows(),
-                        photoBounds = detection.photo?.bounds,
-                        signatureBounds = detection.signature?.bounds,
-                    )
-                    fun learnedApplication(candidate: DetectionCandidate?): LearnedApplication? {
-                        candidate ?: return null
-                        if (topology != null) {
-                            val topologyProfile = LayoutTopologyStore.best(context, topology, candidate.kind)
-                            if (topologyProfile != null) {
-                                val corrected = LayoutTopologyMatcher.apply(
-                                    bounds = candidate.bounds,
-                                    profile = topologyProfile,
-                                    actualSignature = topology,
-                                    sourceWidth = source.cols(),
-                                    sourceHeight = source.rows(),
-                                )
-                                if (corrected != null) {
-                                    return LearnedApplication(
-                                        bounds = corrected,
-                                        appearance = AppearanceAdjustments(),
-                                        blend = 1f,
-                                    )
-                                }
-                            }
-                        }
-
-                        // Never select a condition-only profile without real measurements:
-                        // defaults such as brightness=0 are not evidence of a match.
-                        val features = ImageConditionFeatures.measure(source, candidate.bounds)
-                            ?: return null
-                        val profile = LearningStore.best(
-                            context = context,
-                            kind = candidate.kind,
-                            conditionBrightness = features.brightness,
-                            conditionContrast = features.contrast,
-                            conditionSaturation = features.saturation,
-                            conditionEdgeDensity = features.edgeDensity,
-                            aspectRatio = features.aspectRatio,
-                            minimumSimilarity = MIN_LEARNED_PROFILE_SIMILARITY,
-                        ) ?: return null
-                        val similarity = CorrectionLearning.conditionSimilarity(
-                            profile = profile,
-                            conditionBrightness = features.brightness,
-                            conditionContrast = features.contrast,
-                            conditionSaturation = features.saturation,
-                            conditionEdgeDensity = features.edgeDensity,
-                            aspectRatio = features.aspectRatio,
-                        )
-                        // Conservative threshold prevents weakly related forms from
-                        // influencing the baseline detector's crop.
-                        if (similarity < MIN_LEARNED_PROFILE_SIMILARITY) return null
-                        return LearnedProfileApplier.apply(candidate, profile, features)
-                            .takeIf { it.blend > 0f }
-                    }
-
-                    PreviewDetectionBundle(
-                        detection = detection,
-                        learnedPhotoApplication = learnedApplication(detection.photo),
-                        learnedSignatureApplication = learnedApplication(detection.signature),
-                    )
+                    PreviewDetectionBundle(detection = detection)
                 } finally {
                     source.release()
                 }
@@ -195,9 +128,9 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
                         detection.sourceHeight,
                     ).copy(
                         currentBounds = android.graphics.RectF(
-                            loaded.learnedPhotoApplication?.bounds ?: candidate.bounds,
+                            candidate.bounds,
                         ),
-                        appearance = loaded.learnedPhotoApplication?.appearance ?: AppearanceAdjustments(),
+                        appearance = AppearanceAdjustments(),
                     )
                 },
                 signatureState = detection.signature?.let { candidate ->
@@ -207,7 +140,7 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
                         detection.sourceHeight,
                     ).copy(
                         currentBounds = android.graphics.RectF(
-                            loaded.learnedSignatureApplication?.bounds ?: candidate.bounds,
+                            candidate.bounds,
                         ),
                         appearance = loaded.learnedSignatureApplication?.appearance ?: AppearanceAdjustments(),
                     )
@@ -247,72 +180,11 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
 
     suspend fun accept(kind: DetectionKind, recordFeedback: Boolean = true): Boolean {
         val correction = stateFor(kind) ?: return false
-        val automatic = candidateFor(kind) ?: return false
-        var learningRecorded = false
-
-        // Tapping Accept is an explicit human validation, even when the automatic
-        // crop was already correct. Record zero-delta samples too: they teach the
-        // system that this crop/condition was reviewed and should not be changed.
-        // Layout-topology profiles below remain restricted to actual geometry edits.
-        if (recordFeedback) {
-            val sourceFile = _state.value.source
-            val features = sourceFile?.takeIf { it.isFile }?.let { file ->
-                withContext(Dispatchers.Default) {
-                    val source = org.opencv.imgcodecs.Imgcodecs.imread(file.absolutePath)
-                    try {
-                        if (source.empty()) null
-                        else ImageConditionFeatures.measure(source, automatic.bounds)
-                    } finally {
-                        source.release()
-                    }
-                }
-            }
-            val feedback = correction.correction(automatic).copy(
-                accepted = true,
-                conditionFeatures = features,
-            )
-            learningRecorded = FeedbackRecorder.record(context, feedback)
-
-            val boundsChanged =
-                correction.currentBounds.left != automatic.bounds.left ||
-                    correction.currentBounds.top != automatic.bounds.top ||
-                    correction.currentBounds.right != automatic.bounds.right ||
-                    correction.currentBounds.bottom != automatic.bounds.bottom
-
-            // Appearance-only edits must not create zero-delta layout profiles.
-            // Topology memory is reserved for actual, validated geometry changes.
-            if (boundsChanged && FeedbackRecorder.isSafeFeedback(feedback)) {
-                val snapshot = _state.value
-                val topology = LayoutTopologyMatcher.signature(
-                    sourceWidth = correction.sourceWidth,
-                    sourceHeight = correction.sourceHeight,
-                    photoBounds = snapshot.photoState?.automaticBounds,
-                    signatureBounds = snapshot.signatureState?.automaticBounds,
-                )
-                if (topology != null) {
-                    val deltas = CropDeltaNormalizer.normalize(
-                        leftPixels = correction.currentBounds.left - automatic.bounds.left,
-                        topPixels = correction.currentBounds.top - automatic.bounds.top,
-                        rightPixels = correction.currentBounds.right - automatic.bounds.right,
-                        bottomPixels = correction.currentBounds.bottom - automatic.bounds.bottom,
-                        width = automatic.bounds.width().coerceAtLeast(1f),
-                        height = automatic.bounds.height().coerceAtLeast(1f),
-                    )
-                    LayoutTopologyStore.record(
-                        context,
-                        LayoutCorrectionProfile(
-                            kind = kind,
-                            signature = topology,
-                            deltas = deltas,
-                            sampleCount = 1,
-                            confidence = 1f,
-                        ),
-                    )
-                }
-            }
-        }
+        // The legacy learning system has been removed from the active pipeline.
+        // Accept confirms the current crop for this output only; it does not
+        // create a training profile or change future detections.
         updateCorrectionState(kind, correction.accept())
-        return learningRecorded
+        return false
     }
 
     fun reject(kind: DetectionKind) {
