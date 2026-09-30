@@ -26,7 +26,7 @@ object PipelinePreviewService {
         require(input.exists()) { "Input image does not exist" }
         val session = ProcessingSession.create(context)
         return try {
-            UniversalPipelineBatch.processFile(input, dpi, context).use { result ->
+            UniversalPipelineBatch.processFile(input, dpi).use { result ->
                 var photoPath: String? = null
                 var signaturePath: String? = null
 
