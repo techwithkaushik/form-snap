@@ -93,7 +93,7 @@
       ]
     }
   ],
-  "baseBranches": [
+  "baseBranchPatterns": [
     "main",
     "feature/foundation-pipeline"
   ]
