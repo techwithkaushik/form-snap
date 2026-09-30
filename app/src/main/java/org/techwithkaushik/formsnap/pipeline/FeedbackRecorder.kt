@@ -25,6 +25,11 @@ object FeedbackRecorder {
             sourceContrast = feedback.conditionFeatures?.contrast ?: 1f,
             sourceSaturation = feedback.conditionFeatures?.saturation ?: 1f,
             sourceEdgeDensity = feedback.conditionFeatures?.edgeDensity ?: 0f,
+        ).copy(
+            // This sample is an explicitly accepted human correction. Detection
+            // confidence describes the machine's original guess, not the quality
+            // of the user's corrected target; carrying it forward suppressed learning.
+            confidence = 1f,
         )
         LearningStore.record(context, learned)
     }
