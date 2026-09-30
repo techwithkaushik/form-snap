@@ -92,5 +92,9 @@
         "major-update"
       ]
     }
+  ],
+  "baseBranches": [
+    "main",
+    "feature/foundation-pipeline"
   ]
 }
