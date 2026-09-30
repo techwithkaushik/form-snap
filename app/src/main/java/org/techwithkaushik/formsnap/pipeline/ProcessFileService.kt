@@ -29,7 +29,7 @@ object ProcessFileService {
     ): ProcessedFileResult {
         val session = ProcessingSession.create(context)
         return try {
-            UniversalPipelineBatch.processFile(input, dpi, context).use { result ->
+            UniversalPipelineBatch.processFile(input, dpi).use { result ->
                 val photoPath = result.photo?.image?.let { image ->
                     val file = session.file("photo.jpg")
                     check(org.opencv.imgcodecs.Imgcodecs.imwrite(file.absolutePath, image)) {
