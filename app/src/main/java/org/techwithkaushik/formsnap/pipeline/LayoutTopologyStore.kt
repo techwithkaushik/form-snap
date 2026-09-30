@@ -69,6 +69,74 @@ object LayoutTopologyStore {
             .apply()
     }
 
+    /** Portable, pixel-free backup of validated layout/topology corrections. */
+    @Synchronized
+    fun exportJson(context: Context): String {
+        val array = JSONArray()
+        read(context).filter(::valid).take(MAX_PROFILES).forEach { array.put(encode(it)) }
+        return JSONObject().put("schema", 1).put(KEY_PROFILES, array).toString()
+    }
+
+    /** Validate and merge topology profiles from a portable learning backup. */
+    @Synchronized
+    fun importJson(context: Context, payload: String): Int {
+        require(payload.toByteArray(Charsets.UTF_8).size <= 1_048_576) {
+            "Layout learning payload is too large"
+        }
+        val root = JSONObject(payload)
+        require(root.optInt("schema", -1) == 1) { "Unsupported layout learning schema" }
+        val array = root.optJSONArray(KEY_PROFILES)
+            ?: throw IllegalArgumentException("Layout learning profiles are missing")
+        require(array.length() <= MAX_PROFILES) { "Too many layout learning profiles" }
+
+        val imported = buildList {
+            for (i in 0 until array.length()) {
+                val profile = runCatching { decode(array.optJSONObject(i)) }.getOrNull()
+                if (profile != null && valid(profile)) add(profile)
+            }
+        }
+        if (imported.isEmpty()) return 0
+
+        val profiles = read(context).filter(::valid).toMutableList()
+        for (incoming in imported) {
+            val index = profiles.indexOfFirst {
+                it.kind == incoming.kind &&
+                    LayoutTopologyMatcher.similarity(it.signature, incoming.signature, incoming.kind) >=
+                    LayoutTopologyMatcher.MIN_MATCH_CONFIDENCE
+            }
+            if (index < 0) {
+                profiles += incoming
+            } else {
+                val previous = profiles[index]
+                val oldWeight = previous.sampleCount.coerceAtLeast(1).toFloat()
+                val newWeight = incoming.sampleCount.coerceAtLeast(1).toFloat()
+                val total = oldWeight + newWeight
+                fun blend(old: Float, new: Float) = (old * oldWeight + new * newWeight) / total
+                profiles[index] = previous.copy(
+                    deltas = NormalizedCropDeltas(
+                        blend(previous.deltas.left, incoming.deltas.left),
+                        blend(previous.deltas.top, incoming.deltas.top),
+                        blend(previous.deltas.right, incoming.deltas.right),
+                        blend(previous.deltas.bottom, incoming.deltas.bottom),
+                    ),
+                    sampleCount = (previous.sampleCount + incoming.sampleCount).coerceAtMost(100),
+                    confidence = blend(previous.confidence, incoming.confidence).coerceIn(0f, 1f),
+                )
+            }
+        }
+        val bounded = profiles.sortedWith(
+            compareByDescending<LayoutCorrectionProfile> { it.sampleCount }
+                .thenByDescending { it.confidence },
+        ).take(MAX_PROFILES)
+        val output = JSONArray()
+        bounded.forEach { output.put(encode(it)) }
+        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_PROFILES, JSONObject().put("schema", 1).put(KEY_PROFILES, output).toString())
+            .apply()
+        return imported.size
+    }
+
     @Synchronized
     fun clear(context: Context) {
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
