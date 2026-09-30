@@ -67,9 +67,12 @@ class PipelinePreviewActivity : ComponentActivity() {
 
     private val cameraLauncher: ActivityResultLauncher<Uri> =
         registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-            if (!ok) return@registerForActivityResult
             val file = cameraSourceFile
             cameraSourceFile = null
+            if (!ok) {
+                file?.delete()
+                return@registerForActivityResult
+            }
             if (file?.isFile == true && file.length() > 0L) {
                 recreatePipelineWithInput(file)
             } else {
