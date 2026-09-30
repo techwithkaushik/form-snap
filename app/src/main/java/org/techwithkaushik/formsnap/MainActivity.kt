@@ -673,7 +673,7 @@ class MainActivity : ComponentActivity() {
         var processing by remember { mutableStateOf(false) }
         var status by remember { mutableStateOf("Extracting…") }
         var outputs by remember { mutableStateOf(Outputs()) }
-        var personName by remember { mutableStateOf("") }
+        var personName by remember(file.absolutePath) { mutableStateOf("") }
 
         LaunchedEffect(file.absolutePath, mode, settings) {
             processing = true
