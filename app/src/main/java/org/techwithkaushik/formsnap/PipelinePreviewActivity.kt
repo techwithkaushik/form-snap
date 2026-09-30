@@ -232,6 +232,11 @@ class PipelinePreviewActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         val path = intent.getStringExtra(EXTRA_INPUT_PATH)
+        val forcedKind = when (intent.getStringExtra(EXTRA_CAPTURE_MODE)) {
+            "PHOTO" -> DetectionKind.PHOTO
+            "SIGNATURE" -> DetectionKind.SIGNATURE
+            else -> null
+        }
         val dpi = intent.getDoubleExtra(EXTRA_DPI, 300.0)
         val photoWidthMm = intent.getDoubleExtra(EXTRA_PHOTO_WIDTH_MM, 40.0)
         val photoHeightMm = intent.getDoubleExtra(EXTRA_PHOTO_HEIGHT_MM, 50.0)
@@ -369,6 +374,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                     photoHeightMm = photoHeightMm,
                     signatureWidthMm = signatureWidthMm,
                     signatureHeightMm = signatureHeightMm,
+                    forcedKind = forcedKind,
                 )
             }
 
@@ -744,6 +750,7 @@ class PipelinePreviewActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_INPUT_PATH = "formsnap.input_path"
+        const val EXTRA_CAPTURE_MODE = "formsnap.capture_mode"
         const val EXTRA_MAX_KB = "formsnap.max_kb"
         const val EXTRA_DPI = "formsnap.dpi"
         const val EXTRA_PHOTO_WIDTH_MM = "formsnap.photo_width_mm"
