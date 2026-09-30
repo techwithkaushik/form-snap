@@ -335,6 +335,8 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
         brightness: Float? = null,
         contrast: Float? = null,
         sharpness: Float? = null,
+        saturation: Float? = null,
+        denoise: Float? = null,
     ) {
         val current = stateFor(kind) ?: return
         val width = current.sourceWidth.toFloat().coerceAtLeast(1f)
@@ -348,6 +350,8 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
                 brightness = brightness ?: current.appearance.brightness,
                 contrast = contrast ?: current.appearance.contrast,
                 sharpness = sharpness ?: current.appearance.sharpness,
+                saturation = saturation ?: current.appearance.saturation,
+                denoise = denoise ?: current.appearance.denoise,
             ),
         )
         applyCorrection(kind, updated)
