@@ -301,7 +301,12 @@ fun PipelinePreviewScreen(
                     ) {
                         SectionHeading(
                             title = "Save preferences",
-                            subtitle = "Use a meaningful name to find files later",
+                            subtitle = "One remembered folder is shared by both outputs",
+                        )
+                        Text(
+                            "Choose a folder once; FormSnap will reuse it for both the photo and signature.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         OutlinedTextField(
                             value = personName,
@@ -501,7 +506,7 @@ private fun OutputPreviewCard(
                     enabled = !saving,
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(12.dp),
-                ) { Text("Choose folder") }
+                ) { Text("Change folder") }
                 Button(
                     onClick = onSave,
                     enabled = detected && preview != null && !saving,
