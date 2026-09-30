@@ -2,6 +2,16 @@ package org.techwithkaushik.formSnap.pipeline
 
 import android.graphics.RectF
 
+data class AppearanceAdjustments(
+    val brightness: Float = 0f,
+    val contrast: Float = 1f,
+    val saturation: Float = 1f,
+    val sharpness: Float = 0f,
+    val denoise: Float = 0f,
+    val inkThreshold: Int = 150,
+    val backgroundCleanup: Float = 0f,
+)
+
 data class PreviewCorrectionState(
     val kind: DetectionKind,
     val sourceWidth: Int,
@@ -24,14 +34,6 @@ data class PreviewCorrectionState(
     fun reject(): PreviewCorrectionState =
         copy(action = CorrectionAction.REJECT)
 
-    fun correction(automatic: DetectionCandidate): CorrectionFeedback =
-        CorrectionFeedback(
-            kind = kind,
-            automatic = automatic,
-            correctedBounds = currentBounds,
-            appearance = appearance,
-            accepted = action == CorrectionAction.ACCEPT,
-        )
 }
 
 object PreviewCorrectionStateFactory {
