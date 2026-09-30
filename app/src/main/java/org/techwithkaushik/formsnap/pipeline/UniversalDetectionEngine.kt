@@ -102,6 +102,7 @@ object UniversalDetectionEngine {
                 sourceHeight = source.rows(),
                 photo = photo?.toDetection(DetectionKind.PHOTO, invScale),
                 signature = signature?.toDetection(DetectionKind.SIGNATURE, invScale),
+                detectorVersion = "opencv-frame-safe-v2",
             )
         } finally {
             morph.release()
@@ -387,10 +388,19 @@ object UniversalDetectionEngine {
         kind: DetectionKind,
         invScale: Double,
     ): DetectionCandidate {
-        val x = (rect.x * invScale).toFloat()
-        val y = (rect.y * invScale).toFloat()
-        val w = (rect.width * invScale).toFloat()
-        val h = (rect.height * invScale).toFloat()
+        // For a genuine printed frame, inset by only 1–4 working pixels to
+        // remove the detected outline. The inset is intentionally tiny and
+        // bounded so the photograph or signature itself is not aggressively
+        // trimmed. Unframed content keeps its original detector bounds.
+        val frameInset = if (frameLike) {
+            min(4.0, max(1.0, min(rect.width, rect.height) * 0.006))
+        } else {
+            0.0
+        }
+        val x = ((rect.x + frameInset) * invScale).toFloat()
+        val y = ((rect.y + frameInset) * invScale).toFloat()
+        val w = ((rect.width - frameInset * 2.0) * invScale).toFloat()
+        val h = ((rect.height - frameInset * 2.0) * invScale).toFloat()
 
         return DetectionCandidate(
             kind = kind,
