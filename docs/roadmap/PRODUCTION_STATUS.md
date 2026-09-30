@@ -64,3 +64,13 @@ A successful build is necessary, but not sufficient, evidence for production rea
 - Signature candidate filtering now removes outer frame bands before measuring ink and requires irregular connected-stroke geometry, reducing false positives from printed labels. This remains a heuristic and must be measured against labeled handwriting/printed-text examples.
 - Crop editor uses the same display-to-source geometry for drawing and pointer handling, ignores gestures in image letterboxing, and exposes brightness, contrast, sharpness, saturation, and denoise controls that are applied by the OpenCV preview pipeline.
 - The person-name input in the legacy preview flow is positioned after photo/signature output cards; the pipeline preview already keeps naming below the detected output cards.
+
+## Crop and signature fixes — 2026-09-30
+
+- Replaced the hand-drawn crop overlay flow with **uCrop'n'Edit 4.1.1 non-native** for crop gestures, crop frame/grid, brightness, contrast, saturation, and sharpness controls.
+- The detected region is used to prepare a padded, full-resolution crop seed; manual crop is also available when automatic photo/signature detection returns no candidate.
+- uCrop results are resized to the configured photo/signature output dimensions before they appear in the preview, keeping the existing save workflow consistent.
+- Expanded signature candidate dimensions for small/far-away handwriting and tightened the connected-component irregularity gate so uniform printed glyphs are less likely to be selected.
+- Camera capture paths use the FileProvider cache root declared in `file_paths.xml`; pending camera URI/file are restored after activity recreation.
+
+**Validation caveat:** These changes are committed to `feature/foundation-pipeline`, but must not be called release-verified until Android CI passes and device tests cover Xiaomi/Android 10 camera launch, angled forms, small signatures, printed Hindi/Latin labels, crop adjustments, and final saved dimensions. The handwriting/printed-text distinction remains a classical CV heuristic, not a guarantee; add a labeled regression set before claiming zero printed-text false positives.
