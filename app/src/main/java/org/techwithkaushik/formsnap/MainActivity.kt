@@ -34,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -150,7 +151,9 @@ class MainActivity : ComponentActivity() {
                         withContext(Dispatchers.Main) {
                             saveMessage = "Learning backup exported successfully."
                         }
-                    } catch (t: Throwable) {
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (t: Exception) {
                         withContext(Dispatchers.Main) {
                             saveMessage = t.message ?: "Learning export failed."
                         }
@@ -175,7 +178,9 @@ class MainActivity : ComponentActivity() {
                         withContext(Dispatchers.Main) {
                             saveMessage = "Learning imported: ${summary.importedProfiles}, merged: ${summary.mergedProfiles}, rejected: ${summary.rejectedProfiles}."
                         }
-                    } catch (t: Throwable) {
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (t: Exception) {
                         withContext(Dispatchers.Main) {
                             saveMessage = t.message ?: "Learning import failed."
                         }
@@ -332,7 +337,9 @@ class MainActivity : ComponentActivity() {
                                     withContext(Dispatchers.Main) {
                                         saveMessage = "Learning memory reset. Built-in detection is unchanged."
                                     }
-                                } catch (t: Throwable) {
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (t: Exception) {
                                     withContext(Dispatchers.Main) {
                                         saveMessage = t.message ?: "Could not reset learning memory."
                                     }
@@ -636,7 +643,9 @@ class MainActivity : ComponentActivity() {
                 } else {
                     "Photo/signature could not be detected"
                 }
-            } catch (t: Throwable) {
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (t: Exception) {
                 status = t.message ?: "Extraction failed"
             } finally {
                 processing = false
