@@ -473,7 +473,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                     } else {
                         scope.launch {
                             viewModel.accept(DetectionKind.PHOTO)
-                            saveMessage.value = "Photo crop accepted. OpenCV detection will be used for future images."
+                            saveMessage.value = "Photo crop accepted for this output."
                         }
                     }
                 },
@@ -497,7 +497,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                     } else {
                         scope.launch {
                             viewModel.accept(DetectionKind.SIGNATURE)
-                            saveMessage.value = "Signature crop accepted. OpenCV detection will be used for future images."
+                            saveMessage.value = "Signature crop accepted for this output."
                         }
                     }
                 },
