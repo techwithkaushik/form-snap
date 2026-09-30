@@ -21,7 +21,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.produceState
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.techwithkaushik.formSnap.pipeline.DetectionKind
@@ -58,32 +62,61 @@ class PipelinePreviewActivity : ComponentActivity() {
     private var pendingSavePath: String? = null
     private var pendingPersonName: String? = null
     private var pendingSignatureAsJpeg: Boolean? = null
+    private var cameraSourceFile: File? = null
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private val cameraLauncher: ActivityResultLauncher<Uri> =
         registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
             if (!ok) return@registerForActivityResult
-            val uri = cameraUri
-            val file = File(
-                org.techwithkaushik.formSnap.foundation.ProcessingPaths.root(this@PipelinePreviewActivity),
-                "inputs/recapture_" + System.nanoTime() + ".jpg",
-            ).apply { parentFile?.mkdirs() }
-            contentResolver.openInputStream(uri)?.use { input ->
-                file.outputStream().use { output -> input.copyTo(output) }
+            val file = cameraSourceFile
+            cameraSourceFile = null
+            if (file?.isFile == true && file.length() > 0L) {
+                recreatePipelineWithInput(file)
+            } else {
+                android.widget.Toast.makeText(
+                    this,
+                    "Camera did not produce an image. Please try again.",
+                    android.widget.Toast.LENGTH_LONG,
+                ).show()
             }
-            if (file.exists()) recreatePipelineWithInput(file)
         }
 
     private val importLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
             if (uri == null) return@registerForActivityResult
-            val file = File(
-                org.techwithkaushik.formSnap.foundation.ProcessingPaths.root(this@PipelinePreviewActivity),
-                "inputs/reimport_" + System.nanoTime() + ".jpg",
-            ).apply { parentFile?.mkdirs() }
-            contentResolver.openInputStream(uri)?.use { input ->
-                file.outputStream().use { output -> input.copyTo(output) }
+            ioScope.launch {
+                try {
+                    val file = withContext(Dispatchers.IO) {
+                        val mime = contentResolver.getType(uri)
+                        val extension = when (mime?.lowercase()) {
+                            "image/png" -> "png"
+                            "image/webp" -> "webp"
+                            "image/heic", "image/heif" -> "heic"
+                            else -> "jpg"
+                        }
+                        File(
+                            org.techwithkaushik.formSnap.foundation.ProcessingPaths.root(this@PipelinePreviewActivity),
+                            "inputs/reimport_" + System.nanoTime() + ".$extension",
+                        ).apply { parentFile?.mkdirs() }.also { destination ->
+                            contentResolver.openInputStream(uri)?.use { input ->
+                                destination.outputStream().use { output -> input.copyTo(output) }
+                            } ?: error("Unable to open the selected image.")
+                            check(destination.isFile && destination.length() > 0L) {
+                                "The selected image is empty."
+                            }
+                        }
+                    }
+                    if (!isFinishing && !isDestroyed) recreatePipelineWithInput(file)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    android.widget.Toast.makeText(
+                        this@PipelinePreviewActivity,
+                        error.message ?: "Could not import this image.",
+                        android.widget.Toast.LENGTH_LONG,
+                    ).show()
+                }
             }
-            if (file.exists()) recreatePipelineWithInput(file)
         }
 
     private lateinit var cameraUri: Uri
@@ -93,6 +126,7 @@ class PipelinePreviewActivity : ComponentActivity() {
             org.techwithkaushik.formSnap.foundation.ProcessingPaths.root(this),
             "inputs/captures/recapture_source_" + System.nanoTime() + ".jpg",
         ).apply { parentFile?.mkdirs() }
+        cameraSourceFile = file
         cameraUri = androidx.core.content.FileProvider.getUriForFile(
             this,
             BuildConfig.APPLICATION_ID + ".fileprovider",
@@ -187,7 +221,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                         } else {
                             saveMessage.value = "${kind.label()} folder selected."
                         }
-                    } catch (t: Throwable) {
+                    } catch (t: Exception) {
                         saveMessage.value = t.message ?: "Unable to remember folder permission."
                     }
                 }
@@ -213,7 +247,9 @@ class PipelinePreviewActivity : ComponentActivity() {
                         saving.value = true
                         saveMessage.value = try {
                             saveOutputToFolder(kind, path, savedUri, personName.value, signatureAsJpeg.value)
-                        } catch (t: Throwable) {
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (t: Exception) {
                             t.message ?: "Save failed."
                         } finally {
                             saving.value = false
@@ -365,6 +401,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                     pendingFolderKind = DetectionKind.SIGNATURE
                     pendingSavePath = null
                     pendingPersonName = personName.value
+                    pendingSignatureAsJpeg = signatureAsJpeg.value
                     folderPicker.launch(null)
                 },
                 onBack = {
@@ -375,6 +412,8 @@ class PipelinePreviewActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        ioScope.cancel()
+        cameraSourceFile = null
         activePipelineViewModel?.close()
         activePipelineViewModel = null
         super.onDestroy()
