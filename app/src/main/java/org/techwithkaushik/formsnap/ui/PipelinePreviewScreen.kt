@@ -370,14 +370,15 @@ fun PipelinePreviewScreen(
                     value = personName,
                     onValueChange = onPersonNameChange,
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Person's name (optional)") },
-                    placeholder = { Text("e.g. Arvind Kaushik") },
+                    label = { Text("Person's name *") },
+                    placeholder = { Text("Enter person's full name") },
+                    isError = personName.isBlank(),
                     supportingText = {
                         Text(
-                            if (signatureAsJpeg) {
-                                "Photo: name-photo.jpg  •  Signature: name-sign.jpg"
-                            } else {
-                                "Photo: name-photo.jpg  •  Signature: name-sign.png"
+                            when {
+                                personName.isBlank() -> "Required before saving either output."
+                                signatureAsJpeg -> "Photo and signature filenames will use this name."
+                                else -> "Photo and signature filenames will use this name."
                             },
                         )
                     },
@@ -401,6 +402,7 @@ fun PipelinePreviewScreen(
                     confidence = photoConfidence,
                     processing = processing,
                     saving = saving,
+                    nameRequired = personName.isNotBlank(),
                     onEdit = onEditPhoto,
                     onAccept = onAcceptPhoto,
                     onReject = onRejectPhoto,
@@ -418,6 +420,7 @@ fun PipelinePreviewScreen(
                     confidence = signatureConfidence,
                     processing = processing,
                     saving = saving,
+                    nameRequired = personName.isNotBlank(),
                     onEdit = onEditSignature,
                     onAccept = onAcceptSignature,
                     onReject = onRejectSignature,
@@ -532,6 +535,7 @@ private fun OutputPreviewCard(
     confidence: Float?,
     processing: Boolean,
     saving: Boolean,
+    nameRequired: Boolean,
     onEdit: () -> Unit,
     onAccept: () -> Unit,
     onReject: () -> Unit,
@@ -635,7 +639,7 @@ private fun OutputPreviewCard(
                     description = if (saving) "Saving output file" else "Save output file",
                     image = SaveVector,
                     onClick = onSave,
-                    enabled = detected && preview != null && !saving,
+                    enabled = detected && preview != null && nameRequired && !saving,
                     modifier = Modifier.weight(1f),
                     emphasized = true,
                 )
