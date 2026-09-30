@@ -399,6 +399,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                 onEditPhoto = {
                     val source = state.source
                     val bounds = state.photoState?.currentBounds
+                        ?: source?.takeIf { it.isFile }?.let(::fullImageBounds)
                     if (source?.isFile == true && bounds != null) {
                         correctionKindForResult = DetectionKind.PHOTO
                         openDetectedEditor(source, DetectionKind.PHOTO, bounds)
@@ -413,6 +414,7 @@ class PipelinePreviewActivity : ComponentActivity() {
                 onEditSignature = {
                     val source = state.source
                     val bounds = state.signatureState?.currentBounds
+                        ?: source?.takeIf { it.isFile }?.let(::fullImageBounds)
                     if (source?.isFile == true && bounds != null) {
                         correctionKindForResult = DetectionKind.SIGNATURE
                         openDetectedEditor(source, DetectionKind.SIGNATURE, bounds)
@@ -530,6 +532,13 @@ class PipelinePreviewActivity : ComponentActivity() {
 
     private fun DetectionKind.label(): String =
         if (this == DetectionKind.PHOTO) "Photo" else "Signature"
+
+    private fun fullImageBounds(file: File): RectF? {
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, options)
+        if (options.outWidth <= 0 || options.outHeight <= 0) return null
+        return RectF(0f, 0f, options.outWidth.toFloat(), options.outHeight.toFloat())
+    }
 
     private fun openDetectedEditor(source: File, kind: DetectionKind, bounds: RectF) {
         val state = activePipelineViewModel?.state?.value
