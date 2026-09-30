@@ -50,7 +50,9 @@ class PipelinePreviewActivity : ComponentActivity() {
         val brightness = data.getFloatExtra(CropCorrectionActivity.EXTRA_BRIGHTNESS, 0f)
         val contrast = data.getFloatExtra(CropCorrectionActivity.EXTRA_CONTRAST, 1f)
         val sharpness = data.getFloatExtra(CropCorrectionActivity.EXTRA_SHARPNESS, 0f)
-        if (listOf(left, top, right, bottom, brightness, contrast, sharpness).all { it.isFinite() } &&
+        val saturation = data.getFloatExtra(CropCorrectionActivity.EXTRA_SATURATION, 1f)
+        val denoise = data.getFloatExtra(CropCorrectionActivity.EXTRA_DENOISE, 0f)
+        if (listOf(left, top, right, bottom, brightness, contrast, sharpness, saturation, denoise).all { it.isFinite() } &&
             right > left && bottom > top
         ) {
             onExternalCorrection?.invoke(
@@ -59,12 +61,14 @@ class PipelinePreviewActivity : ComponentActivity() {
                 brightness.coerceIn(-0.5f, 0.5f),
                 contrast.coerceIn(0.7f, 1.5f),
                 sharpness.coerceIn(0f, 1f),
+                saturation.coerceIn(0.5f, 1.5f),
+                denoise.coerceIn(0f, 1f),
             )
         }
     }
 
     private var activePipelineViewModel: PipelinePreviewViewModel? = null
-    private var onExternalCorrection: ((DetectionKind, RectF, Float, Float, Float) -> Unit)? = null
+    private var onExternalCorrection: ((DetectionKind, RectF, Float, Float, Float, Float, Float) -> Unit)? = null
 
     private var correctionKindForResult: DetectionKind? = null
     private var pendingFolderKind: DetectionKind? = null
@@ -516,6 +520,8 @@ class PipelinePreviewActivity : ComponentActivity() {
             putExtra(CropCorrectionActivity.EXTRA_BRIGHTNESS, appearance.brightness)
             putExtra(CropCorrectionActivity.EXTRA_CONTRAST, appearance.contrast)
             putExtra(CropCorrectionActivity.EXTRA_SHARPNESS, appearance.sharpness)
+            putExtra(CropCorrectionActivity.EXTRA_SATURATION, appearance.saturation)
+            putExtra(CropCorrectionActivity.EXTRA_DENOISE, appearance.denoise)
         }
         correctionLauncher.launch(cropIntent)
     }
