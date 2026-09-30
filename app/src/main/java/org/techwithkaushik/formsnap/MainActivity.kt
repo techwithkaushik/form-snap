@@ -27,6 +27,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -102,7 +103,13 @@ class MainActivity : ComponentActivity() {
         ) { ok ->
             val uri = cameraUri
             if (ok && uri != null) {
-                source = uriToFile(uri, "camera")
+                ioScope.launch {
+                    val imported = withContext(Dispatchers.IO) { uriToFile(uri, "camera") }
+                    source = imported
+                    saveMessage = if (imported == null) {
+                        "Could not read the captured image. Please capture again."
+                    } else null
+                }
             }
         }
 
@@ -116,9 +123,15 @@ class MainActivity : ComponentActivity() {
             ActivityResultContracts.OpenDocument(),
         ) { uri ->
             if (uri != null) {
-                source = uriToFile(uri, "import")
-                if (!importKeepsCurrentMode) {
-                    mode = CaptureMode.WHOLE_FORM
+                ioScope.launch {
+                    val imported = withContext(Dispatchers.IO) { uriToFile(uri, "import") }
+                    if (imported == null) {
+                        saveMessage = "Could not open this image. Try a different file."
+                    } else {
+                        source = imported
+                        saveMessage = null
+                        if (!importKeepsCurrentMode) mode = CaptureMode.WHOLE_FORM
+                    }
                 }
             }
         }
@@ -385,7 +398,7 @@ class MainActivity : ComponentActivity() {
                 FileOutputStream(file).use { output -> input.copyTo(output) }
             } ?: return null
             file
-        } catch (_: Throwable) {
+        } catch (_: Exception) {
             null
         }
     }
@@ -904,5 +917,27 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun FormSnapTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = lightColorScheme(), content = content)
+    val scheme = lightColorScheme(
+        primary = Color(0xFF2457A7),
+        onPrimary = Color(0xFFFFFFFF),
+        primaryContainer = Color(0xFFDCE8FF),
+        onPrimaryContainer = Color(0xFF102B55),
+        secondary = Color(0xFF176B68),
+        onSecondary = Color(0xFFFFFFFF),
+        secondaryContainer = Color(0xFFD2F3EE),
+        onSecondaryContainer = Color(0xFF103B39),
+        tertiary = Color(0xFF6750A4),
+        onTertiary = Color(0xFFFFFFFF),
+        tertiaryContainer = Color(0xFFE9DDFF),
+        onTertiaryContainer = Color(0xFF25134E),
+        background = Color(0xFFF7F8FC),
+        onBackground = Color(0xFF191C22),
+        surface = Color(0xFFFDFBFF),
+        onSurface = Color(0xFF191C22),
+        surfaceVariant = Color(0xFFE8ECF4),
+        onSurfaceVariant = Color(0xFF444A56),
+        outline = Color(0xFF747B88),
+        outlineVariant = Color(0xFFD0D6E1),
+    )
+    MaterialTheme(colorScheme = scheme, content = content)
 }
