@@ -1,16 +1,12 @@
 package org.techwithkaushik.formSnap.pipeline
 
-import android.graphics.Rect
 import org.opencv.core.Mat
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 
-data class CropOutput(
-    val image: Mat,
-    val bounds: Rect,
-)
+data class CropOutput(val image: Mat)
 
 object CropEngine {
 
@@ -64,7 +60,7 @@ object CropEngine {
         val output = Mat()
         try {
             roi.copyTo(output)
-            return CropOutput(output, Rect(left, top, right, bottom))
+            return CropOutput(output)
         } catch (failure: Throwable) {
             output.release()
             throw failure
