@@ -8,7 +8,6 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
-import android.provider.DocumentsContract
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -35,7 +34,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.opencv.android.OpenCVLoader
 import java.io.File
 import java.io.FileOutputStream
 import java.util.Locale
@@ -51,21 +49,9 @@ private data class OutputSettings(
     val maxKb: Int = 50,
 )
 
-private data class Outputs(
-    val photo: String? = null,
-    val signature: String? = null,
-    val photoDetected: Boolean = false,
-    val signatureDetected: Boolean = false,
-)
-
 class MainActivity : ComponentActivity() {
-    private val prefs by lazy { getSharedPreferences("formsnap_storage", MODE_PRIVATE) }
     private var cameraUri: Uri? = null
     private var cameraOutputFile: File? = null
-    private var pendingFolderType = "photo"
-    private var pendingSaveType: String? = null
-    private var pendingSavePath: String? = null
-    private var pendingSaveName: String = ""
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
@@ -73,7 +59,6 @@ class MainActivity : ComponentActivity() {
         cameraOutputFile = savedInstanceState?.getString(STATE_CAMERA_FILE)?.let(::File)
         // Remove stale intermediate files left by a killed or previously crashed run.
         org.techwithkaushik.formSnap.foundation.ProcessingPaths.cleanupStale(this)
-        OpenCVLoader.initLocal()
         setContent { FormSnapTheme { FormSnapApp() } }
     }
 
@@ -146,37 +131,6 @@ class MainActivity : ComponentActivity() {
             mode = CaptureMode.WHOLE_FORM
         }
 
-        val folderPicker = rememberLauncherForActivityResult(
-            ActivityResultContracts.OpenDocumentTree(),
-        ) { uri ->
-            if (uri == null) return@rememberLauncherForActivityResult
-            try {
-                val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                contentResolver.takePersistableUriPermission(uri, flags)
-                prefs.edit().putString(
-                    "${pendingFolderType}_directory_uri",
-                    uri.toString(),
-                ).apply()
-
-                val saveType = pendingSaveType
-                val savePath = pendingSavePath
-                if (saveType != null && savePath != null) {
-                    if (saveOutput(saveType, savePath, pendingSaveName)) {
-                        saveMessage = "${saveType.replaceFirstChar { it.uppercase() }} saved successfully."
-                    } else {
-                        saveMessage = "Could not save the file."
-                    }
-                }
-            } catch (t: Throwable) {
-                saveMessage = t.message ?: "Folder permission failed."
-            } finally {
-                pendingSaveType = null
-                pendingSavePath = null
-                pendingSaveName = ""
-            }
-        }
-
         if (source == null) {
             HomeScreen(
                 settings = settings,
@@ -216,26 +170,6 @@ class MainActivity : ComponentActivity() {
                             .putExtra(PipelinePreviewActivity.EXTRA_SIGNATURE_WIDTH_MM, settings.signatureWidthMm)
                             .putExtra(PipelinePreviewActivity.EXTRA_SIGNATURE_HEIGHT_MM, settings.signatureHeightMm),
                     )
-                    Outputs()
-                },
-                onSave = { type, path, personName ->
-                    if (hasFolder(type)) {
-                        saveMessage = if (saveOutput(type, path, personName)) {
-                            "${type.replaceFirstChar { it.uppercase() }} saved successfully."
-                        } else {
-                            "Could not save the file."
-                        }
-                    } else {
-                        pendingFolderType = type
-                        pendingSaveType = type
-                        pendingSavePath = path
-                        pendingSaveName = personName
-                        folderPicker.launch(null)
-                    }
-                },
-                onFolder = { type ->
-                    pendingFolderType = type
-                    folderPicker.launch(null)
                 },
             )
         }
@@ -354,85 +288,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun hasFolder(type: String): Boolean {
-        val uriString = prefs.getString("${type}_directory_uri", null) ?: return false
-        return try {
-            val uri = Uri.parse(uriString)
-            DocumentsContract.isTreeUri(uri) &&
-                contentResolver.persistedUriPermissions.any {
-                    it.uri == uri && it.isWritePermission
-                }
-        } catch (_: Throwable) {
-            false
-        }
-    }
-
-    private fun saveOutput(type: String, path: String, personName: String): Boolean {
-        val uriString = prefs.getString("${type}_directory_uri", null) ?: return false
-        val treeUri = Uri.parse(uriString)
-        if (!hasFolder(type)) return false
-
-        return try {
-            val documentId = DocumentsContract.getTreeDocumentId(treeUri)
-            val parent = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId)
-            val safeName = sanitizePersonName(personName)
-            if (safeName.isBlank()) return false
-            val suffix = if (type == "signature") "sign" else "photo"
-            val name = safeName + "-" + suffix + ".jpg"
-            val target = DocumentsContract.createDocument(
-                contentResolver,
-                parent,
-                "image/jpeg",
-                name,
-            ) ?: return false
-            contentResolver.openOutputStream(target)?.use { it.write(File(path).readBytes()) }
-                ?: return false
-            true
-        } catch (_: Throwable) {
-            false
-        }
-    }
-
-    private fun sanitizePersonName(value: String): String {
-        return value.trim()
-            .replace(Regex("""[\\/:*?"<>|\r\n]+"""), "_")
-            .replace(Regex("\\s+"), " ")
-            .take(80)
-            .trim(' ', '.', '_')
-    }
-
-    private suspend fun processSource(
-        file: File,
-        mode: CaptureMode,
-        settings: OutputSettings,
-    ): Outputs = withContext(Dispatchers.Default) {
-        if (!OpenCVLoader.initLocal()) error("OpenCV initialization failed")
-        val nativeMode = when (mode) {
-            CaptureMode.WHOLE_FORM -> "wholeForm"
-            CaptureMode.PHOTO -> "closePhoto"
-            CaptureMode.SIGNATURE -> "closeSignature"
-        }
-        val result = FormSnapOpenCvProcessor.process(
-            this@MainActivity,
-            mapOf(
-                "sourcePath" to file.absolutePath,
-                "mode" to nativeMode,
-                "photoWidthMm" to settings.photoWidthMm,
-                "photoHeightMm" to settings.photoHeightMm,
-                "signatureWidthMm" to settings.signatureWidthMm,
-                "signatureHeightMm" to settings.signatureHeightMm,
-                "dpi" to settings.dpi,
-                "maxKb" to settings.maxKb,
-            ),
-        )
-        Outputs(
-            photo = result["photoPath"] as? String,
-            signature = result["signaturePath"] as? String,
-            photoDetected = result["photoDetected"] == true,
-            signatureDetected = result["signatureDetected"] == true,
-        )
-    }
-
     @Composable
     private fun HomeScreen(
         settings: OutputSettings,
@@ -545,31 +400,19 @@ class MainActivity : ComponentActivity() {
     private fun EditorScreen(
         file: File,
         mode: CaptureMode,
-        settings: OutputSettings,
         onSettings: () -> Unit,
         onBack: () -> Unit,
         onCaptureAgain: () -> Unit,
         onImportAgain: () -> Unit,
-        onExtract: suspend () -> Outputs,
-        onSave: (String, String, String) -> Unit,
-        onFolder: (String) -> Unit,
+        onExtract: suspend () -> Unit,
     ) {
         var processing by remember { mutableStateOf(false) }
         var status by remember { mutableStateOf("Extracting…") }
-        var outputs by remember { mutableStateOf(Outputs()) }
-        var personName by remember(file.absolutePath) { mutableStateOf("") }
-
-        LaunchedEffect(file.absolutePath, mode, settings) {
+        LaunchedEffect(file.absolutePath, mode) {
             processing = true
-            status = "Extracting photo & signature…"
-            outputs = Outputs()
+            status = "Opening OpenCV extraction preview…"
             try {
-                outputs = onExtract()
-                status = if (outputs.photo != null || outputs.signature != null) {
-                    "Extraction complete"
-                } else {
-                    "Photo/signature could not be detected"
-                }
+                onExtract()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (t: Exception) {
@@ -621,75 +464,6 @@ class MainActivity : ComponentActivity() {
                 }
                 item {
                     Text(status, Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodySmall)
-                }
-                outputs.photo?.let { path ->
-                    item {
-                        OutputCard(
-                            "Photo", path,
-                            "${fmt(settings.photoWidthMm)} × ${fmt(settings.photoHeightMm)} mm • ${settings.dpi.toInt()} DPI",
-                            personName, onSave, onFolder,
-                        )
-                    }
-                }
-                outputs.signature?.let { path ->
-                    item {
-                        OutputCard(
-                            "Signature", path,
-                            "${fmt(settings.signatureWidthMm)} × ${fmt(settings.signatureHeightMm)} mm • ${settings.dpi.toInt()} DPI",
-                            personName, onSave, onFolder,
-                        )
-                    }
-                }
-                item {
-                    OutlinedTextField(
-                        value = personName,
-                        onValueChange = { personName = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        label = { Text("Person's name") },
-                        placeholder = { Text("Enter name to use in saved filenames") },
-                    )
-                }
-            }
-        }
-    }
-
-    @Composable
-    private fun OutputCard(
-        title: String,
-        path: String,
-        subtitle: String,
-        personName: String,
-        onSave: (String, String, String) -> Unit,
-        onFolder: (String) -> Unit,
-    ) {
-        val type = if (title == "Photo") "photo" else "signature"
-        Card(shape = RoundedCornerShape(20.dp)) {
-            Column(Modifier.padding(12.dp)) {
-                Text(title, fontWeight = FontWeight.Bold, modifier = Modifier.padding(4.dp))
-                BitmapImage(
-                    File(path),
-                    Modifier.fillMaxWidth().height(if (title == "Photo") 250.dp else 130.dp),
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(subtitle, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 4.dp))
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    OutlinedButton(
-                        onClick = {
-                            if (personName.trim().isNotBlank()) {
-                                onSave(type, path, personName)
-                            }
-                        },
-                        enabled = personName.trim().isNotBlank(),
-                        modifier = Modifier.weight(1f),
-                    ) { Text("Save $title") }
-                    OutlinedButton(
-                        onClick = { onFolder(type) },
-                        Modifier.weight(1f),
-                    ) { Text("Folder") }
                 }
             }
         }
