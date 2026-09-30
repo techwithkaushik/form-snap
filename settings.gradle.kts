@@ -23,5 +23,6 @@ project(":core:database").projectDir = file("core/database")
 project(":core:processor").projectDir = file("core/processor")
 project(":feature:capture").projectDir = file("feature/capture")
 project(":feature:pipeline").projectDir = file("feature/pipeline")
-project(":opencv").projectDir = file("opencv")
+// The CI workflow copies the official Android SDK into opencv/, where the Gradle library module lives in java/.
+project(":opencv").projectDir = file("opencv/java")
 project(":app").projectDir = file("app")
