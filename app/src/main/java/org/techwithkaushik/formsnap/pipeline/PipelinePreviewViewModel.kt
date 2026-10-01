@@ -50,8 +50,6 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
     private val sessionDir = ProcessingPaths.session(context)
     private val previewScope = CoroutineScope(Dispatchers.Main.immediate)
     private var previewJob: Job? = null
-    private val rejectedPhotoBounds = mutableSetOf<android.graphics.RectF>()
-    private val rejectedSignatureBounds = mutableSetOf<android.graphics.RectF>()
 
     private fun clearCurrentResults() {
         _state.value = PreviewProcessingState(
@@ -61,11 +59,6 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
         )
     }
 
-    private fun clearRejectedCandidates() {
-        rejectedPhotoBounds.clear()
-        rejectedSignatureBounds.clear()
-    }
-
     suspend fun load(
         input: File,
         dpi: Int = 300,
@@ -73,7 +66,6 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
         photoHeightMm: Double = 50.0,
         signatureWidthMm: Double = 50.0,
         signatureHeightMm: Double = 20.0,
-        preserveRejectedCandidates: Boolean = false,
         forcedKind: DetectionKind? = null,
     ) {
         this.dpi = dpi.coerceAtLeast(72)
@@ -81,14 +73,13 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
         this.photoHeightMm = photoHeightMm.coerceAtLeast(1.0)
         this.signatureWidthMm = signatureWidthMm.coerceAtLeast(1.0)
         this.signatureHeightMm = signatureHeightMm.coerceAtLeast(1.0)
-        if (!preserveRejectedCandidates || forcedKind != null) {
+        if (_state.value.source != input || forcedKind != null) {
             activeForcedKind = forcedKind
         }
         val effectiveForcedKind = activeForcedKind
 
         previewJob?.cancel()
         clearCurrentResults()
-        if (!preserveRejectedCandidates) clearRejectedCandidates()
         _state.value = PreviewProcessingState(source = input, processing = true)
 
         try {
@@ -120,11 +111,7 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
                             detectorVersion = "opencv-close-capture-v1",
                         )
                     } else {
-                        UniversalDetectionEngine.detect(
-                            source = source,
-                            rejectedPhotoBounds = rejectedPhotoBounds,
-                            rejectedSignatureBounds = rejectedSignatureBounds,
-                        )
+                        UniversalDetectionEngine.detect(source = source)
                     }
 
                     PreviewDetectionBundle(detection = detection)
@@ -189,45 +176,8 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
             photoHeightMm = photoHeightMm,
             signatureWidthMm = signatureWidthMm,
             signatureHeightMm = signatureHeightMm,
-            preserveRejectedCandidates = true,
+            forcedKind = activeForcedKind,
         )
-    }
-
-    suspend fun accept(kind: DetectionKind) {
-        val correction = stateFor(kind) ?: return
-        // Accept confirms the current crop for this output only. It does not
-        // create a training profile or change future detections.
-        updateCorrectionState(kind, correction.accept())
-    }
-
-    fun reject(kind: DetectionKind) {
-        val current = _state.value
-        val correction = stateFor(kind)
-        if (correction != null) {
-            val rejected = android.graphics.RectF(correction.automaticBounds)
-            when (kind) {
-                DetectionKind.PHOTO -> rejectedPhotoBounds.add(rejected)
-                DetectionKind.SIGNATURE -> rejectedSignatureBounds.add(rejected)
-            }
-        }
-        _state.value = when (kind) {
-            DetectionKind.PHOTO -> current.copy(
-                photoState = null,
-                photoConfidence = null,
-                photoPreviewPath = null,
-                photoPreviewVersion = current.photoPreviewVersion + 1L,
-                processing = false,
-                error = null,
-            )
-            DetectionKind.SIGNATURE -> current.copy(
-                signatureState = null,
-                signatureConfidence = null,
-                signaturePreviewPath = null,
-                signaturePreviewVersion = current.signaturePreviewVersion + 1L,
-                processing = false,
-                error = null,
-            )
-        }
     }
 
     fun updateCorrectionState(kind: DetectionKind, correction: PreviewCorrectionState) {
