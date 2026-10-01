@@ -2,12 +2,6 @@ package org.techwithkaushik.formSnap.pipeline
 
 import android.graphics.RectF
 
-enum class CorrectionAction {
-    ACCEPT,
-    ADJUST,
-    REJECT,
-}
-
 data class AppearanceAdjustments(
     val brightness: Float = 0f,
     val contrast: Float = 1f,
@@ -24,19 +18,12 @@ data class PreviewCorrectionState(
     val automaticBounds: RectF,
     val currentBounds: RectF,
     val appearance: AppearanceAdjustments = AppearanceAdjustments(),
-    val action: CorrectionAction = CorrectionAction.ADJUST,
 ) {
     fun withBounds(bounds: RectF): PreviewCorrectionState =
-        copy(currentBounds = bounds, action = CorrectionAction.ADJUST)
+        copy(currentBounds = bounds)
 
     fun withAppearance(adjustments: AppearanceAdjustments): PreviewCorrectionState =
-        copy(appearance = adjustments, action = CorrectionAction.ADJUST)
-
-    fun accept(): PreviewCorrectionState =
-        copy(action = CorrectionAction.ACCEPT)
-
-    fun reject(): PreviewCorrectionState =
-        copy(action = CorrectionAction.REJECT)
+        copy(appearance = adjustments)
 }
 
 object PreviewCorrectionStateFactory {
