@@ -100,22 +100,11 @@ private val SaveVector = vectorIcon("Save") {
         moveTo(7f, 21f); lineTo(7f, 14f); lineTo(17f, 14f); lineTo(17f, 21f)
     }
 }
-private val RejectVector = vectorIcon("Reject") {
-    path(fill = null, stroke = SolidColor(Color.Black), strokeLineWidth = 2.5f, strokeLineCap = StrokeCap.Round, strokeLineJoin = StrokeJoin.Round) {
-        moveTo(6f, 6f); lineTo(18f, 18f); moveTo(18f, 6f); lineTo(6f, 18f)
-    }
-}
 private val CropVector = vectorIcon("Crop") {
     path(fill = null, stroke = SolidColor(Color.Black), strokeLineWidth = 2f, strokeLineCap = StrokeCap.Round, strokeLineJoin = StrokeJoin.Round) {
         moveTo(8f, 3f); lineTo(8f, 16f); lineTo(21f, 16f); moveTo(3f, 8f); lineTo(16f, 8f); lineTo(16f, 21f)
     }
 }
-private val AcceptVector = vectorIcon("Accept") {
-    path(fill = null, stroke = SolidColor(Color.Black), strokeLineWidth = 2.5f, strokeLineCap = StrokeCap.Round, strokeLineJoin = StrokeJoin.Round) {
-        moveTo(4f, 12f); lineTo(9f, 17f); lineTo(20f, 6f)
-    }
-}
-
 @Composable
 private fun IconActionItem(
     label: String,
@@ -185,11 +174,7 @@ fun PipelinePreviewScreen(
     onRecapture: () -> Unit,
     onReimport: () -> Unit,
     onEditPhoto: () -> Unit,
-    onAcceptPhoto: () -> Unit,
-    onRejectPhoto: () -> Unit,
     onEditSignature: () -> Unit,
-    onAcceptSignature: () -> Unit,
-    onRejectSignature: () -> Unit,
     onSavePhoto: () -> Unit,
     onChoosePhotoFolder: () -> Unit,
     onSaveSignature: () -> Unit,
@@ -398,7 +383,7 @@ fun PipelinePreviewScreen(
             item {
                 SectionHeading(
                     title = "Your outputs",
-                    subtitle = "Correct the crop before accepting or saving",
+                    subtitle = "Review the crop, adjust if needed, then save",
                 )
             }
 
@@ -415,8 +400,6 @@ fun PipelinePreviewScreen(
                     saved = photoSaved,
                     nameRequired = personName.isNotBlank(),
                     onEdit = onEditPhoto,
-                    onAccept = onAcceptPhoto,
-                    onReject = onRejectPhoto,
                     onSave = onSavePhoto,
                     onChooseFolder = onChoosePhotoFolder,
                 )
@@ -435,8 +418,6 @@ fun PipelinePreviewScreen(
                     saved = signatureSaved,
                     nameRequired = personName.isNotBlank(),
                     onEdit = onEditSignature,
-                    onAccept = onAcceptSignature,
-                    onReject = onRejectSignature,
                     onSave = onSaveSignature,
                     onChooseFolder = onChooseSignatureFolder,
                 )
@@ -552,8 +533,6 @@ private fun OutputPreviewCard(
     saved: Boolean,
     nameRequired: Boolean,
     onEdit: () -> Unit,
-    onAccept: () -> Unit,
-    onReject: () -> Unit,
     onSave: () -> Unit,
     onChooseFolder: () -> Unit,
 ) {
@@ -668,36 +647,14 @@ private fun OutputPreviewCard(
                 )
             }
 
-            Row(
+            IconActionItem(
+                label = if (detected) "Adjust crop" else "Select crop",
+                description = if (detected) "Adjust crop" else "Select a crop manually",
+                image = CropVector,
+                onClick = onEdit,
+                enabled = !processing && !saving,
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                IconActionItem(
-                    label = "Reject",
-                    description = "Reject this crop",
-                    image = RejectVector,
-                    onClick = onReject,
-                    enabled = detected && !processing && !saving,
-                    modifier = Modifier.weight(1f),
-                )
-                IconActionItem(
-                    label = if (detected) "Adjust crop" else "Select crop",
-                    description = if (detected) "Adjust crop" else "Select a crop manually",
-                    image = CropVector,
-                    onClick = onEdit,
-                    enabled = !processing && !saving,
-                    modifier = Modifier.weight(1f),
-                )
-                IconActionItem(
-                    label = "Accept",
-                    description = "Accept this crop",
-                    image = AcceptVector,
-                    onClick = onAccept,
-                    enabled = detected && !processing && !saving,
-                    modifier = Modifier.weight(1f),
-                    emphasized = true,
-                )
-            }
+            )
         }
     }
 }
