@@ -28,11 +28,7 @@ object UniversalDetectionEngine {
         val frameLike: Boolean,
     )
 
-    fun detect(
-        source: Mat,
-        rejectedPhotoBounds: Set<android.graphics.RectF> = emptySet(),
-        rejectedSignatureBounds: Set<android.graphics.RectF> = emptySet(),
-    ): DetectionResult {
+    fun detect(source: Mat): DetectionResult {
         require(!source.empty()) { "Source image is empty" }
 
         val work = Mat()
@@ -74,26 +70,12 @@ object UniversalDetectionEngine {
             }
 
             val candidates = collectCandidates(morph, gray, edges)
-            // Rejection bounds are stored in original-image coordinates, while
-            // candidates are measured on the downscaled working image.
-            val scaledRejectedPhotos = scaleBounds(rejectedPhotoBounds, scale)
-            val scaledRejectedSignatures = scaleBounds(rejectedSignatureBounds, scale)
-
             // Add ink-derived candidates so handwritten signatures can be found
             // even when the form has no printed signature box.
             val signatureCandidates = candidates + collectInkCandidates(gray, edges)
 
-            val photo = selectPhoto(
-                candidates,
-                scaledRejectedPhotos,
-                gray.cols(),
-                gray.rows(),
-            )
-            val signature = selectSignature(
-                signatureCandidates,
-                gray,
-                scaledRejectedSignatures,
-            )
+            val photo = selectPhoto(candidates, gray.cols(), gray.rows())
+            val signature = selectSignature(signatureCandidates, gray)
 
             val invScale = if (scale == 0.0) 1.0 else 1.0 / scale
 
@@ -280,14 +262,12 @@ object UniversalDetectionEngine {
 
     private fun selectPhoto(
         candidates: List<ShapeCandidate>,
-        rejectedBounds: Set<android.graphics.RectF>,
         imageWidth: Int,
         imageHeight: Int,
     ): ShapeCandidate? {
         val imageArea = imageWidth.toDouble() * imageHeight.toDouble()
         return candidates
             .asSequence()
-            .filter { candidate -> !isRejected(candidate.rect, rejectedBounds) }
             // The outer sheet of paper is often portrait-shaped too. Exclude
             // large page-sized contours so they cannot win as a "photo".
             .filter {
@@ -314,11 +294,9 @@ object UniversalDetectionEngine {
     private fun selectSignature(
         candidates: List<ShapeCandidate>,
         gray: Mat,
-        rejectedBounds: Set<android.graphics.RectF>,
     ): ShapeCandidate? {
         return candidates
             .asSequence()
-            .filter { candidate -> !isRejected(candidate.rect, rejectedBounds) }
             .filter {
                 val ratio = it.rect.width.toDouble() / max(1, it.rect.height).toDouble()
                 ratio in 1.15..8.0
@@ -346,48 +324,6 @@ object UniversalDetectionEngine {
                     it.score + ratioFit * 0.20 + min(0.20, inkScore(gray, it.rect)) + handwritingBonus
                 }
             }
-    }
-
-    private fun scaleBounds(
-        bounds: Set<android.graphics.RectF>,
-        scale: Double,
-    ): Set<android.graphics.RectF> {
-        if (scale == 1.0 || bounds.isEmpty()) return bounds
-        return bounds.mapTo(mutableSetOf()) { rect ->
-            android.graphics.RectF(
-                (rect.left * scale).toFloat(),
-                (rect.top * scale).toFloat(),
-                (rect.right * scale).toFloat(),
-                (rect.bottom * scale).toFloat(),
-            )
-        }
-    }
-
-    private fun isRejected(
-        rect: Rect,
-        rejectedBounds: Set<android.graphics.RectF>,
-    ): Boolean {
-        if (rejectedBounds.isEmpty()) return false
-        val candidate = android.graphics.RectF(
-            rect.x.toFloat(),
-            rect.y.toFloat(),
-            (rect.x + rect.width).toFloat(),
-            (rect.y + rect.height).toFloat(),
-        )
-        return rejectedBounds.any { rejected ->
-            val overlapLeft = max(candidate.left, rejected.left)
-            val overlapTop = max(candidate.top, rejected.top)
-            val overlapRight = min(candidate.right, rejected.right)
-            val overlapBottom = min(candidate.bottom, rejected.bottom)
-            if (overlapRight <= overlapLeft || overlapBottom <= overlapTop) {
-                false
-            } else {
-                val intersection = (overlapRight - overlapLeft) * (overlapBottom - overlapTop)
-                val candidateArea = max(1f, candidate.width() * candidate.height())
-                val rejectedArea = max(1f, rejected.width() * rejected.height())
-                intersection / min(candidateArea, rejectedArea) >= 0.55f
-            }
-        }
     }
 
     private fun ShapeCandidate.toDetection(
