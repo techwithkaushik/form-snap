@@ -478,20 +478,6 @@ class PipelinePreviewActivity : ComponentActivity() {
                         openDetectedEditor(source, DetectionKind.PHOTO, bounds)
                     }
                 },
-                onAcceptPhoto = {
-                    if (state.photoState == null && state.photoPreviewPath != null) {
-                        saveMessage.value = "Manual photo crop is ready. Automatic detection did not find a candidate; review the crop before saving."
-                    } else {
-                        scope.launch {
-                            viewModel.accept(DetectionKind.PHOTO)
-                            saveMessage.value = "Photo crop accepted for this output."
-                        }
-                    }
-                },
-                onRejectPhoto = {
-                    photoSaved.value = false
-                    viewModel.reject(DetectionKind.PHOTO)
-                },
                 onEditSignature = {
                     signatureSaved.value = false
                     val source = state.source
@@ -501,20 +487,6 @@ class PipelinePreviewActivity : ComponentActivity() {
                         correctionKindForResult = DetectionKind.SIGNATURE
                         openDetectedEditor(source, DetectionKind.SIGNATURE, bounds)
                     }
-                },
-                onAcceptSignature = {
-                    if (state.signatureState == null && state.signaturePreviewPath != null) {
-                        saveMessage.value = "Manual signature crop is ready. Automatic detection did not find a candidate; review the crop before saving."
-                    } else {
-                        scope.launch {
-                            viewModel.accept(DetectionKind.SIGNATURE)
-                            saveMessage.value = "Signature crop accepted for this output."
-                        }
-                    }
-                },
-                onRejectSignature = {
-                    signatureSaved.value = false
-                    viewModel.reject(DetectionKind.SIGNATURE)
                 },
                 onSavePhoto = {
                     saveOrChooseFolder(
