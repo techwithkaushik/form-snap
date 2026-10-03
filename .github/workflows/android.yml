@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: feature/foundation-pipeline
           fetch-depth: 1
@@ -87,7 +87,7 @@ jobs:
       - run_unit_test
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: feature/foundation-pipeline
           fetch-depth: 1
