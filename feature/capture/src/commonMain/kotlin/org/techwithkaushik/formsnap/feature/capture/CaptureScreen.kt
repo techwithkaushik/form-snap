@@ -208,25 +208,47 @@ private fun LiveDetectionOverlay(
             }
         }
         detections.forEach { detection ->
-            val index = detection.selectionIndex ?: return@forEach
             val left = detection.left.coerceIn(0f, 1f)
             val top = detection.top.coerceIn(0f, 1f)
             val width = (detection.right - detection.left).coerceAtLeast(0f)
             val height = (detection.bottom - detection.top).coerceAtLeast(0f)
-            val centerX = (left + width / 2f)
-            val centerY = (top + height / 2f)
+            val label = "${detection.label} ${(detection.confidence * 100f).toInt()}%"
+            val index = detection.selectionIndex
+
             Text(
-                text = index.toString(),
+                text = label,
                 color = Color.White,
-                style = MaterialTheme.typography.labelLarge,
+                style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier
                     .offset(
-                        x = (centerX * maxWidth.value).dp,
-                        y = (centerY * maxHeight.value).dp,
+                        x = (left * maxWidth.value).dp,
+                        y = (top * maxHeight.value).dp,
                     )
-                    .background(Color(0xFF2979FF), CircleShape)
-                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                    .background(
+                        color = when {
+                            detection.locked -> Color(0xFF2979FF)
+                            detection.label.equals("Signature", ignoreCase = true) -> Color(0xFFFFA000)
+                            else -> Color(0xFF00A86B)
+                        },
+                        shape = MaterialTheme.shapes.extraSmall,
+                    )
+                    .padding(horizontal = 6.dp, vertical = 3.dp),
             )
+
+            if (index != null) {
+                Text(
+                    text = index.toString(),
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier
+                        .offset(
+                            x = ((left + width / 2f) * maxWidth.value).dp,
+                            y = ((top + height / 2f) * maxHeight.value).dp,
+                        )
+                        .background(Color(0xFF2979FF), CircleShape)
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                )
+            }
         }
     }
 }
