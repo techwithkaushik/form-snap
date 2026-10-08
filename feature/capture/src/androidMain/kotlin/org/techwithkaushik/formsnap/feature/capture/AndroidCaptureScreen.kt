@@ -92,7 +92,7 @@ fun AndroidCaptureScreen(
         },
         onCapture = {
             if (!permissionGranted || !camera.hasCameraPermission()) {
-                permissionLauncher.launch(Manifest.permission.CAMERA
+                permissionLauncher.launch(Manifest.permission.CAMERA)
             } else {
                 presenter.onPermissionResult(true)
                 camera.capture(session)
