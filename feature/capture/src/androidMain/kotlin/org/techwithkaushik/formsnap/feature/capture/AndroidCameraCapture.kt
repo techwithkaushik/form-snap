@@ -32,6 +32,8 @@ class AndroidCameraCapture(
     private var imageCapture: ImageCapture? = null
     private var owner: LifecycleOwner? = null
     private var previewView: PreviewView? = null
+    private var boundPreview: PreviewView? = null
+    private var bindingInProgress = false
     private var analyzer: ImageAnalysis? = null
     private var detector: YoloV8TfliteDetector? = null
     private val frameGate = FrameSkipGate(2)
@@ -44,8 +46,11 @@ class AndroidCameraCapture(
     fun setLiveDetectionListener(listener: (List<LiveDetection>) -> Unit) { onLiveDetections = listener }
 
     fun bind(preview: PreviewView, lifecycleOwner: LifecycleOwner) {
+        if (boundPreview === preview && owner === lifecycleOwner && provider != null) return
+        if (bindingInProgress && boundPreview === preview) return
         owner = lifecycleOwner
         previewView = preview
+        bindingInProgress = true
         val future = ProcessCameraProvider.getInstance(appContext)
         future.addListener(
             {
@@ -53,8 +58,10 @@ class AndroidCameraCapture(
                     .onSuccess { cameraProvider ->
                         provider = cameraProvider
                         bindUseCases(cameraProvider)
+                        bindingInProgress = false
                     }
                     .onFailure {
+                        bindingInProgress = false
                         presenter.onCameraInitialized(false, false)
                         presenter.onCaptureFailure(
                             it.message ?: "Unable to initialize camera.",
@@ -111,6 +118,8 @@ class AndroidCameraCapture(
         analyzer = null
         provider?.unbindAll()
         provider = null
+        boundPreview = null
+        bindingInProgress = false
         camera = null
         imageCapture = null
         detector?.close()
@@ -208,6 +217,7 @@ class AndroidCameraCapture(
                 capture,
                 analysis,
             )
+            boundPreview = previewView
             presenter.onCameraInitialized(true, true)
             updateFlash(presenter.state.value.flashEnabled)
         }.onFailure {
