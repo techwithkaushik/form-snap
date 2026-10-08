@@ -36,6 +36,7 @@ fun CaptureScreen(
     onImageCaptured: (CapturedImage) -> Unit,
     onImportImage: (CapturedImage) -> Unit = onImageCaptured,
     onError: (String) -> Unit = {},
+    liveDetections: List<LiveDetection> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
     val state by controller.state.collectAsState()
@@ -56,6 +57,7 @@ fun CaptureScreen(
     ) {
         cameraPreview()
         CaptureOverlay(Modifier.fillMaxSize(), state.grid)
+        LiveDetectionOverlay(Modifier.fillMaxSize(), liveDetections)
 
         Column(
             modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(16.dp),
@@ -153,6 +155,29 @@ fun CaptureScreen(
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                 )
             }
+        }
+    }
+}
+
+@Composable
+@Composable
+private fun LiveDetectionOverlay(
+    modifier: Modifier,
+    detections: List<LiveDetection>,
+) {
+    if (detections.isEmpty()) return
+    Canvas(modifier) {
+        detections.forEach { detection ->
+            val left = detection.left.coerceIn(0f, 1f) * size.width
+            val top = detection.top.coerceIn(0f, 1f) * size.height
+            val right = detection.right.coerceIn(0f, 1f) * size.width
+            val bottom = detection.bottom.coerceIn(0f, 1f) * size.height
+            drawRect(
+                color = if (detection.label == "Signature") Color(0xFFFFC107) else Color(0xFF00E676),
+                topLeft = androidx.compose.ui.geometry.Offset(left, top),
+                size = androidx.compose.ui.geometry.Size((right - left).coerceAtLeast(1f), (bottom - top).coerceAtLeast(1f)),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 4f),
+            )
         }
     }
 }
