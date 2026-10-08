@@ -18,7 +18,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
-import org.techwithkaushik.formsnap.ai.DetectedObject
+import org.techwithkaushik.formsnap.ai.AiModelManager\nimport org.techwithkaushik.formsnap.ai.DetectedObject
 import org.techwithkaushik.formsnap.ai.DetectionConfig
 import org.techwithkaushik.formsnap.ai.FrameSkipGate
 import org.techwithkaushik.formsnap.ai.YoloV8TfliteDetector
@@ -210,28 +210,25 @@ class AndroidCameraCapture(
             analyzer = analysis
             imageCapture = capture
             if (detector == null) {
-                val trained = runCatching { YoloV8TfliteDetector(appContext) }.getOrNull()
-                if (trained != null && trained.modelAvailable()) {
-                    detector = trained
-                } else {
-                    trained?.close()
-                    val bootstrap = runCatching {
+                val importedModel = AiModelManager(appContext).activeModelFile()
+                if (importedModel != null) {
+                    val active = runCatching {
                         YoloV8TfliteDetector(
                             appContext,
-                            modelAssetName = "formsnap_bootstrap_yolov8n_float32.tflite",
+                            modelFile = importedModel,
                             config = DetectionConfig(
                                 inputSize = 640,
                                 confidenceThreshold = 0.35f,
                                 iouThreshold = 0.45f,
                                 maxDetections = 24,
-                                maxClassId = 79,
+                                maxClassId = 2,
                             ),
                         )
                     }.getOrNull()
-                    if (bootstrap != null && bootstrap.modelAvailable()) {
-                        detector = bootstrap
+                    if (active != null && active.modelAvailable()) {
+                        detector = active
                     } else {
-                        bootstrap?.close()
+                        active?.close()
                     }
                 }
             }
