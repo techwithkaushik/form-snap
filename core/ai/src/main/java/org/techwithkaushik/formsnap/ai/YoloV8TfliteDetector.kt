@@ -244,8 +244,6 @@ class YoloV8TfliteDetector(
         executor.submit {
             interpreter?.close()
             interpreter = null
-            gpuDelegate?.close()
-            gpuDelegate = null
         }.get()
         executor.shutdown()
     }
