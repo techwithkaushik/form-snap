@@ -69,7 +69,7 @@ object UniversalDetectionEngine {
                 kernel.release()
             }
 
-            val candidates = collectCandidates(morph, gray, edges)
+            val candidates = collectCandidates(morph, gray, edges, work)
             // Add ink-derived candidates so handwritten signatures can be found
             // even when the form has no printed signature box.
             val signatureCandidates = candidates + collectInkCandidates(gray, edges)
@@ -94,7 +94,7 @@ object UniversalDetectionEngine {
         }
     }
 
-    private fun collectCandidates(mask: Mat, gray: Mat, edgeMap: Mat): List<ShapeCandidate> {
+    private fun collectCandidates(mask: Mat, gray: Mat, edgeMap: Mat, colorSource: Mat): List<ShapeCandidate> {
         val contours = ArrayList<MatOfPoint>()
         val hierarchy = Mat()
         Imgproc.findContours(
@@ -125,6 +125,7 @@ object UniversalDetectionEngine {
                 val ratio = rect.width.toDouble() / max(1, rect.height).toDouble()
                 val edgeDensity = edgeDensity(edgeMap, rect)
                 val frameLike = isFrameLike(edgeMap, rect)
+                val photoVisualScore = photoVisualScore(colorSource, gray, rect)
 
                 val score = shapeScore(
                     ratio = ratio,
@@ -132,6 +133,7 @@ object UniversalDetectionEngine {
                     edgeDensity = edgeDensity,
                     frameLike = frameLike,
                     areaRatio = rectArea / imageArea,
+                    photoVisualScore = photoVisualScore,
                 )
 
                 result += ShapeCandidate(
@@ -237,6 +239,7 @@ object UniversalDetectionEngine {
         edgeDensity: Double,
         frameLike: Boolean,
         areaRatio: Double,
+        photoVisualScore: Double,
     ): Double {
         val commonRatio =
             if (ratio in 0.55..1.05) {
@@ -252,12 +255,58 @@ object UniversalDetectionEngine {
         val frameScore = if (frameLike) 1.0 else 0.0
 
         return (
-            commonRatio * 0.32 +
-                rectangularity.coerceIn(0.0, 1.0) * 0.28 +
-                edgeScore * 0.16 +
-                frameScore * 0.14 +
-                sizeScore * 0.10
+            commonRatio * 0.28 +
+                rectangularity.coerceIn(0.0, 1.0) * 0.24 +
+                edgeScore * 0.14 +
+                frameScore * 0.10 +
+                sizeScore * 0.10 +
+                photoVisualScore.coerceIn(0.0, 1.0) * 0.14
             ).coerceIn(0.0, 1.0)
+    }
+
+    /**
+     * Visual cue for an unframed photograph. Printed form rectangles tend to
+     * have very uniform interiors, while a real photo usually has more local
+     * luminance variation and, on colour forms, measurable chroma variation.
+     * This is only a ranking cue; YOLO remains the authoritative detector when
+     * its trained model is present.
+     */
+    private fun photoVisualScore(colorSource: Mat, gray: Mat, rect: Rect): Double {
+        val clipped = clip(rect, gray)
+        if (clipped.width < 24 || clipped.height < 24) return 0.0
+
+        val grayRoi = gray.submat(clipped)
+        val mean = Mat()
+        val stddev = Mat()
+        try {
+            Core.meanStdDev(grayRoi, mean, stddev)
+            val luminanceVariation = (stddev.get(0, 0)?.firstOrNull() ?: 0.0) / 58.0
+
+            var chromaVariation = 0.0
+            if (colorSource.channels() >= 3) {
+                val bgrRoi = colorSource.submat(clipped)
+                val hsv = Mat()
+                val hsvMean = Mat()
+                val hsvStd = Mat()
+                try {
+                    Imgproc.cvtColor(bgrRoi, hsv, Imgproc.COLOR_BGR2HSV)
+                    Core.meanStdDev(hsv, hsvMean, hsvStd)
+                    chromaVariation = (hsvStd.get(0, 0)?.firstOrNull() ?: 0.0) / 45.0
+                } finally {
+                    hsvStd.release()
+                    hsvMean.release()
+                    hsv.release()
+                    bgrRoi.release()
+                }
+            }
+
+            return (luminanceVariation * 0.65 + chromaVariation * 0.35)
+                .coerceIn(0.0, 1.0)
+        } finally {
+            stddev.release()
+            mean.release()
+            grayRoi.release()
+        }
     }
 
     private fun selectPhoto(
