@@ -27,6 +27,10 @@ object AutoExtractionService {
         dpi: Int,
         maxKb: Int,
         mode: String,
+        photoWidthMm: Double = 40.0,
+        photoHeightMm: Double = 50.0,
+        signatureWidthMm: Double = 50.0,
+        signatureHeightMm: Double = 20.0,
     ): AutoExtractionResult {
         require(input.isFile && input.length() > 0L) { "Input image is missing or empty." }
 
@@ -86,7 +90,15 @@ object AutoExtractionService {
                     UniversalDetectionEngine.detect(source)
                 }
 
-                UniversalPipelineBatch.process(source, detectionResult, dpi).use { processed ->
+                UniversalPipelineBatch.process(
+                    source = source,
+                    detection = detectionResult,
+                    dpi = dpi,
+                    photoWidthMm = photoWidthMm,
+                    photoHeightMm = photoHeightMm,
+                    signatureWidthMm = signatureWidthMm,
+                    signatureHeightMm = signatureHeightMm,
+                ).use { processed ->
                     val tempSession = org.techwithkaushik.formSnap.foundation.ProcessingSession.create(context)
                     try {
                         val photoBytes = if (mode != "SIGNATURE" && processed.photo != null) {
