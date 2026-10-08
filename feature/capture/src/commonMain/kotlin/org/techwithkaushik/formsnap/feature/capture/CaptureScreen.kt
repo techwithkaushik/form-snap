@@ -34,7 +34,7 @@ fun CaptureScreen(
     cameraPreview: @Composable () -> Unit,
     controller: CapturePresenter,
     onRequestCameraPermission: () -> Unit,
-    onCapture: () -> Unit,
+    onCapture: (List<LiveDetection>) -> Unit,
     onImport: () -> Unit,
     onToggleLens: () -> Unit,
     onToggleFlash: () -> Unit,
@@ -59,6 +59,8 @@ fun CaptureScreen(
         }
     }
 
+    val appliedDetections = selection.apply(liveDetections)
+
     Box(
         modifier = modifier.fillMaxSize().background(Color.Black),
     ) {
@@ -76,7 +78,7 @@ fun CaptureScreen(
                         }
                     }
                 },
-            detections = selection.apply(liveDetections),
+            detections = appliedDetections,
         )
 
         Column(
@@ -121,7 +123,7 @@ fun CaptureScreen(
                     shape = CircleShape,
                     color = Color.White,
                     shadowElevation = 8.dp,
-                    onClick = onCapture,
+                    onClick = { onCapture(appliedDetections.filter { it.locked }) },
                     enabled = !state.capturing,
                 ) {
                     Box(modifier = Modifier.padding(10.dp), contentAlignment = Alignment.Center) {
