@@ -9,6 +9,7 @@ import org.techwithkaushik.formSnap.pipeline.DetectionKind
 import org.techwithkaushik.formSnap.pipeline.DetectionResult
 import org.techwithkaushik.formSnap.pipeline.UniversalDetectionEngine
 import org.techwithkaushik.formSnap.pipeline.UniversalPipelineBatch
+import org.techwithkaushik.formsnap.feature.capture.LiveDetection
 import org.opencv.imgcodecs.Imgcodecs
 import java.io.File
 
@@ -27,6 +28,7 @@ object AutoExtractionService {
         dpi: Int,
         maxKb: Int,
         mode: String,
+        selectedDetections: List<LiveDetection> = emptyList(),
         photoWidthMm: Double = 40.0,
         photoHeightMm: Double = 50.0,
         signatureWidthMm: Double = 50.0,
@@ -47,7 +49,16 @@ object AutoExtractionService {
                 org.opencv.android.Utils.matToBitmap(source, aiBitmap)
 
                 val aiDetector = YoloV8TfliteDetector(context)
-                val detectionResult = if (aiDetector.modelAvailable()) {
+                val detectionResult = if (selectedDetections.isNotEmpty()) {
+                    // Locked live boxes are authoritative for this capture. They
+                    // are normalized to the analysis frame, so remap them to the
+                    // original full-resolution capture before cropping.
+                    detectionFromLockedSelections(
+                        selectedDetections = selectedDetections,
+                        sourceWidth = source.cols(),
+                        sourceHeight = source.rows(),
+                    )
+                } else if (aiDetector.modelAvailable()) {
                     try {
                         val objects = aiDetector.detect(aiBitmap)
                         val photo = objects
@@ -133,5 +144,44 @@ object AutoExtractionService {
         } finally {
             source.release()
         }
+    private fun detectionFromLockedSelections(
+        selectedDetections: List<LiveDetection>,
+        sourceWidth: Int,
+        sourceHeight: Int,
+    ): DetectionResult {
+        fun candidate(
+            detection: LiveDetection,
+            kind: DetectionKind,
+        ): DetectionCandidate {
+            val left = (detection.left.coerceIn(0f, 1f) * sourceWidth).coerceIn(0f, sourceWidth - 1f)
+            val top = (detection.top.coerceIn(0f, 1f) * sourceHeight).coerceIn(0f, sourceHeight - 1f)
+            val right = (detection.right.coerceIn(0f, 1f) * sourceWidth).coerceIn(left + 1f, sourceWidth.toFloat())
+            val bottom = (detection.bottom.coerceIn(0f, 1f) * sourceHeight).coerceIn(top + 1f, sourceHeight.toFloat())
+            return DetectionCandidate(
+                kind = kind,
+                bounds = android.graphics.RectF(left, top, right, bottom),
+                confidence = detection.confidence,
+                source = "live-lock",
+            )
+        }
+
+        val photo = selectedDetections
+            .filter { it.locked && it.label.equals("Photo", ignoreCase = true) }
+            .minByOrNull { it.selectionIndex ?: Int.MAX_VALUE }
+            ?.let { candidate(it, DetectionKind.PHOTO) }
+
+        val signature = selectedDetections
+            .filter { it.locked && it.label.equals("Signature", ignoreCase = true) }
+            .minByOrNull { it.selectionIndex ?: Int.MAX_VALUE }
+            ?.let { candidate(it, DetectionKind.SIGNATURE) }
+
+        return DetectionResult(
+            sourceWidth = sourceWidth,
+            sourceHeight = sourceHeight,
+            photo = photo,
+            signature = signature,
+            detectorVersion = "live-lock-v1",
+        )
+    }
     }
 }
