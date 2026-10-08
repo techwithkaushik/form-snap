@@ -4,6 +4,11 @@ import android.content.Context
 import android.graphics.BitmapFactory
 import org.techwithkaushik.formsnap.ai.DetectedClass
 import org.techwithkaushik.formsnap.ai.YoloV8TfliteDetector
+import org.techwithkaushik.formSnap.pipeline.DetectionCandidate
+import org.techwithkaushik.formSnap.pipeline.DetectionKind
+import org.techwithkaushik.formSnap.pipeline.DetectionResult
+import org.techwithkaushik.formSnap.pipeline.UniversalDetectionEngine
+import org.techwithkaushik.formSnap.pipeline.UniversalPipelineBatch
 import org.opencv.imgcodecs.Imgcodecs
 import java.io.File
 
