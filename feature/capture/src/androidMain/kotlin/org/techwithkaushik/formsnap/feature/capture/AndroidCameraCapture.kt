@@ -18,6 +18,9 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import org.techwithkaushik.formsnap.ai.AiModelManager
 import org.techwithkaushik.formsnap.ai.DetectedObject
 import org.techwithkaushik.formsnap.ai.DetectionConfig
@@ -38,7 +41,9 @@ class AndroidCameraCapture(
     private var bindingInProgress = false
     private var analyzer: ImageAnalysis? = null
     private var detector: YoloV8TfliteDetector? = null
+    private val analysisExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val frameGate = FrameSkipGate(2)
+    private val inferenceBusy = AtomicBoolean(false)
     private var onLiveDetections: ((List<LiveDetection>) -> Unit)? = null
 
     fun hasCameraPermission(): Boolean =
@@ -126,6 +131,8 @@ class AndroidCameraCapture(
         imageCapture = null
         detector?.close()
         detector = null
+        inferenceBusy.set(false)
+        analysisExecutor.shutdownNow()
         onLiveDetections?.invoke(emptyList())
         owner = null
         previewView = null
@@ -134,7 +141,7 @@ class AndroidCameraCapture(
     private fun analyze(image: ImageProxy) {
         if (!frameGate.shouldProcess()) { image.close(); return }
         val active = detector
-        if (active == null) { image.close(); return }
+        if (active == null || !inferenceBusy.compareAndSet(false, true)) { image.close(); return }
         val bitmap = imageToBitmap(image)
         image.close()
         if (bitmap == null) return
@@ -142,14 +149,18 @@ class AndroidCameraCapture(
         val sourceHeight = bitmap.height.toFloat().coerceAtLeast(1f)
         active.detectAsync(bitmap, { detections ->
             bitmap.recycle()
+            inferenceBusy.set(false)
             onLiveDetections?.invoke(
-                detections.map { toLiveDetection(it, sourceWidth, sourceHeight) },
+                detections
+                    .asSequence()
+                    .filter { it.classId in 0..2 && it.confidence >= 0.35f }
+                    .map { toLiveDetection(it, sourceWidth, sourceHeight) }
+                    .toList(),
             )
         }, {
             bitmap.recycle()
-            presenter.onCaptureFailure(
-                "AI detection failed: " + (it.message ?: it.javaClass.simpleName),
-            )
+            inferenceBusy.set(false)
+            // Live inference failures must not interrupt camera capture.
         })
     }
 
@@ -203,7 +214,7 @@ class AndroidCameraCapture(
                 .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
                 .setTargetRotation(rotation)
                 .build()
-                .also { it.setAnalyzer(ContextCompat.getMainExecutor(appContext), ::analyze) }
+                .also { it.setAnalyzer(analysisExecutor, ::analyze) }
 
             val selector = if (presenter.state.value.lens == CameraLens.FRONT) {
                 CameraSelector.DEFAULT_FRONT_CAMERA
