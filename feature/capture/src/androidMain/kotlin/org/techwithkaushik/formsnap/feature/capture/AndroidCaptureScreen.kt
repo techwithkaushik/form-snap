@@ -31,10 +31,14 @@ fun AndroidCaptureScreen(
     val camera = remember(presenter, context) { AndroidCameraCapture(context, presenter) }
     val session = remember(context) { CaptureSession.create(context) }
     var liveDetections by remember { mutableStateOf<List<LiveDetection>>(emptyList()) }
+    var permissionGranted by remember { mutableStateOf(camera.hasCameraPermission()) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
-    ) { presenter.onPermissionResult(it) }
+    ) {
+        permissionGranted = it
+        presenter.onPermissionResult(it)
+    }
 
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
@@ -75,7 +79,7 @@ fun AndroidCaptureScreen(
                     }
                 },
                 update = { preview ->
-                    if (camera.hasCameraPermission()) {
+                    if (permissionGranted && camera.hasCameraPermission()) {
                         presenter.onPermissionResult(true)
                         camera.bind(preview, owner)
                     }
@@ -87,8 +91,8 @@ fun AndroidCaptureScreen(
             permissionLauncher.launch(Manifest.permission.CAMERA)
         },
         onCapture = {
-            if (!camera.hasCameraPermission()) {
-                permissionLauncher.launch(Manifest.permission.CAMERA)
+            if (!permissionGranted || !camera.hasCameraPermission()) {
+                permissionLauncher.launch(Manifest.permission.CAMERA
             } else {
                 presenter.onPermissionResult(true)
                 camera.capture(session)
