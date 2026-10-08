@@ -179,15 +179,13 @@ object UniversalDetectionEngine {
         // Keep the strongest candidate when multiple morphology scales describe
         // the same signature. This prevents the larger kernel from duplicating
         // the result and lets thin strokes win when they are better localized.
-        return all
-            .sortedByDescending { it.score }
-            .fold(ArrayList()) { kept, candidate ->
-                if (kept.none { overlapRatio(it.rect, candidate.rect) >= 0.55 }) {
-                    kept += candidate
-                }
-                kept
+        val kept = ArrayList<ShapeCandidate>()
+        for (candidate in all.sortedByDescending { it.score }) {
+            if (kept.none { existing -> overlapRatio(existing.rect, candidate.rect) >= 0.55 }) {
+                kept += candidate
             }
-            .take(40)
+        }
+        return kept.take(40)
     }
 
     private fun collectInkCandidatesAtScale(
