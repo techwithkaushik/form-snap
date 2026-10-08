@@ -24,6 +24,7 @@ fun AndroidCaptureScreen(
     onImageCaptured: (CapturedImage) -> Unit,
     onImportImage: (CapturedImage) -> Unit = onImageCaptured,
     onError: (String) -> Unit = {},
+    onSelectionCaptured: (List<LiveDetection>) -> Unit = {},
 ) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
@@ -31,6 +32,7 @@ fun AndroidCaptureScreen(
     val camera = remember(presenter, context) { AndroidCameraCapture(context, presenter) }
     val session = remember(context) { CaptureSession.create(context) }
     var liveDetections by remember { mutableStateOf<List<LiveDetection>>(emptyList()) }
+    var pendingSelection by remember { mutableStateOf<List<LiveDetection>>(emptyList()) }
     var permissionGranted by remember { mutableStateOf(camera.hasCameraPermission()) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -60,7 +62,11 @@ fun AndroidCaptureScreen(
             when (event) {
                 CaptureEvent.CameraPermissionRequired ->
                     permissionLauncher.launch(Manifest.permission.CAMERA)
-                is CaptureEvent.ImageCaptured -> onImageCaptured(event.image)
+                is CaptureEvent.ImageCaptured -> {
+                    onSelectionCaptured(pendingSelection)
+                    pendingSelection = emptyList()
+                    onImageCaptured(event.image)
+                }
                 is CaptureEvent.ImportSelected -> onImportImage(event.image)
                 is CaptureEvent.Error -> onError(event.message)
             }
@@ -90,7 +96,8 @@ fun AndroidCaptureScreen(
         onRequestCameraPermission = {
             permissionLauncher.launch(Manifest.permission.CAMERA)
         },
-        onCapture = {
+        onCapture = { selected ->
+            pendingSelection = selected
             if (!permissionGranted || !camera.hasCameraPermission()) {
                 permissionLauncher.launch(Manifest.permission.CAMERA)
             } else {
