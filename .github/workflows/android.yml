@@ -157,6 +157,15 @@ jobs:
           test "$(stat -c%s "$MODEL")" -gt 1000000
           ls -lh "$MODEL"
 
+      - name: Remove AI model before APK packaging
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODEL="core/ai/src/main/assets/formsnap_bootstrap_yolov8n_float32.tflite"
+          test -f "$MODEL"
+          rm -f "$MODEL"
+          test ! -e "$MODEL"
+
       - name: Decode Keystore
         id: keystore
         uses: timheuer/base64-to-file@v2.0
