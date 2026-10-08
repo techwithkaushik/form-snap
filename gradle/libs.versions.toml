@@ -18,6 +18,7 @@ junit = "4.13.2"
 androidxJunit = "1.2.1"
 espresso = "3.6.1"
 ucrop = "4.1.1-non-native"
+tensorflowLite = "2.14.0"
 
 [libraries]
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -40,6 +41,9 @@ camerax-lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref =
 camerax-view = { module = "androidx.camera:camera-view", version.ref = "camerax" }
 
 ucrop-n-edit = { module = "com.github.jens-muenker:uCrop-n-Edit", version.ref = "ucrop" }
+
+tensorflow-lite = { module = "org.tensorflow:tensorflow-lite", version.ref = "tensorflowLite" }
+tensorflow-lite-gpu = { module = "org.tensorflow:tensorflow-lite-gpu", version.ref = "tensorflowLite" }
 
 junit = { module = "junit:junit", version.ref = "junit" }
 androidx-junit = { module = "androidx.test.ext:junit", version.ref = "androidxJunit" }
