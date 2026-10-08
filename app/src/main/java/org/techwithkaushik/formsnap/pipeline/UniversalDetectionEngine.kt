@@ -5,6 +5,7 @@ import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
+import org.opencv.core.MatOfDouble
 import org.opencv.core.Rect
 import org.opencv.imgproc.Imgproc
 import kotlin.math.abs
@@ -276,8 +277,8 @@ object UniversalDetectionEngine {
         if (clipped.width < 24 || clipped.height < 24) return 0.0
 
         val grayRoi = gray.submat(clipped)
-        val mean = Mat()
-        val stddev = Mat()
+        val mean = MatOfDouble()
+        val stddev = MatOfDouble()
         try {
             Core.meanStdDev(grayRoi, mean, stddev)
             val luminanceVariation = (stddev.get(0, 0)?.firstOrNull() ?: 0.0) / 58.0
@@ -286,8 +287,8 @@ object UniversalDetectionEngine {
             if (colorSource.channels() >= 3) {
                 val bgrRoi = colorSource.submat(clipped)
                 val hsv = Mat()
-                val hsvMean = Mat()
-                val hsvStd = Mat()
+                val hsvMean = MatOfDouble()
+                val hsvStd = MatOfDouble()
                 try {
                     Imgproc.cvtColor(bgrRoi, hsv, Imgproc.COLOR_BGR2HSV)
                     Core.meanStdDev(hsv, hsvMean, hsvStd)
