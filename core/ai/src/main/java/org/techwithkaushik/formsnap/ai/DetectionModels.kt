@@ -23,8 +23,8 @@ data class DetectedObject(
         get() = classId == DetectedClass.HANDWRITING.id
 
     val isExtractable: Boolean
-        get() = classId == DetectedClass.PHOTO.id ||
-            classId == DetectedClass.SIGNATURE.id
+        get() = label == DetectedClass.PHOTO.label ||
+            label == DetectedClass.SIGNATURE.label
 }
 
 data class LetterboxTransform(
