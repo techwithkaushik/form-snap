@@ -9,11 +9,16 @@ import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
+import org.techwithkaushik.formsnap.ai.DetectedObject
+import org.techwithkaushik.formsnap.ai.FrameSkipGate
+import org.techwithkaushik.formsnap.ai.YoloV8TfliteDetector
 
 class AndroidCameraCapture(
     context: Context,
@@ -25,10 +30,16 @@ class AndroidCameraCapture(
     private var imageCapture: ImageCapture? = null
     private var owner: LifecycleOwner? = null
     private var previewView: PreviewView? = null
+    private var analyzer: ImageAnalysis? = null
+    private var detector: YoloV8TfliteDetector? = null
+    private val frameGate = FrameSkipGate(2)
+    private var onLiveDetections: ((List<LiveDetection>) -> Unit)? = null
 
     fun hasCameraPermission(): Boolean =
         ContextCompat.checkSelfPermission(appContext, Manifest.permission.CAMERA) ==
             PackageManager.PERMISSION_GRANTED
+
+    fun setLiveDetectionListener(listener: (List<LiveDetection>) -> Unit) { onLiveDetections = listener }
 
     fun bind(preview: PreviewView, lifecycleOwner: LifecycleOwner) {
         owner = lifecycleOwner
@@ -94,12 +105,63 @@ class AndroidCameraCapture(
     }
 
     fun shutdown() {
+        analyzer?.clearAnalyzer()
+        analyzer = null
         provider?.unbindAll()
         provider = null
         camera = null
         imageCapture = null
+        detector?.close()
+        detector = null
+        onLiveDetections?.invoke(emptyList())
         owner = null
         previewView = null
+    }
+
+    private fun analyze(image: ImageProxy) {
+        if (!frameGate.shouldProcess()) { image.close(); return }
+        val active = detector
+        if (active == null) { image.close(); return }
+        val bitmap = imageToBitmap(image)
+        image.close()
+        if (bitmap == null) return
+        active.detectAsync(bitmap, { detections ->
+            bitmap.recycle()
+            onLiveDetections?.invoke(detections.filter { it.isExtractable }.map(::toLiveDetection))
+        }, { bitmap.recycle() })
+    }
+
+    private fun imageToBitmap(image: ImageProxy): Bitmap? {
+        val plane = image.planes.firstOrNull() ?: return null
+        val width = image.width
+        val height = image.height
+        val pixelStride = plane.pixelStride
+        val rowStride = plane.rowStride
+        val rowPadding = rowStride - pixelStride * width
+        val bitmapWidth = width + rowPadding / pixelStride
+        val bitmap = Bitmap.createBitmap(bitmapWidth, height, Bitmap.Config.ARGB_8888)
+        plane.buffer.rewind()
+        bitmap.copyPixelsFromBuffer(plane.buffer)
+        val cropped = Bitmap.createBitmap(bitmap, 0, 0, width, height)
+        bitmap.recycle()
+        val degrees = image.imageInfo.rotationDegrees
+        if (degrees == 0) return cropped
+        val rotated = Bitmap.createBitmap(cropped, 0, 0, cropped.width, cropped.height, Matrix().apply { postRotate(degrees.toFloat()) }, true)
+        cropped.recycle()
+        return rotated
+    }
+
+    private fun toLiveDetection(detection: DetectedObject): LiveDetection {
+        val width = detection.boundingBox.width().coerceAtLeast(1f)
+        val height = detection.boundingBox.height().coerceAtLeast(1f)
+        return LiveDetection(
+            label = detection.label,
+            confidence = detection.confidence,
+            left = detection.boundingBox.left / width,
+            top = detection.boundingBox.top / height,
+            right = detection.boundingBox.right / width,
+            bottom = detection.boundingBox.bottom / height,
+        )
     }
 
     private fun bindUseCases(cameraProvider: ProcessCameraProvider) {
@@ -116,6 +178,13 @@ class AndroidCameraCapture(
                 .setJpegQuality(92)
                 .setTargetRotation(rotation)
                 .build()
+            val analysis = ImageAnalysis.Builder()
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
+                .setTargetRotation(rotation)
+                .build()
+                .also { it.setAnalyzer(ContextCompat.getMainExecutor(appContext), ::analyze) }
+
             val selector = if (presenter.state.value.lens == CameraLens.FRONT) {
                 CameraSelector.DEFAULT_FRONT_CAMERA
             } else {
@@ -123,12 +192,19 @@ class AndroidCameraCapture(
             }
 
             cameraProvider.unbindAll()
+            analyzer?.clearAnalyzer()
+            analyzer = analysis
             imageCapture = capture
+            if (detector == null) {
+                val candidate = runCatching { YoloV8TfliteDetector(appContext) }.getOrNull()
+                if (candidate != null && candidate.modelAvailable()) detector = candidate else candidate?.close()
+            }
             camera = cameraProvider.bindToLifecycle(
                 lifecycleOwner,
                 selector,
                 preview,
                 capture,
+                analysis,
             )
             presenter.onCameraInitialized(true, true)
             updateFlash(presenter.state.value.flashEnabled)
