@@ -279,8 +279,8 @@ class AndroidCameraCapture(
                                 inputSize = 320,
                                 confidenceThreshold = 0.35f,
                                 iouThreshold = 0.45f,
-                                maxDetections = 12,
-                                maxClassId = 79,
+                                maxDetections = 4,
+                                maxClassId = 1,
                             ),
                         )
                     }.getOrNull()
