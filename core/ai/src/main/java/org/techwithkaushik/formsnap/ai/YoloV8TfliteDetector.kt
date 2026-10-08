@@ -39,6 +39,10 @@ class YoloV8TfliteDetector(
     private var inputBuffer: ByteBuffer? = null
     private var outputBuffer: ByteBuffer? = null
     private var outputShape: IntArray = intArrayOf()
+    private var inputShape: IntArray = intArrayOf()
+    private var inputLayout: InputLayout = InputLayout.NHWC
+    private var inputHeight: Int = config.inputSize
+    private var inputWidth: Int = config.inputSize
 
     fun detect(bitmap: Bitmap): List<DetectedObject> {
         check(!closed) { "Detector is already closed." }
@@ -77,7 +81,7 @@ class YoloV8TfliteDetector(
         val model = requireNotNull(interpreter)
         val input = requireNotNull(inputBuffer)
         val output = requireNotNull(outputBuffer)
-        val prepared = letterbox(bitmap, config.inputSize)
+        val prepared = letterbox(bitmap, inputWidth, inputHeight)
 
         try {
             input.clear()
@@ -133,6 +137,16 @@ class YoloV8TfliteDetector(
         val created = Interpreter(modelBuffer, options)
         interpreter = created
         outputShape = created.getOutputTensor(0).shape().copyOf()
+        inputShape = created.getInputTensor(0).shape().copyOf()
+        inputLayout = detectInputLayout(inputShape)
+        inputHeight = when (inputLayout) {
+            InputLayout.NHWC -> inputShape[1]
+            InputLayout.NCHW -> inputShape[2]
+        }.takeIf { it > 0 } ?: config.inputSize
+        inputWidth = when (inputLayout) {
+            InputLayout.NHWC -> inputShape[2]
+            InputLayout.NCHW -> inputShape[3]
+        }.takeIf { it > 0 } ?: config.inputSize
         inputBuffer = ByteBuffer
             .allocateDirect(created.getInputTensor(0).numBytes())
             .order(ByteOrder.nativeOrder())
@@ -156,33 +170,39 @@ class YoloV8TfliteDetector(
         val scale = params.scale
         val zeroPoint = params.zeroPoint
 
-        target.rewind()
-        for (pixel in pixels) {
-            val r = Color.red(pixel) / 255f
-            val g = Color.green(pixel) / 255f
-            val b = Color.blue(pixel) / 255f
-
+        fun put(value: Float) {
             when (type) {
-                DataType.FLOAT32 -> {
-                    target.putFloat(r)
-                    target.putFloat(g)
-                    target.putFloat(b)
-                }
-                DataType.UINT8 -> {
-                    target.put(quantize(r, scale, zeroPoint).coerceIn(0, 255).toByte())
-                    target.put(quantize(g, scale, zeroPoint).coerceIn(0, 255).toByte())
-                    target.put(quantize(b, scale, zeroPoint).coerceIn(0, 255).toByte())
-                }
-                DataType.INT8 -> {
-                    target.put(quantize(r, scale, zeroPoint).coerceIn(-128, 127).toByte())
-                    target.put(quantize(g, scale, zeroPoint).coerceIn(-128, 127).toByte())
-                    target.put(quantize(b, scale, zeroPoint).coerceIn(-128, 127).toByte())
-                }
+                DataType.FLOAT32 -> target.putFloat(value)
+                DataType.UINT8 -> target.put(quantize(value, scale, zeroPoint).coerceIn(0, 255).toByte())
+                DataType.INT8 -> target.put(quantize(value, scale, zeroPoint).coerceIn(-128, 127).toByte())
                 else -> error("Unsupported TFLite input type: $type")
             }
         }
-    }
 
+        target.rewind()
+        when (inputLayout) {
+            InputLayout.NHWC -> {
+                for (pixel in pixels) {
+                    put(Color.red(pixel) / 255f)
+                    put(Color.green(pixel) / 255f)
+                    put(Color.blue(pixel) / 255f)
+                }
+            }
+            InputLayout.NCHW -> {
+                for (channel in 0..2) {
+                    for (pixel in pixels) {
+                        put(
+                            when (channel) {
+                                0 -> Color.red(pixel) / 255f
+                                1 -> Color.green(pixel) / 255f
+                                else -> Color.blue(pixel) / 255f
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
     private fun readOutputAsFloatArray(
         output: ByteBuffer,
         tensor: Tensor,
@@ -218,21 +238,22 @@ class YoloV8TfliteDetector(
 
     private fun letterbox(
         source: Bitmap,
-        size: Int,
+        width: Int,
+        height: Int,
     ): LetterboxedBitmap {
         val scale = minOf(
-            size.toFloat() / source.width,
-            size.toFloat() / source.height,
+            width.toFloat() / source.width,
+            height.toFloat() / source.height,
         )
         val scaledWidth = (source.width * scale).roundToInt().coerceAtLeast(1)
         val scaledHeight = (source.height * scale).roundToInt().coerceAtLeast(1)
 
         val resized = Bitmap.createScaledBitmap(source, scaledWidth, scaledHeight, true)
-        val output = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(output)
         canvas.drawColor(Color.rgb(114, 114, 114))
-        val left = (size - scaledWidth) / 2f
-        val top = (size - scaledHeight) / 2f
+        val left = (width - scaledWidth) / 2f
+        val top = (height - scaledHeight) / 2f
         canvas.drawBitmap(resized, left, top, Paint(Paint.FILTER_BITMAP_FLAG))
         resized.recycle()
 
@@ -244,7 +265,7 @@ class YoloV8TfliteDetector(
                 padY = top,
                 sourceWidth = source.width,
                 sourceHeight = source.height,
-                inputSize = size,
+                inputSize = width,
             ),
         )
     }
