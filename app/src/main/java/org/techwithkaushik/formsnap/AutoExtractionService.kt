@@ -2,13 +2,11 @@ package org.techwithkaushik.formSnap
 
 import android.content.Context
 import android.graphics.Bitmap
-import org.opencv.android.Utils
 import org.techwithkaushik.formsnap.ai.DetectedClass
 import org.techwithkaushik.formsnap.ai.YoloV8TfliteDetector
 import org.techwithkaushik.formSnap.pipeline.DetectionCandidate
 import org.techwithkaushik.formSnap.pipeline.DetectionKind
 import org.techwithkaushik.formSnap.pipeline.DetectionResult
-import org.techwithkaushik.formSnap.pipeline.PerspectiveRectifier
 import org.techwithkaushik.formSnap.pipeline.UniversalDetectionEngine
 import org.techwithkaushik.formSnap.pipeline.UniversalPipelineBatch
 import org.opencv.imgcodecs.Imgcodecs
@@ -39,9 +37,6 @@ object AutoExtractionService {
         val source = Imgcodecs.imread(input.absolutePath)
         require(!source.empty()) { "Unable to decode input image." }
 
-        val rectified = PerspectiveRectifier.rectify(source)
-        val workingSource = rectified.image
-
         return try {
             val aiBitmap = Bitmap.createBitmap(
                 workingSource.cols(),
@@ -49,7 +44,7 @@ object AutoExtractionService {
                 Bitmap.Config.RGB_565,
             )
             try {
-                Utils.matToBitmap(workingSource, aiBitmap)
+                org.opencv.android.Utils.matToBitmap(source, aiBitmap)
 
                 val aiDetector = YoloV8TfliteDetector(context)
                 val detectionResult = if (aiDetector.modelAvailable()) {
@@ -63,8 +58,8 @@ object AutoExtractionService {
                             .maxByOrNull { it.confidence }
 
                         DetectionResult(
-                            sourceWidth = workingSource.cols(),
-                            sourceHeight = workingSource.rows(),
+                            sourceWidth = source.cols(),
+                            sourceHeight = source.rows(),
                             photo = photo?.let {
                                 DetectionCandidate(
                                     kind = DetectionKind.PHOTO,
@@ -89,11 +84,11 @@ object AutoExtractionService {
                 } else {
                     // Keep the automatic workflow usable until the trained model
                     // asset is added. The trained model will be preferred automatically.
-                    UniversalDetectionEngine.detect(workingSource)
+                    UniversalDetectionEngine.detect(source)
                 }
 
                 UniversalPipelineBatch.process(
-                    source = workingSource,
+                    source = source,
                     detection = detectionResult,
                     dpi = dpi,
                     photoWidthMm = photoWidthMm,
@@ -136,7 +131,6 @@ object AutoExtractionService {
                 aiBitmap.recycle()
             }
         } finally {
-            if (rectified.changed) workingSource.release()
             source.release()
         }
     }
