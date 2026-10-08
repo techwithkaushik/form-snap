@@ -29,6 +29,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import org.techwithkaushik.formsnap.feature.capture.AndroidCaptureScreen
+import org.techwithkaushik.formsnap.feature.capture.CaptureMode as CameraCaptureMode
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -72,6 +74,8 @@ class MainActivity : ComponentActivity() {
         var saveMessage by remember { mutableStateOf<String?>(null) }
         var pendingCameraMode by remember { mutableStateOf<CaptureMode?>(null) }
         var pendingImport by remember { mutableStateOf(false) }
+        var showCameraX by remember { mutableStateOf(false) }
+        var cameraXMode by remember { mutableStateOf(CameraCaptureMode.WHOLE_FORM) }
         val autoSaveStore = remember { AutoSaveStore(this@MainActivity) }
 
         fun startAutoProcess(input: File, selectedMode: CaptureMode) {
@@ -190,8 +194,12 @@ class MainActivity : ComponentActivity() {
                     pendingCameraMode = selected
                     outputFolderLauncher.launch(null)
                 } else {
-                    pendingCameraMode = selected
-                    launchCamera(openCamera)
+                    cameraXMode = when (selected) {
+                        CaptureMode.PHOTO -> CameraCaptureMode.PHOTO
+                        CaptureMode.SIGNATURE -> CameraCaptureMode.SIGNATURE
+                        CaptureMode.WHOLE_FORM -> CameraCaptureMode.WHOLE_FORM
+                    }
+                    showCameraX = true
                 }
             },
             onImport = {
@@ -204,6 +212,36 @@ class MainActivity : ComponentActivity() {
                 }
             },
         )
+
+        if (showCameraX) {
+            BackHandler { showCameraX = false }
+            AndroidCaptureScreen(
+                initialMode = cameraXMode,
+                onImageCaptured = { image ->
+                    showCameraX = false
+                    val uri = Uri.parse(image.uri)
+                    val file = if (uri.scheme == "file") File(uri.path ?: "") else null
+                    if (file?.isFile == true && file.length() > 0L) {
+                        startAutoProcess(file, when (image.mode) {
+                            CameraCaptureMode.PHOTO -> CaptureMode.PHOTO
+                            CameraCaptureMode.SIGNATURE -> CaptureMode.SIGNATURE
+                            CameraCaptureMode.WHOLE_FORM -> CaptureMode.WHOLE_FORM
+                        })
+                    } else {
+                        saveMessage = "Camera image could not be opened. Please capture again."
+                    }
+                },
+                onImportImage = { image ->
+                    showCameraX = false
+                    ioScope.launch {
+                        val imported = withContext(Dispatchers.IO) { uriToFile(Uri.parse(image.uri), "import") }
+                        if (imported == null) saveMessage = "Could not open this image. Try a different file."
+                        else startAutoProcess(imported, CaptureMode.WHOLE_FORM)
+                    }
+                },
+                onError = { saveMessage = it },
+            )
+        }
 
         if (settingsOpen) {
             OutputSettingsDialog(
