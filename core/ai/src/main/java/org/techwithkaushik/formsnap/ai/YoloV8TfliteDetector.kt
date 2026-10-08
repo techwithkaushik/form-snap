@@ -155,6 +155,27 @@ class YoloV8TfliteDetector(
             .order(ByteOrder.nativeOrder())
     }
 
+    private enum class InputLayout {
+        NHWC,
+        NCHW,
+    }
+
+    private fun detectInputLayout(shape: IntArray): InputLayout {
+        require(shape.size == 4) {
+            "Unsupported TFLite input shape: ${shape.contentToString()}. Expected a 4D image tensor."
+        }
+
+        // Standard TensorFlow Lite image tensors are NHWC: [1, height, width, 3].
+        // Some exported YOLO models use NCHW: [1, 3, height, width].
+        return when {
+            shape[3] == 3 -> InputLayout.NHWC
+            shape[1] == 3 -> InputLayout.NCHW
+            else -> error(
+                "Unsupported TFLite input layout: ${shape.contentToString()}. " +
+                    "Expected channels=3 at dimension 1 (NCHW) or dimension 3 (NHWC).",
+            )
+        }
+    }
     private fun writeBitmapToInput(
         bitmap: Bitmap,
         target: ByteBuffer,
