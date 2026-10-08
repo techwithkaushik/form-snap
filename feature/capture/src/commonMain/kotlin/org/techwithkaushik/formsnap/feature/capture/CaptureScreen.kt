@@ -20,6 +20,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -40,6 +42,8 @@ fun CaptureScreen(
     modifier: Modifier = Modifier,
 ) {
     val state by controller.state.collectAsState()
+    val selection = androidx.compose.runtime.remember { LiveDetectionSelection() }
+    var selectionVersion by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
 
     LaunchedEffect(controller) {
         controller.events.collect { event ->
@@ -57,7 +61,21 @@ fun CaptureScreen(
     ) {
         cameraPreview()
         CaptureOverlay(Modifier.fillMaxSize(), state.grid)
-        LiveDetectionOverlay(Modifier.fillMaxSize(), liveDetections)
+        LiveDetectionOverlay(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(liveDetections, selectionVersion) {
+                    detectTapGestures { offset ->
+                        val hit = selection.findHit(liveDetections, offset.x, offset.y, size.width, size.height)
+                        if (hit != null) {
+                            val nextIndex = liveDetections.mapNotNull { selection.indexOf(it.id) }.maxOrNull()?.plus(1) ?: 1
+                            selection.toggle(hit, nextIndex)
+                            selectionVersion++
+                        }
+                    }
+                },
+            detections = selection.apply(liveDetections),
+        )
 
         Column(
             modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(16.dp),
@@ -172,7 +190,11 @@ private fun LiveDetectionOverlay(
             val right = detection.right.coerceIn(0f, 1f) * size.width
             val bottom = detection.bottom.coerceIn(0f, 1f) * size.height
             drawRect(
-                color = if (detection.label == "Signature") Color(0xFFFFC107) else Color(0xFF00E676),
+                color = when {
+                    detection.locked -> Color(0xFF2979FF)
+                    detection.label == "Signature" -> Color(0xFFFFC107)
+                    else -> Color(0xFF00E676)
+                },
                 topLeft = androidx.compose.ui.geometry.Offset(left, top),
                 size = androidx.compose.ui.geometry.Size((right - left).coerceAtLeast(1f), (bottom - top).coerceAtLeast(1f)),
                 style = androidx.compose.ui.graphics.drawscope.Stroke(width = 4f),
