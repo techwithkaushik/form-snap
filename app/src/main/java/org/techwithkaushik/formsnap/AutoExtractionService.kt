@@ -8,7 +8,8 @@ import org.techwithkaushik.formSnap.pipeline.DetectionKind
 import org.techwithkaushik.formSnap.pipeline.DetectionResult
 import org.techwithkaushik.formSnap.pipeline.UniversalDetectionEngine
 import org.techwithkaushik.formSnap.pipeline.UniversalPipelineBatch
-import org.techwithkaushik.formsnap.ai.AiModelManager\nimport org.techwithkaushik.formsnap.ai.DetectedClass
+import org.techwithkaushik.formsnap.ai.AiModelManager
+import org.techwithkaushik.formsnap.ai.DetectedClass
 import org.techwithkaushik.formsnap.ai.YoloV8TfliteDetector
 import org.techwithkaushik.formsnap.feature.capture.LiveDetection
 import java.io.File
@@ -58,7 +59,8 @@ object AutoExtractionService {
                         sourceHeight = source.rows(),
                     )
                 } else {
-                    val activeModel = AiModelManager(context).activeModelFile()\n                    val aiDetector = if (activeModel != null) YoloV8TfliteDetector(context, modelFile = activeModel, config = DetectionConfig(maxClassId = 2)) else YoloV8TfliteDetector(context)
+                    val activeModel = AiModelManager(context).activeModelFile()
+                    val aiDetector = if (activeModel != null) YoloV8TfliteDetector(context, modelFile = activeModel, config = DetectionConfig(maxClassId = 2)) else YoloV8TfliteDetector(context)
                     try {
                         if (aiDetector.modelAvailable()) {
                             val objects = aiDetector.detect(aiBitmap)
