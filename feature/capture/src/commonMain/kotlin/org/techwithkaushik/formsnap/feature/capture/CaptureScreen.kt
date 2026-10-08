@@ -65,7 +65,6 @@ fun CaptureScreen(
         modifier = modifier.fillMaxSize().background(Color.Black),
     ) {
         cameraPreview()
-        CaptureOverlay(Modifier.fillMaxSize(), state.grid)
         LiveDetectionOverlay(
             modifier = Modifier
                 .fillMaxSize()
