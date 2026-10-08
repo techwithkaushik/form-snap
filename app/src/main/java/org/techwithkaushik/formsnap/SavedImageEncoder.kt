@@ -55,7 +55,7 @@ internal object SavedImageEncoder {
         var best: ByteArray? = null
 
         while (low <= high) {
-            val quality = (low + high) ushr 1
+            val quality = (low + high) / 2
             val bytes = ByteArrayOutputStream()
             if (!bitmap.compress(Bitmap.CompressFormat.JPEG, quality, bytes)) {
                 throw IOException("JPEG encoder could not encode the output.")
@@ -110,7 +110,8 @@ internal object SavedImageEncoder {
         )
     }
 
-    private val JPEG_QUALITIES = intArrayOf(95, 90, 85, 80, 75, 70, 65, 60)
+    private const val MIN_JPEG_QUALITY = 1
+    private const val MAX_JPEG_QUALITY = 100
     private const val SCALE_FACTOR = 0.90
     private const val MAX_SCALE_STEPS = 12
     private const val MIN_DIMENSION = 120
