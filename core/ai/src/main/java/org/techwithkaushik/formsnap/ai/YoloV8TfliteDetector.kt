@@ -65,7 +65,7 @@ class YoloV8TfliteDetector(
     }
 
     fun modelAvailable(): Boolean =
-        runCatching {
+        modelFile?.let { it.isFile && it.length() > 0L } ?: runCatching {
             appContext.assets.open(modelAssetName).use { }
             true
         }.getOrDefault(false)
