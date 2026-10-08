@@ -39,8 +39,8 @@ object AutoExtractionService {
 
         return try {
             val aiBitmap = Bitmap.createBitmap(
-                workingSource.cols(),
-                workingSource.rows(),
+                source.cols(),
+                source.rows(),
                 Bitmap.Config.RGB_565,
             )
             try {
