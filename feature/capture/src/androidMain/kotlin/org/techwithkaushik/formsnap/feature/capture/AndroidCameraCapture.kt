@@ -19,6 +19,7 @@ import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import org.techwithkaushik.formsnap.ai.DetectedObject
+import org.techwithkaushik.formsnap.ai.DetectionConfig
 import org.techwithkaushik.formsnap.ai.FrameSkipGate
 import org.techwithkaushik.formsnap.ai.YoloV8TfliteDetector
 
@@ -140,7 +141,9 @@ class AndroidCameraCapture(
         val sourceHeight = bitmap.height.toFloat().coerceAtLeast(1f)
         active.detectAsync(bitmap, { detections ->
             bitmap.recycle()
-            onLiveDetections?.invoke(detections.filter { it.isExtractable }.map { toLiveDetection(it, sourceWidth, sourceHeight) })
+            onLiveDetections?.invoke(
+                detections.map { toLiveDetection(it, sourceWidth, sourceHeight) },
+            )
         }, { bitmap.recycle() })
     }
 
@@ -207,8 +210,30 @@ class AndroidCameraCapture(
             analyzer = analysis
             imageCapture = capture
             if (detector == null) {
-                val candidate = runCatching { YoloV8TfliteDetector(appContext) }.getOrNull()
-                if (candidate != null && candidate.modelAvailable()) detector = candidate else candidate?.close()
+                val trained = runCatching { YoloV8TfliteDetector(appContext) }.getOrNull()
+                if (trained != null && trained.modelAvailable()) {
+                    detector = trained
+                } else {
+                    trained?.close()
+                    val bootstrap = runCatching {
+                        YoloV8TfliteDetector(
+                            appContext,
+                            modelAssetName = "formsnap_bootstrap_yolov8n_float32.tflite",
+                            config = DetectionConfig(
+                                inputSize = 640,
+                                confidenceThreshold = 0.35f,
+                                iouThreshold = 0.45f,
+                                maxDetections = 24,
+                                maxClassId = 79,
+                            ),
+                        )
+                    }.getOrNull()
+                    if (bootstrap != null && bootstrap.modelAvailable()) {
+                        detector = bootstrap
+                    } else {
+                        bootstrap?.close()
+                    }
+                }
             }
             camera = cameraProvider.bindToLifecycle(
                 lifecycleOwner,
