@@ -70,6 +70,40 @@ class MainActivity : ComponentActivity() {
         var source by remember { mutableStateOf<File?>(null) }
         var mode by remember { mutableStateOf(CaptureMode.WHOLE_FORM) }
         var saveMessage by remember { mutableStateOf<String?>(null) }
+        var pendingCameraMode by remember { mutableStateOf<CaptureMode?>(null) }
+        var pendingImport by remember { mutableStateOf(false) }
+        val autoSaveStore = remember { AutoSaveStore(this@MainActivity) }
+
+        fun startAutoProcess(input: File, selectedMode: CaptureMode) {
+            ioScope.launch {
+                saveMessage = "AI detecting photo and signature…"
+                try {
+                    val result = withContext(Dispatchers.IO) {
+                        AutoExtractionService.process(
+                            context = this@MainActivity,
+                            input = input,
+                            dpi = settings.dpi.toInt(),
+                            maxKb = settings.maxKb,
+                            mode = selectedMode.name,
+                        )
+                    }
+                    val saved = withContext(Dispatchers.IO) {
+                        autoSaveStore.save(result.photoBytes, result.signatureBytes)
+                    }
+                    val parts = listOfNotNull(saved.first, saved.second)
+                    saveMessage = if (parts.isEmpty()) {
+                        "Photo/signature not detected. Please capture the form more clearly."
+                    } else {
+                        "Auto-saved: " + parts.joinToString(" + ")
+                    }
+                } catch (t: Throwable) {
+                    saveMessage = "Auto extraction failed: " + (t.message ?: "unknown error")
+                } finally {
+                    input.delete()
+                    org.techwithkaushik.formSnap.foundation.ProcessingPaths.cleanup(this@MainActivity)
+                }
+            }
+        }
 
         // Compose must consume the system Back button while an editor or
         // settings dialog is open. Previously only the top-bar Back button
