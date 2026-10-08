@@ -172,6 +172,15 @@ class MainActivity : ComponentActivity() {
             } else {
                 autoSaveStore.setFolder(uri)
                 saveMessage = "Output folder selected. Next capture will auto-save."
+                pendingCameraMode?.let { selected ->
+                    cameraXMode = when (selected) {
+                        CaptureMode.PHOTO -> CameraCaptureMode.PHOTO
+                        CaptureMode.SIGNATURE -> CameraCaptureMode.SIGNATURE
+                        CaptureMode.WHOLE_FORM -> CameraCaptureMode.WHOLE_FORM
+                    }
+                    showCameraX = true
+                    pendingCameraMode = null
+                }
             }
         }
 
