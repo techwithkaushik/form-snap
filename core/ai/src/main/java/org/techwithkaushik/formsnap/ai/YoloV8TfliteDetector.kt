@@ -5,7 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import java.io.FileInputStream
+import java.io.File\nimport java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.ExecutorService
@@ -104,13 +104,22 @@ class YoloV8TfliteDetector(
             "AI model '$modelAssetName' is missing. Add the trained YOLOv8 INT8 model to src/main/assets."
         }
 
-        val descriptor = appContext.assets.openFd(modelAssetName)
-        val modelBuffer = FileInputStream(descriptor.fileDescriptor).channel.map(
-            java.nio.channels.FileChannel.MapMode.READ_ONLY,
-            descriptor.startOffset,
-            descriptor.declaredLength,
-        )
-        descriptor.close()
+        val modelBuffer = if (modelFile != null) {
+            FileInputStream(modelFile).channel.map(
+                java.nio.channels.FileChannel.MapMode.READ_ONLY,
+                0,
+                modelFile.length(),
+            )
+        } else {
+            val descriptor = appContext.assets.openFd(modelAssetName)
+            val mapped = FileInputStream(descriptor.fileDescriptor).channel.map(
+                java.nio.channels.FileChannel.MapMode.READ_ONLY,
+                descriptor.startOffset,
+                descriptor.declaredLength,
+            )
+            descriptor.close()
+            mapped
+        }
 
         // Keep the first production path on the TensorFlow Lite CPU runtime.
         // This avoids GPU delegate ABI/classpath conflicts across old Android
