@@ -4,6 +4,15 @@ enum class CaptureMode { WHOLE_FORM, PHOTO, SIGNATURE }
 enum class CaptureSource { CAMERA, IMPORT }
 enum class CameraLens { BACK, FRONT }
 
+data class LiveDetection(
+    val label: String,
+    val confidence: Float,
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float,
+)
+
 data class CaptureGridState(
     val enabled: Boolean = true,
     val horizontalDivisions: Int = 3,
@@ -40,4 +49,5 @@ data class CaptureUiState(
     val importing: Boolean = false,
     val flashEnabled: Boolean = false,
     val lastError: String? = null,
+    val liveAiAvailable: Boolean = false,
 )
