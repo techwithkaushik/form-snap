@@ -31,6 +31,10 @@ object UniversalPipelineBatch {
         source: Mat,
         detection: DetectionResult,
         dpi: Int = 300,
+        photoWidthMm: Double? = null,
+        photoHeightMm: Double? = null,
+        signatureWidthMm: Double? = null,
+        signatureHeightMm: Double? = null,
     ): UniversalPipelineOutput {
         require(!source.empty()) { "Source image is empty" }
         require(detection.sourceWidth == source.cols() && detection.sourceHeight == source.rows()) {
@@ -40,10 +44,10 @@ object UniversalPipelineBatch {
         var signature: PipelineStageOutput? = null
         try {
             photo = if (detection.photo != null) {
-                processCandidate(source, detection, DetectionKind.PHOTO, dpi)
+                processCandidate(source, detection, DetectionKind.PHOTO, dpi, photoWidthMm, photoHeightMm)
             } else null
             signature = if (detection.signature != null) {
-                processCandidate(source, detection, DetectionKind.SIGNATURE, dpi)
+                processCandidate(source, detection, DetectionKind.SIGNATURE, dpi, signatureWidthMm, signatureHeightMm)
             } else null
             return UniversalPipelineOutput(detection, photo, signature)
         } catch (t: Throwable) {
@@ -73,9 +77,11 @@ object UniversalPipelineBatch {
         detection: DetectionResult,
         kind: DetectionKind,
         dpi: Int,
+        widthMm: Double?,
+        heightMm: Double?,
     ): PipelineStageOutput {
         val candidate = if (kind == DetectionKind.PHOTO) detection.photo!! else detection.signature!!
-        val normalized = OutputNormalizer.normalize(source, candidate, kind, dpi)
+        val normalized = OutputNormalizer.normalize(source, candidate, kind, dpi, widthMm, heightMm)
         val quality = try {
             ImageQualityGate.evaluate(normalized.image, kind)
         } catch (failure: Throwable) {
