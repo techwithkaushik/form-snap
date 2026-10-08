@@ -59,7 +59,7 @@ internal class YoloV8OutputDecoder(
                     DetectedObject(
                         id = size.toLong(),
                         classId = classId,
-                        label = classLabel(classId),
+                        label = classLabel(classId, config.maxClassId),
                         confidence = confidence,
                         boundingBox = box,
                     ),
@@ -133,7 +133,7 @@ internal class YoloV8OutputDecoder(
             result += DetectedObject(
                 id = candidate.toLong(),
                 classId = bestClass,
-                label = classLabel(bestClass),
+                label = classLabel(bestClass, config.maxClassId),
                 confidence = bestScore,
                 boundingBox = box,
             )
@@ -141,8 +141,12 @@ internal class YoloV8OutputDecoder(
         return result
     }
 
-    private fun classLabel(classId: Int): String =
-        DetectedClass.fromId(classId)?.label ?: COCO_LABELS.getOrElse(classId) { "Object $classId" }
+    private fun classLabel(classId: Int, maxClassId: Int): String =
+        if (maxClassId <= 2) {
+            DetectedClass.fromId(classId)?.label ?: "Object $classId"
+        } else {
+            COCO_LABELS.getOrElse(classId) { "Object $classId" }
+        }
 
     private fun mapBox(
         raw: RectF,
