@@ -4,8 +4,7 @@ import android.graphics.RectF
 
 enum class DetectedClass(val id: Int, val label: String) {
     PHOTO(0, "Photo"),
-    SIGNATURE(1, "Signature"),
-    HANDWRITING(2, "Handwriting");
+    SIGNATURE(1, "Signature");
 
     companion object {
         fun fromId(id: Int): DetectedClass? = entries.firstOrNull { it.id == id }
@@ -19,12 +18,9 @@ data class DetectedObject(
     val confidence: Float,
     val boundingBox: RectF,
 ) {
-    val isHandwriting: Boolean
-        get() = classId == DetectedClass.HANDWRITING.id
-
     val isExtractable: Boolean
-        get() = label == DetectedClass.PHOTO.label ||
-            label == DetectedClass.SIGNATURE.label
+        get() = classId == DetectedClass.PHOTO.id ||
+            classId == DetectedClass.SIGNATURE.id
 }
 
 data class LetterboxTransform(
@@ -40,6 +36,6 @@ data class DetectionConfig(
     val inputSize: Int = 320,
     val confidenceThreshold: Float = 0.35f,
     val iouThreshold: Float = 0.45f,
-    val maxDetections: Int = 32,
-    val maxClassId: Int = 2,
+    val maxDetections: Int = 8,
+    val maxClassId: Int = 1,
 )
