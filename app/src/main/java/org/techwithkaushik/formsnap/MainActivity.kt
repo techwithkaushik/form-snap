@@ -76,6 +76,7 @@ class MainActivity : ComponentActivity() {
         var pendingImport by remember { mutableStateOf(false) }
         var showCameraX by remember { mutableStateOf(false) }
         var cameraXMode by remember { mutableStateOf(CameraCaptureMode.WHOLE_FORM) }
+        var lockedSelections by remember { mutableStateOf<List<org.techwithkaushik.formsnap.feature.capture.LiveDetection>>(emptyList()) }
         val autoSaveStore = remember { AutoSaveStore(this@MainActivity) }
 
         fun startAutoProcess(input: File, selectedMode: CaptureMode) {
@@ -85,6 +86,7 @@ class MainActivity : ComponentActivity() {
                     val result = withContext(Dispatchers.IO) {
                         AutoExtractionService.process(
                             context = this@MainActivity,
+                            selectedDetections = lockedSelections,
                             input = input,
                             dpi = settings.dpi.toInt(),
                             maxKb = settings.maxKb,
@@ -226,6 +228,7 @@ class MainActivity : ComponentActivity() {
             BackHandler { showCameraX = false }
             AndroidCaptureScreen(
                 initialMode = cameraXMode,
+                onSelectionCaptured = { lockedSelections = it },
                 onImageCaptured = { image ->
                     showCameraX = false
                     val uri = Uri.parse(image.uri)
