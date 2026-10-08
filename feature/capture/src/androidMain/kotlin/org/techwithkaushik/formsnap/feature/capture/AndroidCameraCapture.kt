@@ -145,7 +145,12 @@ class AndroidCameraCapture(
             onLiveDetections?.invoke(
                 detections.map { toLiveDetection(it, sourceWidth, sourceHeight) },
             )
-        }, { bitmap.recycle() })
+        }, {
+            bitmap.recycle()
+            presenter.onCaptureFailure(
+                "AI detection failed: " + (it.message ?: it.javaClass.simpleName),
+            )
+        })
     }
 
     private fun imageToBitmap(image: ImageProxy): Bitmap? {
@@ -222,7 +227,7 @@ class AndroidCameraCapture(
                                 confidenceThreshold = 0.35f,
                                 iouThreshold = 0.45f,
                                 maxDetections = 24,
-                                maxClassId = 2,
+                                maxClassId = 79,
                             ),
                         )
                     }.getOrNull()
