@@ -1,35 +1,6 @@
-import java.net.URL
-import java.nio.file.Files
-
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
-}
-
-val bootstrapModelFile = layout.buildDirectory.file(
-    "generated/bootstrap-assets/formsnap_bootstrap_yolov8n_float32.tflite",
-)
-val bootstrapModelUrl =
-    "https://raw.githubusercontent.com/naz23/yolo-tensorflow-lite/main/yolov8n_float32.tflite"
-
-val downloadBootstrapModel by tasks.registering {
-    outputs.file(bootstrapModelFile)
-    doLast {
-        val target = bootstrapModelFile.get().asFile
-        if (!target.exists() || target.length() < 1_000_000L) {
-            target.parentFile.mkdirs()
-            URL(bootstrapModelUrl).openStream().use { input ->
-                Files.copy(
-                    input,
-                    target.toPath(),
-                    java.nio.file.StandardCopyOption.REPLACE_EXISTING,
-                )
-            }
-        }
-        check(target.length() > 1_000_000L) {
-            "Bootstrap YOLOv8 model download is missing or incomplete: " + target.absolutePath
-        }
-    }
 }
 
 android {
@@ -41,16 +12,8 @@ android {
         consumerProguardFiles("consumer-rules.pro")
     }
 
-    sourceSets["main"].assets.srcDir(
-        layout.buildDirectory.dir("generated/bootstrap-assets"),
-    )
-
     androidResources {
         noCompress += "tflite"
-    }
-
-    tasks.named("preBuild") {
-        dependsOn(downloadBootstrapModel)
     }
 
     compileOptions {
