@@ -22,7 +22,7 @@ internal class YoloV8OutputDecoder(
         }
 
         return nonMaximumSuppression(detections)
-            .filter { it.classId in 0..2 }
+            .filter { it.classId in 0..config.maxClassId }
             .take(config.maxDetections)
     }
 
@@ -59,7 +59,7 @@ internal class YoloV8OutputDecoder(
                     DetectedObject(
                         id = size.toLong(),
                         classId = classId,
-                        label = DetectedClass.fromId(classId)?.label ?: "Unknown",
+                        label = classLabel(classId),
                         confidence = confidence,
                         boundingBox = box,
                     ),
@@ -118,7 +118,7 @@ internal class YoloV8OutputDecoder(
                 }
             }
 
-            if (bestClass !in 0..2 || bestScore < config.confidenceThreshold) continue
+            if (bestClass !in 0..config.maxClassId || bestScore < config.confidenceThreshold) continue
 
             val box = mapBox(
                 RectF(
@@ -133,13 +133,16 @@ internal class YoloV8OutputDecoder(
             result += DetectedObject(
                 id = candidate.toLong(),
                 classId = bestClass,
-                label = DetectedClass.fromId(bestClass)?.label ?: "Unknown",
+                label = classLabel(bestClass),
                 confidence = bestScore,
                 boundingBox = box,
             )
         }
         return result
     }
+
+    private fun classLabel(classId: Int): String =
+        DetectedClass.fromId(classId)?.label ?: COCO_LABELS.getOrElse(classId) { "Object $classId" }
 
     private fun mapBox(
         raw: RectF,
@@ -195,3 +198,19 @@ internal class YoloV8OutputDecoder(
         return if (union > 0f) intersection / union else 0f
     }
 }
+
+
+private val COCO_LABELS = listOf(
+    "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train",
+    "truck", "boat", "traffic light", "fire hydrant", "stop sign", "parking meter",
+    "bench", "bird", "cat", "dog", "horse", "sheep", "cow", "elephant", "bear",
+    "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase",
+    "frisbee", "skis", "snowboard", "sports ball", "kite", "baseball bat",
+    "baseball glove", "skateboard", "surfboard", "tennis racket", "bottle",
+    "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
+    "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut",
+    "cake", "chair", "couch", "potted plant", "bed", "dining table", "toilet",
+    "tv", "laptop", "mouse", "remote", "keyboard", "cell phone", "microwave",
+    "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase",
+    "scissors", "teddy bear", "hair drier", "toothbrush"
+)
