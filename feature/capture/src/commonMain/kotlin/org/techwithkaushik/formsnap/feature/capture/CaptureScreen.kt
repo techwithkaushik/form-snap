@@ -71,8 +71,7 @@ fun CaptureScreen(
                     detectTapGestures { offset ->
                         val hit = selection.findHit(liveDetections, offset.x, offset.y, size.width.toFloat(), size.height.toFloat())
                         if (hit != null) {
-                            val nextIndex = liveDetections.mapNotNull { selection.indexOf(it.id) }.maxOrNull()?.plus(1) ?: 1
-                            selection.toggle(hit, nextIndex)
+                            selection.toggle(hit, selection.nextIndex())
                             selectionVersion++
                         }
                     }
