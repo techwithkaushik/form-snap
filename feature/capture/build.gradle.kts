@@ -25,6 +25,7 @@ kotlin {
                 implementation(libs.camerax.view)
                 implementation(libs.androidx.core)
                 implementation(libs.androidx.lifecycle.runtime)
+                implementation(project(":core:ai"))
                 implementation(libs.kotlinx.coroutines.android)
             }
         }
