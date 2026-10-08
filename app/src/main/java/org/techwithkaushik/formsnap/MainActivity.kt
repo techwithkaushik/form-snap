@@ -68,7 +68,8 @@ class MainActivity : ComponentActivity() {
     private fun FormSnapApp() {
         val ioScope = rememberCoroutineScope()
         var settings by remember { mutableStateOf(OutputSettings()) }
-        var settingsOpen by remember { mutableStateOf(false) }\n        var aiSettingsOpen by remember { mutableStateOf(false) }
+        var settingsOpen by remember { mutableStateOf(false) }
+        var aiSettingsOpen by remember { mutableStateOf(false) }
         var source by remember { mutableStateOf<File?>(null) }
         var mode by remember { mutableStateOf(CaptureMode.WHOLE_FORM) }
         var saveMessage by remember { mutableStateOf<String?>(null) }
@@ -199,7 +200,8 @@ class MainActivity : ComponentActivity() {
 
         HomeScreen(
             settings = settings,
-            onSettings = { settingsOpen = true },\n            onAiModel = { aiSettingsOpen = true },
+            onSettings = { settingsOpen = true },
+            onAiModel = { aiSettingsOpen = true },
             onCamera = { selected ->
                 mode = selected
                 if (autoSaveStore.folderUri() == null) {
@@ -389,7 +391,10 @@ class MainActivity : ComponentActivity() {
             topBar = {
                 TopAppBar(
                     title = { Text("FormSnap", fontWeight = FontWeight.Bold) },
-                    actions = {\n                        TextButton(onClick = onAiModel) { Text("AI Model") }\n                        TextButton(onClick = onSettings) { Text("Output") }\n                    },
+                    actions = {
+                        TextButton(onClick = onAiModel) { Text("AI Model") }
+                        TextButton(onClick = onSettings) { Text("Output") }
+                    },
                 )
             },
         ) { padding ->
