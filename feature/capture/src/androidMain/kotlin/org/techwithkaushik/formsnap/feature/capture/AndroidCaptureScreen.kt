@@ -9,6 +9,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
@@ -27,6 +30,7 @@ fun AndroidCaptureScreen(
     val presenter = remember(initialMode) { CapturePresenter(initialMode) }
     val camera = remember(presenter, context) { AndroidCameraCapture(context, presenter) }
     val session = remember(context) { CaptureSession.create(context) }
+    var liveDetections by remember { mutableStateOf<List<LiveDetection>>(emptyList()) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -40,6 +44,7 @@ fun AndroidCaptureScreen(
     }
 
     DisposableEffect(Unit) {
+        camera.setLiveDetectionListener { detections -> liveDetections = detections }
         onDispose {
             camera.shutdown()
             session.close()
