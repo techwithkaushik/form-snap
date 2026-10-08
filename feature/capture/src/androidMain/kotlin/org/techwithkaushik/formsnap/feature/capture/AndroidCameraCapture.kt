@@ -4,6 +4,8 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.graphics.Bitmap
+import android.graphics.Matrix
 import android.view.Surface
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
