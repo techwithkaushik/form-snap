@@ -109,6 +109,7 @@ class MainActivity : ComponentActivity() {
                 } catch (t: Throwable) {
                     saveMessage = "Auto extraction failed: " + (t.message ?: "unknown error")
                 } finally {
+                    lockedSelections = emptyList()
                     input.delete()
                     org.techwithkaushik.formSnap.foundation.ProcessingPaths.cleanup(this@MainActivity)
                 }
