@@ -6,8 +6,8 @@ plugins {
     alias(libs.plugins.kotlin.android)
 }
 
-val bootstrapModelFile = layout.projectDirectory.file(
-    "src/main/assets/formsnap_bootstrap_yolov8n_float32.tflite",
+val bootstrapModelFile = layout.buildDirectory.file(
+    "generated/bootstrap-assets/formsnap_bootstrap_yolov8n_float32.tflite",
 )
 val bootstrapModelUrl =
     "https://raw.githubusercontent.com/naz23/yolo-tensorflow-lite/main/yolov8n_float32.tflite"
@@ -15,7 +15,7 @@ val bootstrapModelUrl =
 val downloadBootstrapModel by tasks.registering {
     outputs.file(bootstrapModelFile)
     doLast {
-        val target = bootstrapModelFile.asFile
+        val target = bootstrapModelFile.get().asFile
         if (!target.exists() || target.length() < 1_000_000L) {
             target.parentFile.mkdirs()
             URL(bootstrapModelUrl).openStream().use { input ->
@@ -40,6 +40,10 @@ android {
         minSdk = libs.versions.androidMinSdk.get().toInt()
         consumerProguardFiles("consumer-rules.pro")
     }
+
+    sourceSets["main"].assets.srcDir(
+        layout.buildDirectory.dir("generated/bootstrap-assets"),
+    )
 
     androidResources {
         noCompress += "tflite"
