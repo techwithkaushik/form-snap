@@ -120,7 +120,7 @@ internal class YoloV8OutputDecoder(
                 }
             }
 
-            if (bestClass !in 0..maxClassId || bestScore < config.confidenceThreshold) continue
+            if (bestClass !in 0..1 || bestScore < config.confidenceThreshold) continue
 
             val box = mapBox(
                 RectF(
