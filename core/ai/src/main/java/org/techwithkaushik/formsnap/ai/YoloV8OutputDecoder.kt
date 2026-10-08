@@ -160,7 +160,7 @@ internal class YoloV8OutputDecoder(
         val clipped = RectF(
             left.coerceIn(0f, transform.sourceWidth.toFloat()),
             top.coerceIn(0f, transform.sourceHeight.toFloat()),
-            right.coerceIn(0f, transform.sourceHeight.toFloat()),
+            right.coerceIn(0f, transform.sourceWidth.toFloat()),
             bottom.coerceIn(0f, transform.sourceHeight.toFloat()),
         )
 
