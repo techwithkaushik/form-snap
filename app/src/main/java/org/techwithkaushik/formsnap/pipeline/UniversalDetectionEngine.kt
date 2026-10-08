@@ -162,10 +162,43 @@ object UniversalDetectionEngine {
      * above, below, or beside the photograph.
      */
     private fun collectInkCandidates(gray: Mat, edgeMap: Mat): List<ShapeCandidate> {
+        // Signatures vary widely: thin signatures need a small grouping kernel,
+        // while broken/faint strokes need a larger one. Run three lightweight
+        // scales and merge overlapping detections instead of relying on one
+        // fixed stroke spacing.
+        val scales = listOf(
+            org.opencv.core.Size(11.0, 3.0),
+            org.opencv.core.Size(17.0, 3.0),
+            org.opencv.core.Size(23.0, 5.0),
+        )
+        val all = ArrayList<ShapeCandidate>()
+        for (size in scales) {
+            all += collectInkCandidatesAtScale(gray, edgeMap, size)
+        }
+
+        // Keep the strongest candidate when multiple morphology scales describe
+        // the same signature. This prevents the larger kernel from duplicating
+        // the result and lets thin strokes win when they are better localized.
+        return all
+            .sortedByDescending { it.score }
+            .fold(ArrayList()) { kept, candidate ->
+                if (kept.none { overlapRatio(it.rect, candidate.rect) >= 0.55 }) {
+                    kept += candidate
+                }
+                kept
+            }
+            .take(40)
+    }
+
+    private fun collectInkCandidatesAtScale(
+        gray: Mat,
+        edgeMap: Mat,
+        kernelSize: org.opencv.core.Size,
+    ): List<ShapeCandidate> {
         val binary = Mat()
         val grouped = Mat()
         val hierarchy = Mat()
-        var kernel: Mat? = null
+        val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_CLOSE, kernelSize)
         val contours = ArrayList<MatOfPoint>()
         try {
             Imgproc.threshold(
@@ -174,10 +207,6 @@ object UniversalDetectionEngine {
                 0.0,
                 255.0,
                 Imgproc.THRESH_BINARY_INV or Imgproc.THRESH_OTSU,
-            )
-            kernel = Imgproc.getStructuringElement(
-                Imgproc.MORPH_RECT,
-                org.opencv.core.Size(17.0, 3.0),
             )
             Imgproc.morphologyEx(binary, grouped, Imgproc.MORPH_CLOSE, kernel)
             Imgproc.findContours(
@@ -192,27 +221,29 @@ object UniversalDetectionEngine {
             val result = ArrayList<ShapeCandidate>()
             for (contour in contours) {
                 val rect = OpenCvGeometry.boundingRect(contour)
-                if (rect.width < 55 || rect.height < 8) continue
+                if (rect.width < 42 || rect.height < 6) continue
                 if (rect.height > max(180, (gray.rows() * 0.18).toInt())) continue
 
                 val ratio = rect.width.toDouble() / max(1, rect.height).toDouble()
-                if (ratio !in 1.15..8.0) continue
+                if (ratio !in 1.10..9.5) continue
                 val rectArea = rect.width.toDouble() * rect.height.toDouble()
                 if (rectArea > imageArea * 0.30) continue
 
                 val ink = inkScore(gray, rect)
-                if (ink < 0.004) continue
+                if (ink < 0.003) continue
 
-                val ratioFit = 1.0 - min(1.0, abs(ratio - 2.6) / 3.4)
+                val ratioFit = 1.0 - min(1.0, abs(ratio - 2.6) / 3.6)
                 val widthScore = min(1.0, rect.width / max(1.0, gray.cols() * 0.35))
                 val lowerPageScore = (rect.y.toDouble() / max(1, gray.rows())).coerceIn(0.0, 1.0)
                 val edgeScore = min(1.0, edgeDensity(edgeMap, rect) / 0.28)
+                val handwritingCue = if (looksHandwritten(gray, rect)) 1.0 else 0.0
                 val score = (
-                    ratioFit * 0.30 +
-                        min(1.0, ink * 4.0) * 0.35 +
-                        widthScore * 0.15 +
-                        lowerPageScore * 0.10 +
-                        edgeScore * 0.10
+                    ratioFit * 0.24 +
+                        min(1.0, ink * 4.5) * 0.34 +
+                        widthScore * 0.14 +
+                        lowerPageScore * 0.08 +
+                        edgeScore * 0.08 +
+                        handwritingCue * 0.12
                     ).coerceIn(0.0, 1.0)
 
                 result += ShapeCandidate(
@@ -224,14 +255,27 @@ object UniversalDetectionEngine {
                     frameLike = false,
                 )
             }
-            return result.sortedByDescending { it.score }.take(40)
+            return result
         } finally {
             contours.forEach { it.release() }
-            kernel?.release()
+            kernel.release()
             hierarchy.release()
             grouped.release()
             binary.release()
         }
+    }
+
+    private fun overlapRatio(a: Rect, b: Rect): Double {
+        val left = max(a.x, b.x)
+        val top = max(a.y, b.y)
+        val right = min(a.x + a.width, b.x + b.width)
+        val bottom = min(a.y + a.height, b.y + b.height)
+        val intersection = max(0, right - left) * max(0, bottom - top)
+        val smaller = min(
+            a.width.toDouble() * a.height.toDouble(),
+            b.width.toDouble() * b.height.toDouble(),
+        )
+        return if (smaller <= 0.0) 0.0 else intersection.toDouble() / smaller
     }
 
     private fun shapeScore(
