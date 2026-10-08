@@ -44,8 +44,8 @@ fun AiModelSettingsDialog(
         runCatching {
             manager.importModel(uri)
             models = manager.models()
-        }.onSuccess { onMessage("AI model imported and activated: \${it.name}") }
-            .onFailure { onMessage("AI model import failed: \${it.message ?: "unknown error"}") }
+        }.onSuccess { onMessage("AI model imported and activated: ${it.name}") }
+            .onFailure { onMessage("AI model import failed: ${it.message ?: "unknown error"}") }
     }
 
     val backupLauncher = rememberLauncherForActivityResult(
@@ -56,7 +56,7 @@ fun AiModelSettingsDialog(
         if (uri != null && name != null) {
             runCatching { manager.exportModel(name, uri) }
                 .onSuccess { onMessage("AI model backup created.") }
-                .onFailure { onMessage("Backup failed: \${it.message ?: "unknown error"}") }
+                .onFailure { onMessage("Backup failed: ${it.message ?: "unknown error"}") }
         }
     }
 
@@ -90,7 +90,7 @@ fun AiModelSettingsDialog(
                                     runCatching { manager.setActive(model.name) }
                                         .onSuccess {
                                             models = manager.models()
-                                            onMessage("Active model: \${model.name}")
+                                            onMessage("Active model: ${model.name}")
                                         }
                                 },
                                 onBackup = {
