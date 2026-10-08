@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,7 +28,6 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.platform.LocalDensity
 
 @Composable
 fun CaptureScreen(
@@ -186,8 +186,7 @@ private fun LiveDetectionOverlay(
     detections: List<LiveDetection>,
 ) {
     if (detections.isEmpty()) return
-    val density = LocalDensity.current
-    Box(modifier = modifier) {
+    BoxWithConstraints(modifier = modifier) {
         Canvas(Modifier.fillMaxSize()) {
             detections.forEach { detection ->
                 val left = detection.left.coerceIn(0f, 1f) * size.width
@@ -223,8 +222,8 @@ private fun LiveDetectionOverlay(
                 style = MaterialTheme.typography.labelLarge,
                 modifier = Modifier
                     .offset(
-                        x = with(density) { (centerX * 1000f).dp },
-                        y = with(density) { (centerY * 1000f).dp },
+                        x = (centerX * maxWidth.value).dp,
+                        y = (centerY * maxHeight.value).dp,
                     )
                     .background(Color(0xFF2979FF), CircleShape)
                     .padding(horizontal = 6.dp, vertical = 2.dp),
