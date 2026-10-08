@@ -85,6 +85,10 @@ class MainActivity : ComponentActivity() {
                             dpi = settings.dpi.toInt(),
                             maxKb = settings.maxKb,
                             mode = selectedMode.name,
+                            photoWidthMm = settings.photoWidthMm,
+                            photoHeightMm = settings.photoHeightMm,
+                            signatureWidthMm = settings.signatureWidthMm,
+                            signatureHeightMm = settings.signatureHeightMm,
                         )
                     }
                     val saved = withContext(Dispatchers.IO) {
