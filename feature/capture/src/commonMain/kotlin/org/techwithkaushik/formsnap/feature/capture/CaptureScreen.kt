@@ -18,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -66,7 +67,7 @@ fun CaptureScreen(
                 .fillMaxSize()
                 .pointerInput(liveDetections, selectionVersion) {
                     detectTapGestures { offset ->
-                        val hit = selection.findHit(liveDetections, offset.x, offset.y, size.width, size.height)
+                        val hit = selection.findHit(liveDetections, offset.x, offset.y, size.width.toFloat(), size.height.toFloat())
                         if (hit != null) {
                             val nextIndex = liveDetections.mapNotNull { selection.indexOf(it.id) }.maxOrNull()?.plus(1) ?: 1
                             selection.toggle(hit, nextIndex)
