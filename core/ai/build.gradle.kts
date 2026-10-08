@@ -24,7 +24,6 @@ android {
 
 dependencies {
     implementation(libs.tensorflow.lite)
-    implementation(libs.tensorflow.lite.gpu)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.core)
 }
