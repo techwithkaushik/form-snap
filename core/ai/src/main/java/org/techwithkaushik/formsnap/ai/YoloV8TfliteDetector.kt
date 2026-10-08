@@ -15,8 +15,6 @@ import kotlin.math.roundToInt
 import org.tensorflow.lite.DataType
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.Tensor
-import org.tensorflow.lite.gpu.CompatibilityList
-import org.tensorflow.lite.gpu.GpuDelegate
 
 class YoloV8TfliteDetector(
     context: Context,
@@ -36,7 +34,6 @@ class YoloV8TfliteDetector(
     private var closed = false
 
     private var interpreter: Interpreter? = null
-    private var gpuDelegate: GpuDelegate? = null
     private var inputBuffer: ByteBuffer? = null
     private var outputBuffer: ByteBuffer? = null
     private var outputShape: IntArray = intArrayOf()
@@ -115,13 +112,11 @@ class YoloV8TfliteDetector(
         )
         descriptor.close()
 
-        val options = Interpreter.Options()
-        val compatibility = CompatibilityList()
-        if (compatibility.isDelegateSupportedOnThisDevice) {
-            gpuDelegate = GpuDelegate(compatibility.bestOptionsForThisDevice)
-            options.addDelegate(requireNotNull(gpuDelegate))
-        } else {
-            options.setNumThreads(4)
+        // Keep the first production path on the TensorFlow Lite CPU runtime.
+        // This avoids GPU delegate ABI/classpath conflicts across old Android
+        // devices. The detector still runs fully offline and on-device.
+        val options = Interpreter.Options().apply {
+            setNumThreads(4)
         }
 
         val created = Interpreter(modelBuffer, options)
