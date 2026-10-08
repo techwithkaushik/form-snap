@@ -16,13 +16,13 @@ internal class YoloV8OutputDecoder(
         require(values.isNotEmpty()) { "YOLO output tensor is empty." }
 
         val detections = if (looksLikeNmsOutput(shape)) {
-            decodeNms(values, shape, transform, false)
+            decodeNms(values, shape, transform)
         } else {
             decodeRawYolo(values, shape, transform)
         }
 
         return nonMaximumSuppression(detections)
-            .filter { it.classId in 0..config.maxClassId || (it.classId in 0..2 && it.label == DetectedClass.fromId(it.classId)?.label) }
+            .filter { it.classId in 0..1 }
             .take(config.maxDetections)
     }
 
@@ -33,7 +33,6 @@ internal class YoloV8OutputDecoder(
         values: FloatArray,
         shape: IntArray,
         transform: LetterboxTransform,
-        formSnapClasses: Boolean,
     ): List<DetectedObject> {
         val rows = if (shape.size >= 2) shape[shape.size - 2] else 0
         val cols = shape.last()
@@ -60,7 +59,7 @@ internal class YoloV8OutputDecoder(
                     DetectedObject(
                         id = size.toLong(),
                         classId = classId,
-                        label = classLabel(classId, formSnapClasses),
+                        label = classLabel(classId),
                         confidence = confidence,
                         boundingBox = box,
                     ),
@@ -95,8 +94,9 @@ internal class YoloV8OutputDecoder(
 
         if (channels < 7 || candidates <= 0) return emptyList()
         val classCount = channels - 4
-        val formSnapClasses = classCount == 3
-        val maxClassId = if (formSnapClasses) 2 else config.maxClassId
+        val maxClassId = 1
+
+        if (classCount != 2) return emptyList()
 
         fun at(candidate: Int, channel: Int): Float =
             if (channelsFirst) {
@@ -137,7 +137,7 @@ internal class YoloV8OutputDecoder(
             result += DetectedObject(
                 id = candidate.toLong(),
                 classId = bestClass,
-                label = classLabel(bestClass, formSnapClasses),
+                label = classLabel(bestClass),
                 confidence = bestScore,
                 boundingBox = box,
             )
@@ -145,12 +145,8 @@ internal class YoloV8OutputDecoder(
         return result
     }
 
-    private fun classLabel(classId: Int, formSnapClasses: Boolean): String =
-        if (formSnapClasses) {
-            DetectedClass.fromId(classId)?.label ?: "Object $classId"
-        } else {
-            COCO_LABELS.getOrElse(classId) { "Object $classId" }
-        }
+    private fun classLabel(classId: Int): String =
+        DetectedClass.fromId(classId)?.label ?: "Object $classId"
 
     private fun mapBox(
         raw: RectF,
