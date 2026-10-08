@@ -11,6 +11,9 @@ data class LiveDetection(
     val top: Float,
     val right: Float,
     val bottom: Float,
+    val id: Long = 0L,
+    val selectionIndex: Int? = null,
+    val locked: Boolean = false,
 )
 
 data class CaptureGridState(
