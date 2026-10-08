@@ -160,7 +160,6 @@ fun CaptureScreen(
 }
 
 @Composable
-@Composable
 private fun LiveDetectionOverlay(
     modifier: Modifier,
     detections: List<LiveDetection>,
