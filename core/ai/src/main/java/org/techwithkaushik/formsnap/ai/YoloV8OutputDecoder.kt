@@ -16,13 +16,13 @@ internal class YoloV8OutputDecoder(
         require(values.isNotEmpty()) { "YOLO output tensor is empty." }
 
         val detections = if (looksLikeNmsOutput(shape)) {
-            decodeNms(values, shape, transform, config.maxClassId <= 2)
+            decodeNms(values, shape, transform, false)
         } else {
             decodeRawYolo(values, shape, transform)
         }
 
         return nonMaximumSuppression(detections)
-            .filter { it.classId in 0..config.maxClassId }
+            .filter { it.classId in 0..config.maxClassId || (it.classId in 0..2 && it.label == DetectedClass.fromId(it.classId)?.label) }
             .take(config.maxDetections)
     }
 
@@ -94,6 +94,9 @@ internal class YoloV8OutputDecoder(
         }
 
         if (channels < 7 || candidates <= 0) return emptyList()
+        val classCount = channels - 4
+        val formSnapClasses = classCount == 3
+        val maxClassId = if (formSnapClasses) 2 else config.maxClassId
 
         fun at(candidate: Int, channel: Int): Float =
             if (channelsFirst) {
@@ -119,7 +122,7 @@ internal class YoloV8OutputDecoder(
                 }
             }
 
-            if (bestClass !in 0..config.maxClassId || bestScore < config.confidenceThreshold) continue
+            if (bestClass !in 0..maxClassId || bestScore < config.confidenceThreshold) continue
 
             val box = mapBox(
                 RectF(
@@ -134,7 +137,7 @@ internal class YoloV8OutputDecoder(
             result += DetectedObject(
                 id = candidate.toLong(),
                 classId = bestClass,
-                label = classLabel(bestClass, channels - 4 <= 3),
+                label = classLabel(bestClass, formSnapClasses),
                 confidence = bestScore,
                 boundingBox = box,
             )
