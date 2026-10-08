@@ -125,9 +125,11 @@ class AndroidCameraCapture(
         val bitmap = imageToBitmap(image)
         image.close()
         if (bitmap == null) return
+        val sourceWidth = bitmap.width.toFloat().coerceAtLeast(1f)
+        val sourceHeight = bitmap.height.toFloat().coerceAtLeast(1f)
         active.detectAsync(bitmap, { detections ->
             bitmap.recycle()
-            onLiveDetections?.invoke(detections.filter { it.isExtractable }.map(::toLiveDetection))
+            onLiveDetections?.invoke(detections.filter { it.isExtractable }.map { toLiveDetection(it, sourceWidth, sourceHeight) })
         }, { bitmap.recycle() })
     }
 
@@ -151,18 +153,15 @@ class AndroidCameraCapture(
         return rotated
     }
 
-    private fun toLiveDetection(detection: DetectedObject): LiveDetection {
-        val width = detection.boundingBox.width().coerceAtLeast(1f)
-        val height = detection.boundingBox.height().coerceAtLeast(1f)
-        return LiveDetection(
+    private fun toLiveDetection(detection: DetectedObject, sourceWidth: Float, sourceHeight: Float): LiveDetection =
+        LiveDetection(
             label = detection.label,
             confidence = detection.confidence,
-            left = detection.boundingBox.left / width,
-            top = detection.boundingBox.top / height,
-            right = detection.boundingBox.right / width,
-            bottom = detection.boundingBox.bottom / height,
+            left = detection.boundingBox.left / sourceWidth,
+            top = detection.boundingBox.top / sourceHeight,
+            right = detection.boundingBox.right / sourceWidth,
+            bottom = detection.boundingBox.bottom / sourceHeight,
         )
-    }
 
     private fun bindUseCases(cameraProvider: ProcessCameraProvider) {
         val lifecycleOwner = owner ?: return
