@@ -16,7 +16,7 @@ internal class YoloV8OutputDecoder(
         require(values.isNotEmpty()) { "YOLO output tensor is empty." }
 
         val detections = if (looksLikeNmsOutput(shape)) {
-            decodeNms(values, shape, transform)
+            decodeNms(values, shape, transform, config.maxClassId <= 2)
         } else {
             decodeRawYolo(values, shape, transform)
         }
@@ -33,6 +33,7 @@ internal class YoloV8OutputDecoder(
         values: FloatArray,
         shape: IntArray,
         transform: LetterboxTransform,
+        formSnapClasses: Boolean,
     ): List<DetectedObject> {
         val rows = if (shape.size >= 2) shape[shape.size - 2] else 0
         val cols = shape.last()
@@ -59,7 +60,7 @@ internal class YoloV8OutputDecoder(
                     DetectedObject(
                         id = size.toLong(),
                         classId = classId,
-                        label = classLabel(classId, config.maxClassId),
+                        label = classLabel(classId, formSnapClasses),
                         confidence = confidence,
                         boundingBox = box,
                     ),
@@ -133,7 +134,7 @@ internal class YoloV8OutputDecoder(
             result += DetectedObject(
                 id = candidate.toLong(),
                 classId = bestClass,
-                label = classLabel(bestClass, config.maxClassId),
+                label = classLabel(bestClass, channels - 4 <= 3),
                 confidence = bestScore,
                 boundingBox = box,
             )
@@ -141,8 +142,8 @@ internal class YoloV8OutputDecoder(
         return result
     }
 
-    private fun classLabel(classId: Int, maxClassId: Int): String =
-        if (maxClassId <= 2) {
+    private fun classLabel(classId: Int, formSnapClasses: Boolean): String =
+        if (formSnapClasses) {
             DetectedClass.fromId(classId)?.label ?: "Object $classId"
         } else {
             COCO_LABELS.getOrElse(classId) { "Object $classId" }
