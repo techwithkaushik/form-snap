@@ -145,6 +145,18 @@ jobs:
           cache-read-only: ${{ github.event_name == 'pull_request' }}
           validate-wrappers: false
 
+      - name: Download bootstrap YOLOv8 model
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODEL_DIR="core/ai/src/main/assets"
+          MODEL="$MODEL_DIR/formsnap_bootstrap_yolov8n_float32.tflite"
+          mkdir -p "$MODEL_DIR"
+          curl --fail --location --retry 5 --retry-all-errors             "https://raw.githubusercontent.com/naz23/yolo-tensorflow-lite/main/yolov8n_float32.tflite"             -o "$MODEL"
+          test -s "$MODEL"
+          test "$(stat -c%s "$MODEL")" -gt 1000000
+          ls -lh "$MODEL"
+
       - name: Decode Keystore
         id: keystore
         uses: timheuer/base64-to-file@v2.0
