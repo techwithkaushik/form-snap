@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.FilterChip
@@ -26,6 +27,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalDensity
 
 @Composable
 fun CaptureScreen(
@@ -184,21 +186,48 @@ private fun LiveDetectionOverlay(
     detections: List<LiveDetection>,
 ) {
     if (detections.isEmpty()) return
-    Canvas(modifier) {
+    val density = LocalDensity.current
+    Box(modifier = modifier) {
+        Canvas(Modifier.fillMaxSize()) {
+            detections.forEach { detection ->
+                val left = detection.left.coerceIn(0f, 1f) * size.width
+                val top = detection.top.coerceIn(0f, 1f) * size.height
+                val right = detection.right.coerceIn(0f, 1f) * size.width
+                val bottom = detection.bottom.coerceIn(0f, 1f) * size.height
+                drawRect(
+                    color = when {
+                        detection.locked -> Color(0xFF2979FF)
+                        detection.label == "Signature" -> Color(0xFFFFC107)
+                        else -> Color(0xFF00E676)
+                    },
+                    topLeft = androidx.compose.ui.geometry.Offset(left, top),
+                    size = androidx.compose.ui.geometry.Size(
+                        (right - left).coerceAtLeast(1f),
+                        (bottom - top).coerceAtLeast(1f),
+                    ),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 4f),
+                )
+            }
+        }
         detections.forEach { detection ->
-            val left = detection.left.coerceIn(0f, 1f) * size.width
-            val top = detection.top.coerceIn(0f, 1f) * size.height
-            val right = detection.right.coerceIn(0f, 1f) * size.width
-            val bottom = detection.bottom.coerceIn(0f, 1f) * size.height
-            drawRect(
-                color = when {
-                    detection.locked -> Color(0xFF2979FF)
-                    detection.label == "Signature" -> Color(0xFFFFC107)
-                    else -> Color(0xFF00E676)
-                },
-                topLeft = androidx.compose.ui.geometry.Offset(left, top),
-                size = androidx.compose.ui.geometry.Size((right - left).coerceAtLeast(1f), (bottom - top).coerceAtLeast(1f)),
-                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 4f),
+            val index = detection.selectionIndex ?: return@forEach
+            val left = detection.left.coerceIn(0f, 1f)
+            val top = detection.top.coerceIn(0f, 1f)
+            val width = (detection.right - detection.left).coerceAtLeast(0f)
+            val height = (detection.bottom - detection.top).coerceAtLeast(0f)
+            val centerX = (left + width / 2f)
+            val centerY = (top + height / 2f)
+            Text(
+                text = index.toString(),
+                color = Color.White,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier
+                    .offset(
+                        x = with(density) { (centerX * 1000f).dp },
+                        y = with(density) { (centerY * 1000f).dp },
+                    )
+                    .background(Color(0xFF2979FF), CircleShape)
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
             )
         }
     }
