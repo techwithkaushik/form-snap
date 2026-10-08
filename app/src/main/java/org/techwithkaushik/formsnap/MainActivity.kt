@@ -120,7 +120,10 @@ class MainActivity : ComponentActivity() {
         // Compose must consume the system Back button while an editor or
         // settings dialog is open. Previously only the top-bar Back button
         // changed state, so the Android Back button finished the Activity.
-        BackHandler(enabled = settingsOpen) {
+        BackHandler(enabled = aiSettingsOpen) {
+            aiSettingsOpen = false
+        }
+        BackHandler(enabled = settingsOpen && !aiSettingsOpen) {
             settingsOpen = false
         }
         BackHandler(enabled = source != null && !settingsOpen) {
@@ -384,6 +387,7 @@ class MainActivity : ComponentActivity() {
     private fun HomeScreen(
         settings: OutputSettings,
         onSettings: () -> Unit,
+        onAiModel: () -> Unit,
         onCamera: (CaptureMode) -> Unit,
         onImport: () -> Unit,
     ) {
