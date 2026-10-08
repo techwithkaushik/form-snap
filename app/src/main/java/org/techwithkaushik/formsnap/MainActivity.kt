@@ -70,7 +70,6 @@ class MainActivity : ComponentActivity() {
         var source by remember { mutableStateOf<File?>(null) }
         var mode by remember { mutableStateOf(CaptureMode.WHOLE_FORM) }
         var saveMessage by remember { mutableStateOf<String?>(null) }
-        var importKeepsCurrentMode by remember { mutableStateOf(false) }
 
         // Compose must consume the system Back button while an editor or
         // settings dialog is open. Previously only the top-bar Back button
@@ -94,11 +93,12 @@ class MainActivity : ComponentActivity() {
                 ioScope.launch {
                     val imported = withContext(Dispatchers.IO) { uriToFile(uri, "camera") }
                     capturedFile.delete()
-                    source?.takeIf { it != imported }?.delete()
-                    source = imported
-                    saveMessage = if (imported == null) {
-                        "Could not read the captured image. Please capture again."
-                    } else null
+                    if (imported == null) {
+                        saveMessage = "Could not read the captured image. Please capture again."
+                    } else {
+                        startAutoProcess(imported, pendingCameraMode ?: CaptureMode.WHOLE_FORM)
+                    }
+                    pendingCameraMode = null
                 }
             } else {
                 capturedFile?.delete()
@@ -115,12 +115,21 @@ class MainActivity : ComponentActivity() {
                     if (imported == null) {
                         saveMessage = "Could not open this image. Try a different file."
                     } else {
-                        source?.takeIf { it != imported }?.delete()
-                        source = imported
-                        saveMessage = null
-                        if (!importKeepsCurrentMode) mode = CaptureMode.WHOLE_FORM
+                        startAutoProcess(imported, if (pendingImport) mode else CaptureMode.WHOLE_FORM)
                     }
+                    pendingImport = false
                 }
+            }
+        }
+
+        val outputFolderLauncher = rememberLauncherForActivityResult(
+            ActivityResultContracts.OpenDocumentTree(),
+        ) { uri ->
+            if (uri == null) {
+                saveMessage = "Output folder was not selected."
+            } else {
+                autoSaveStore.setFolder(uri)
+                saveMessage = "Output folder selected. Next capture will auto-save."
             }
         }
 
@@ -134,48 +143,29 @@ class MainActivity : ComponentActivity() {
             mode = CaptureMode.WHOLE_FORM
         }
 
-        if (source == null) {
-            HomeScreen(
-                settings = settings,
-                onSettings = { settingsOpen = true },
-                onCamera = { selected ->
-                    mode = selected
-                    // TakePicture delegates capture to the installed camera app;
-                    // this app does not open Camera APIs and needs no CAMERA grant.
+        HomeScreen(
+            settings = settings,
+            onSettings = { settingsOpen = true },
+            onCamera = { selected ->
+                mode = selected
+                if (autoSaveStore.folderUri() == null) {
+                    pendingCameraMode = selected
+                    outputFolderLauncher.launch(null)
+                } else {
+                    pendingCameraMode = selected
                     launchCamera(openCamera)
-                },
-                onImport = {
-                    importKeepsCurrentMode = false
+                }
+            },
+            onImport = {
+                pendingImport = false
+                if (autoSaveStore.folderUri() == null) {
+                    pendingImport = true
+                    outputFolderLauncher.launch(null)
+                } else {
                     openDocument.launch(arrayOf("image/*"))
-                },
-            )
-        } else {
-            EditorScreen(
-                file = source!!,
-                mode = mode,
-                onSettings = { settingsOpen = true },
-                onBack = { source?.delete(); source = null },
-                onCaptureAgain = { launchCamera(openCamera) },
-                onImportAgain = {
-                    importKeepsCurrentMode = true
-                    openDocument.launch(arrayOf("image/*"))
-                },
-                onExtract = {
-                    val input = source ?: error("No source image")
-                    pipelineLauncher.launch(
-                        Intent(this@MainActivity, PipelinePreviewActivity::class.java)
-                            .putExtra(PipelinePreviewActivity.EXTRA_INPUT_PATH, input.absolutePath)
-                            .putExtra(PipelinePreviewActivity.EXTRA_CAPTURE_MODE, mode.name)
-                            .putExtra(PipelinePreviewActivity.EXTRA_MAX_KB, settings.maxKb)
-                            .putExtra(PipelinePreviewActivity.EXTRA_DPI, settings.dpi)
-                            .putExtra(PipelinePreviewActivity.EXTRA_PHOTO_WIDTH_MM, settings.photoWidthMm)
-                            .putExtra(PipelinePreviewActivity.EXTRA_PHOTO_HEIGHT_MM, settings.photoHeightMm)
-                            .putExtra(PipelinePreviewActivity.EXTRA_SIGNATURE_WIDTH_MM, settings.signatureWidthMm)
-                            .putExtra(PipelinePreviewActivity.EXTRA_SIGNATURE_HEIGHT_MM, settings.signatureHeightMm),
-                    )
-                },
-            )
-        }
+                }
+            },
+        )
 
         if (settingsOpen) {
             OutputSettingsDialog(
@@ -325,7 +315,7 @@ class MainActivity : ComponentActivity() {
                                 fontWeight = FontWeight.ExtraBold,
                             )
                             Spacer(Modifier.height(8.dp))
-                            Text("Capture or import a form, then extract photo and signature.")
+                            Text("Capture or import a form. AI will detect, crop and auto-save photo and signature without a review screen.")
                             Spacer(Modifier.height(8.dp))
                             
                         }
@@ -357,8 +347,8 @@ class MainActivity : ComponentActivity() {
                 item {
                     Card(shape = RoundedCornerShape(18.dp)) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("OpenCV detection", fontWeight = FontWeight.Bold)
-                            Text("Photo and signature regions are detected locally on your device. Review each crop before saving; no legacy learning profile is applied.")
+                            Text("Zero-touch AI mode", fontWeight = FontWeight.Bold)
+                            Text("YOLO detects Photo and Signature locally. Handwriting is ignored; final crops come from the original full-resolution image and are auto-saved.")
                         }
                     }
                 }
