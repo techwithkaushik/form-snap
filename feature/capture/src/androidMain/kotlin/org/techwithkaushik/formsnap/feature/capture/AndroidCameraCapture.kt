@@ -159,6 +159,7 @@ class AndroidCameraCapture(
         LiveDetection(
             label = detection.label,
             confidence = detection.confidence,
+            id = detection.id,
             left = detection.boundingBox.left / sourceWidth,
             top = detection.boundingBox.top / sourceHeight,
             right = detection.boundingBox.right / sourceWidth,
