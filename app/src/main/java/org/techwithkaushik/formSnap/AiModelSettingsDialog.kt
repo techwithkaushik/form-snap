@@ -41,10 +41,11 @@ fun AiModelSettingsDialog(
         ActivityResultContracts.OpenDocument(),
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        runCatching {
-            manager.importModel(uri)
-            models = manager.models()
-        }.onSuccess { onMessage("AI model imported and activated: ${it.name}") }
+        runCatching { manager.importModel(uri) }
+            .onSuccess { info ->
+                models = manager.models()
+                onMessage("AI model imported and activated: ${info.name}")
+            }
             .onFailure { onMessage("AI model import failed: ${it.message ?: "unknown error"}") }
     }
 
