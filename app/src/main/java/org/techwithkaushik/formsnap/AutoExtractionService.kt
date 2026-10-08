@@ -2,15 +2,15 @@ package org.techwithkaushik.formSnap
 
 import android.content.Context
 import android.graphics.Bitmap
-import org.techwithkaushik.formsnap.ai.DetectedClass
-import org.techwithkaushik.formsnap.ai.YoloV8TfliteDetector
+import org.opencv.imgcodecs.Imgcodecs
 import org.techwithkaushik.formSnap.pipeline.DetectionCandidate
 import org.techwithkaushik.formSnap.pipeline.DetectionKind
 import org.techwithkaushik.formSnap.pipeline.DetectionResult
 import org.techwithkaushik.formSnap.pipeline.UniversalDetectionEngine
 import org.techwithkaushik.formSnap.pipeline.UniversalPipelineBatch
+import org.techwithkaushik.formsnap.ai.DetectedClass
+import org.techwithkaushik.formsnap.ai.YoloV8TfliteDetector
 import org.techwithkaushik.formsnap.feature.capture.LiveDetection
-import org.opencv.imgcodecs.Imgcodecs
 import java.io.File
 
 data class AutoExtractionResult(
@@ -49,9 +49,9 @@ object AutoExtractionService {
                 org.opencv.android.Utils.matToBitmap(source, aiBitmap)
 
                 val detectionResult = if (selectedDetections.isNotEmpty()) {
-                    // Locked live boxes are authoritative for this capture. They
-                    // are normalized to the analysis frame, so remap them to the
-                    // original full-resolution capture before cropping.
+                    // A locked live selection is authoritative. Its normalized
+                    // coordinates are remapped onto the original full-resolution
+                    // capture, so the final crop never comes from the AI preview.
                     detectionFromLockedSelections(
                         selectedDetections = selectedDetections,
                         sourceWidth = source.cols(),
@@ -59,44 +59,44 @@ object AutoExtractionService {
                     )
                 } else {
                     val aiDetector = YoloV8TfliteDetector(context)
-                    if (aiDetector.modelAvailable()) {
-                        try {
+                    try {
+                        if (aiDetector.modelAvailable()) {
                             val objects = aiDetector.detect(aiBitmap)
-                        val photo = objects
-                            .filter { it.classId == DetectedClass.PHOTO.id && it.isExtractable }
-                            .maxByOrNull { it.confidence }
-                        val signature = objects
-                            .filter { it.classId == DetectedClass.SIGNATURE.id && it.isExtractable }
-                            .maxByOrNull { it.confidence }
+                            val photo = objects
+                                .filter { it.classId == DetectedClass.PHOTO.id && it.isExtractable }
+                                .maxByOrNull { it.confidence }
+                            val signature = objects
+                                .filter { it.classId == DetectedClass.SIGNATURE.id && it.isExtractable }
+                                .maxByOrNull { it.confidence }
 
                             DetectionResult(
                                 sourceWidth = source.cols(),
-                            sourceHeight = source.rows(),
-                            photo = photo?.let {
-                                DetectionCandidate(
-                                    kind = DetectionKind.PHOTO,
-                                    bounds = it.boundingBox,
-                                    confidence = it.confidence,
-                                    source = "yolov8n-int8",
-                                )
-                            },
-                            signature = signature?.let {
-                                DetectionCandidate(
-                                    kind = DetectionKind.SIGNATURE,
-                                    bounds = it.boundingBox,
-                                    confidence = it.confidence,
-                                    source = "yolov8n-int8",
-                                )
-                            },
-                            detectorVersion = "yolov8n-int8",
+                                sourceHeight = source.rows(),
+                                photo = photo?.let {
+                                    DetectionCandidate(
+                                        kind = DetectionKind.PHOTO,
+                                        bounds = it.boundingBox,
+                                        confidence = it.confidence,
+                                        source = "yolov8n-int8",
+                                    )
+                                },
+                                signature = signature?.let {
+                                    DetectionCandidate(
+                                        kind = DetectionKind.SIGNATURE,
+                                        bounds = it.boundingBox,
+                                        confidence = it.confidence,
+                                        source = "yolov8n-int8",
+                                    )
+                                },
+                                detectorVersion = "yolov8n-int8",
                             )
-                        } finally {
-                            aiDetector.close()
+                        } else {
+                            // Keep the classical fallback until the trained
+                            // model asset is added; YOLO remains preferred.
+                            UniversalDetectionEngine.detect(source)
                         }
-                    } else {
-                        // Keep the automatic workflow usable until the trained model
-                    // asset is added. The trained model will be preferred automatically.
-                        UniversalDetectionEngine.detect(source)
+                    } finally {
+                        aiDetector.close()
                     }
                 }
 
@@ -118,7 +118,9 @@ object AutoExtractionService {
                                 "Unable to encode photo output."
                             }
                             SavedImageEncoder.encodeWithinLimit(file, maxKb)
-                        } else null
+                        } else {
+                            null
+                        }
 
                         val signatureBytes =
                             if (mode != "PHOTO" && processed.signature != null) {
@@ -127,7 +129,9 @@ object AutoExtractionService {
                                     "Unable to encode signature output."
                                 }
                                 SavedImageEncoder.encodeWithinLimit(file, maxKb)
-                            } else null
+                            } else {
+                                null
+                            }
 
                         AutoExtractionResult(
                             photoBytes = photoBytes,
@@ -146,6 +150,8 @@ object AutoExtractionService {
         } finally {
             source.release()
         }
+    }
+
     private fun detectionFromLockedSelections(
         selectedDetections: List<LiveDetection>,
         sourceWidth: Int,
@@ -155,10 +161,15 @@ object AutoExtractionService {
             detection: LiveDetection,
             kind: DetectionKind,
         ): DetectionCandidate {
-            val left = (detection.left.coerceIn(0f, 1f) * sourceWidth).coerceIn(0f, sourceWidth - 1f)
-            val top = (detection.top.coerceIn(0f, 1f) * sourceHeight).coerceIn(0f, sourceHeight - 1f)
-            val right = (detection.right.coerceIn(0f, 1f) * sourceWidth).coerceIn(left + 1f, sourceWidth.toFloat())
-            val bottom = (detection.bottom.coerceIn(0f, 1f) * sourceHeight).coerceIn(top + 1f, sourceHeight.toFloat())
+            val left = (detection.left.coerceIn(0f, 1f) * sourceWidth)
+                .coerceIn(0f, sourceWidth - 1f)
+            val top = (detection.top.coerceIn(0f, 1f) * sourceHeight)
+                .coerceIn(0f, sourceHeight - 1f)
+            val right = (detection.right.coerceIn(0f, 1f) * sourceWidth)
+                .coerceIn(left + 1f, sourceWidth.toFloat())
+            val bottom = (detection.bottom.coerceIn(0f, 1f) * sourceHeight)
+                .coerceIn(top + 1f, sourceHeight.toFloat())
+
             return DetectionCandidate(
                 kind = kind,
                 bounds = android.graphics.RectF(left, top, right, bottom),
@@ -184,6 +195,5 @@ object AutoExtractionService {
             signature = signature,
             detectorVersion = "live-lock-v1",
         )
-    }
     }
 }
