@@ -10,6 +10,7 @@ import org.techwithkaushik.formSnap.pipeline.UniversalDetectionEngine
 import org.techwithkaushik.formSnap.pipeline.UniversalPipelineBatch
 import org.techwithkaushik.formsnap.ai.AiModelManager
 import org.techwithkaushik.formsnap.ai.DetectedClass
+import org.techwithkaushik.formsnap.ai.DetectionConfig
 import org.techwithkaushik.formsnap.ai.YoloV8TfliteDetector
 import org.techwithkaushik.formsnap.feature.capture.LiveDetection
 import java.io.File
