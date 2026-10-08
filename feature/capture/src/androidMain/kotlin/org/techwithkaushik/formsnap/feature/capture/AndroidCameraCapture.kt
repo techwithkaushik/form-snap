@@ -43,6 +43,7 @@ class AndroidCameraCapture(
     private var detector: YoloV8TfliteDetector? = null
     private val analysisExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val frameGate = FrameSkipGate(2)
+    private var lastLiveDetections: List<LiveDetection> = emptyList()
     private val inferenceBusy = AtomicBoolean(false)
     private var onLiveDetections: ((List<LiveDetection>) -> Unit)? = null
 
@@ -133,6 +134,7 @@ class AndroidCameraCapture(
         detector = null
         inferenceBusy.set(false)
         analysisExecutor.shutdownNow()
+        lastLiveDetections = emptyList()
         onLiveDetections?.invoke(emptyList())
         owner = null
         previewView = null
@@ -150,13 +152,14 @@ class AndroidCameraCapture(
         active.detectAsync(bitmap, { detections ->
             bitmap.recycle()
             inferenceBusy.set(false)
-            onLiveDetections?.invoke(
-                detections
-                    .asSequence()
-                    .filter { it.classId in 0..2 && it.confidence >= 0.35f }
-                    .map { toLiveDetection(it, sourceWidth, sourceHeight) }
-                    .toList(),
-            )
+            val mapped = detections
+                .asSequence()
+                .filter { it.confidence >= 0.30f }
+                .map { toLiveDetection(it, sourceWidth, sourceHeight) }
+                .toList()
+            val stable = stabilizeDetections(mapped)
+            lastLiveDetections = stable
+            onLiveDetections?.invoke(stable)
         }, {
             bitmap.recycle()
             inferenceBusy.set(false)
@@ -184,6 +187,45 @@ class AndroidCameraCapture(
         return rotated
     }
 
+    private fun stabilizeDetections(current: List<LiveDetection>): List<LiveDetection> {
+        if (lastLiveDetections.isEmpty()) return current
+        val used = BooleanArray(lastLiveDetections.size)
+        return current.map { next ->
+            var bestIndex = -1
+            var bestIou = 0f
+            lastLiveDetections.forEachIndexed { index, previous ->
+                if (!used[index] && previous.label == next.label) {
+                    val overlap = iou(previous, next)
+                    if (overlap > bestIou) { bestIou = overlap; bestIndex = index }
+                }
+            }
+            if (bestIndex < 0 || bestIou < 0.15f) next else {
+                used[bestIndex] = true
+                val previous = lastLiveDetections[bestIndex]
+                val alpha = 0.45f
+                next.copy(
+                    confidence = previous.confidence * (1f - alpha) + next.confidence * alpha,
+                    left = previous.left * (1f - alpha) + next.left * alpha,
+                    top = previous.top * (1f - alpha) + next.top * alpha,
+                    right = previous.right * (1f - alpha) + next.right * alpha,
+                    bottom = previous.bottom * (1f - alpha) + next.bottom * alpha,
+                )
+            }
+        }
+    }
+
+    private fun iou(a: LiveDetection, b: LiveDetection): Float {
+        val left = maxOf(a.left, b.left)
+        val top = maxOf(a.top, b.top)
+        val right = minOf(a.right, b.right)
+        val bottom = minOf(a.bottom, b.bottom)
+        val intersection = (right - left).coerceAtLeast(0f) * (bottom - top).coerceAtLeast(0f)
+        val union = area(a) + area(b) - intersection
+        return if (union <= 0f) 0f else intersection / union
+    }
+
+    private fun area(d: LiveDetection): Float =
+        (d.right - d.left).coerceAtLeast(0f) * (d.bottom - d.top).coerceAtLeast(0f)
     private fun toLiveDetection(detection: DetectedObject, sourceWidth: Float, sourceHeight: Float): LiveDetection =
         LiveDetection(
             label = detection.label,
@@ -234,10 +276,10 @@ class AndroidCameraCapture(
                             appContext,
                             modelFile = importedModel,
                             config = DetectionConfig(
-                                inputSize = 640,
+                                inputSize = 320,
                                 confidenceThreshold = 0.35f,
                                 iouThreshold = 0.45f,
-                                maxDetections = 24,
+                                maxDetections = 12,
                                 maxClassId = 79,
                             ),
                         )
