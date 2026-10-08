@@ -117,5 +117,6 @@ fun AndroidCaptureScreen(
         onImageCaptured = onImageCaptured,
         onImportImage = onImportImage,
         onError = onError,
+        liveDetections = liveDetections,
     )
 }
