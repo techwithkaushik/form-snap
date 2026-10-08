@@ -19,9 +19,23 @@ object UniversalPipelineBatch {
     fun process(
         source: Mat,
         dpi: Int = 300,
+    ): UniversalPipelineOutput =
+        process(source, UniversalDetectionEngine.detect(source), dpi)
+
+    /**
+     * Runs output generation from a precomputed detection result.
+     * The zero-touch AI workflow uses this overload so YOLO runs once and
+     * the final crop is still taken from the original full-resolution image.
+     */
+    fun process(
+        source: Mat,
+        detection: DetectionResult,
+        dpi: Int = 300,
     ): UniversalPipelineOutput {
         require(!source.empty()) { "Source image is empty" }
-        val detection = UniversalDetectionEngine.detect(source)
+        require(detection.sourceWidth == source.cols() && detection.sourceHeight == source.rows()) {
+            "Detection coordinates do not match the source image."
+        }
         var photo: PipelineStageOutput? = null
         var signature: PipelineStageOutput? = null
         try {
