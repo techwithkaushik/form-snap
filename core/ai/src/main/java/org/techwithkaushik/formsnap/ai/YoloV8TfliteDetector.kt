@@ -21,6 +21,7 @@ class YoloV8TfliteDetector(
     context: Context,
     private val modelAssetName: String = DEFAULT_MODEL_ASSET,
     private val config: DetectionConfig = DetectionConfig(),
+    private val modelFile: File? = null,
 ) : AutoCloseable {
 
     companion object {
