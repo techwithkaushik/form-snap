@@ -48,7 +48,6 @@ object AutoExtractionService {
             try {
                 org.opencv.android.Utils.matToBitmap(source, aiBitmap)
 
-                val aiDetector = YoloV8TfliteDetector(context)
                 val detectionResult = if (selectedDetections.isNotEmpty()) {
                     // Locked live boxes are authoritative for this capture. They
                     // are normalized to the analysis frame, so remap them to the
@@ -58,9 +57,11 @@ object AutoExtractionService {
                         sourceWidth = source.cols(),
                         sourceHeight = source.rows(),
                     )
-                } else if (aiDetector.modelAvailable()) {
-                    try {
-                        val objects = aiDetector.detect(aiBitmap)
+                } else {
+                    val aiDetector = YoloV8TfliteDetector(context)
+                    if (aiDetector.modelAvailable()) {
+                        try {
+                            val objects = aiDetector.detect(aiBitmap)
                         val photo = objects
                             .filter { it.classId == DetectedClass.PHOTO.id && it.isExtractable }
                             .maxByOrNull { it.confidence }
@@ -68,8 +69,8 @@ object AutoExtractionService {
                             .filter { it.classId == DetectedClass.SIGNATURE.id && it.isExtractable }
                             .maxByOrNull { it.confidence }
 
-                        DetectionResult(
-                            sourceWidth = source.cols(),
+                            DetectionResult(
+                                sourceWidth = source.cols(),
                             sourceHeight = source.rows(),
                             photo = photo?.let {
                                 DetectionCandidate(
@@ -88,14 +89,15 @@ object AutoExtractionService {
                                 )
                             },
                             detectorVersion = "yolov8n-int8",
-                        )
-                    } finally {
-                        aiDetector.close()
-                    }
-                } else {
-                    // Keep the automatic workflow usable until the trained model
+                            )
+                        } finally {
+                            aiDetector.close()
+                        }
+                    } else {
+                        // Keep the automatic workflow usable until the trained model
                     // asset is added. The trained model will be preferred automatically.
-                    UniversalDetectionEngine.detect(source)
+                        UniversalDetectionEngine.detect(source)
+                    }
                 }
 
                 UniversalPipelineBatch.process(
