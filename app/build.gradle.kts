@@ -72,11 +72,8 @@ dependencies {
     implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.ui)
-    implementation(project(":core:processor"))
     implementation(project(":core:ai"))
-    implementation(project(":core:database"))
     implementation(project(":feature:capture"))
-    implementation(project(":feature:pipeline"))
     implementation(project(":opencv"))
     debugImplementation(libs.androidx.lifecycle.runtime)
 }
