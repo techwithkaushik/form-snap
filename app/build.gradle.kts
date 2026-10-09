@@ -75,5 +75,4 @@ dependencies {
     implementation(project(":core:ai"))
     implementation(project(":feature:capture"))
     implementation(project(":opencv"))
-    debugImplementation(libs.androidx.lifecycle.runtime)
 }
