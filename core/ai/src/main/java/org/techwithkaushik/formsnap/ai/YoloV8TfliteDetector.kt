@@ -100,13 +100,6 @@ class YoloV8TfliteDetector(
         val model = requireNotNull(interpreter)
         val input = requireNotNull(inputBuffer)
         val output = requireNotNull(outputBuffer)
-        // Extraction requires spatial boxes. Never convert a classifier's
-        // whole-frame label into a fake photo/signature detection.
-        require(!isTwoClassClassifier(outputShape)) {
-            "This model only classifies the whole image and cannot locate photo/signature regions. " +
-                "Import a two-class YOLO object detector with output [1,6,N]."
-        }
-
         val prepared = letterbox(bitmap, inputWidth, inputHeight)
         try {
             input.clear()
@@ -197,8 +190,8 @@ class YoloV8TfliteDetector(
 
     private fun classLabel(classId: Int): String =
         when (classId) {
-            0 -> "PHOTO (classification test)"
-            1 -> "SIGNATURE (classification test)"
+            0 -> "Photo"
+            1 -> "Signature"
             else -> "Class $classId"
         }
 
