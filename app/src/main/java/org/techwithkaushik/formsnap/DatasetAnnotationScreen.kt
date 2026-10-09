@@ -51,7 +51,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
     var activeBox by remember { mutableStateOf<LabelBox?>(null) }
     var busy by remember { mutableStateOf(false) }
     var fullScreen by remember { mutableStateOf(false) }
-    var formGroupId by remember(image?.absolutePath) { mutableStateOf(image?.nameWithoutExtension.orEmpty()) }
+    var formGroupId by remember(index) { mutableStateOf(images.getOrNull(index)?.nameWithoutExtension.orEmpty()) }
     var savedPaths by remember(images) { mutableStateOf<Set<String>>(emptySet()) }
     var dirtyPaths by remember(images) { mutableStateOf<Set<String>>(emptySet()) }
     var status by remember { mutableStateOf("PHOTO चुनें और फोटो के चारों ओर drag करें") }
