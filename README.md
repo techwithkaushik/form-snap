@@ -41,9 +41,9 @@ The save step encodes JPEG output under the configured per-image KB budget by fi
 1. Export the trained detector as a TensorFlow Lite `.tflite` file. Do not select the training ZIP, dataset, or a YOLO model trained for the 80 COCO classes.
 2. Open **AI Model** in FormSnap and choose **Import AI Model (.tflite)**. Select the exported model from Downloads or the folder where it was saved.
 3. FormSnap validates the tensor layout and runs a small inference smoke test before activating the model. The imported model is copied to app-private storage and stays on the device.
-4. Return to the camera screen and point it at a form containing a photo and/or signature. Use the on-screen labels and boxes to judge whether the model actually detects the targets; a successful import alone does not establish detection accuracy.
+4. Return to the camera screen and point it at a form containing a photo and/or signature. Camera frames are converted from CameraX YUV_420_888 to RGB before inference; on-screen boxes still need to be checked against representative forms because a successful import alone does not establish detection accuracy.
 
-The YOLO detector path supports a batch-1 RGB image tensor in NHWC or NCHW layout and a raw two-class output with six channels, including common exports such as input `[1,3,640,640]` and output `[1,6,8400]`. The model's class mapping must be **PHOTO = 0** and **SIGNATURE = 1**. Classifier output `[1,2]` is accepted only for whole-frame classification experiments and cannot provide crop coordinates.
+The YOLO detector path supports a batch-1 RGB image tensor in NHWC or NCHW layout and a raw two-class output with six channels, including common exports such as input `[1,3,640,640]` and output `[1,6,8400]`. The model's class mapping must be **PHOTO = 0** and **SIGNATURE = 1**. Classifier output `[1,2]` is rejected because it cannot provide crop coordinates; FormSnap only activates spatial object-detection models.
 
 The model is kept outside the APK, so importing a custom detector does not increase the installed APK size. Live inference and extraction run locally; representative real-form images and on-device testing are still required before relying on the detector.
 
