@@ -183,8 +183,9 @@ class AndroidCameraCapture(
             inferenceBusy.set(false)
             val mapped = detections
                 .asSequence()
-                .filter { it.confidence >= 0.12f }
+                .filter { it.confidence >= 0.05f }
                 .map { toLiveDetection(it, sourceWidth, sourceHeight) }
+                .filter { it.right - it.left >= 0.008f && it.bottom - it.top >= 0.008f }
                 .toList()
             val topScores = detections.sortedByDescending { it.confidence }.take(4)
                 .joinToString { "${it.label} ${"%.2f".format(java.util.Locale.US, it.confidence)}" }
@@ -428,7 +429,7 @@ class AndroidCameraCapture(
                             modelFile = importedModel,
                             config = DetectionConfig(
                                 inputSize = 320,
-                                confidenceThreshold = 0.12f,
+                                confidenceThreshold = 0.05f,
                                 iouThreshold = 0.45f,
                                 maxDetections = 4,
                             ),
