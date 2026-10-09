@@ -1,12 +1,14 @@
 package org.techwithkaushik.formsnap.feature.capture
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.util.Locale
 import java.util.UUID
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -50,17 +52,37 @@ class AiLearningStore(context: Context) {
         app.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
             ?: error("Cannot open source image.")
         require(bounds.outWidth > 0 && bounds.outHeight > 0) { "Unsupported source image." }
+
+        // Decode conservatively, then scale to a hard maximum. inSampleSize alone can leave
+        // images nearly twice MAX_IMAGE_SIDE, increasing disk use and future training memory.
         val maxSide = maxOf(bounds.outWidth, bounds.outHeight)
         val sample = Integer.highestOneBit((maxSide / MAX_IMAGE_SIDE).coerceAtLeast(1))
-        val bitmap = app.contentResolver.openInputStream(uri)?.use {
+        val decoded = app.contentResolver.openInputStream(uri)?.use {
             BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample })
         } ?: error("Cannot decode source image.")
+        val bitmap = try {
+            val decodedMax = maxOf(decoded.width, decoded.height)
+            if (decodedMax > MAX_IMAGE_SIDE) {
+                val scale = MAX_IMAGE_SIDE.toFloat() / decodedMax.toFloat()
+                Bitmap.createScaledBitmap(
+                    decoded,
+                    (decoded.width * scale).toInt().coerceAtLeast(1),
+                    (decoded.height * scale).toInt().coerceAtLeast(1),
+                    true,
+                ).also { if (it !== decoded) decoded.recycle() }
+            } else {
+                decoded
+            }
+        } catch (failure: Throwable) {
+            if (!decoded.isRecycled) decoded.recycle()
+            throw failure
+        }
 
         val id = UUID.randomUUID().toString()
-        val image = File(imageDir, "\${id}.jpg")
+        val image = File(imageDir, "${id}.jpg")
         try {
             FileOutputStream(image).use {
-                check(bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, JPEG_QUALITY, it))
+                check(bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, it))
             }
         } catch (failure: Throwable) {
             image.delete()
@@ -82,9 +104,12 @@ class AiLearningStore(context: Context) {
     fun exportYoloZip(destination: File): File {
         val items = readAll().filter { File(imageDir, it.imageFile).isFile }
         require(items.isNotEmpty()) { "No reviewed examples to export yet." }
-        require(items.any { it.classId == PHOTO } && items.any { it.classId == SIGNATURE }) {
-            "Collect at least one PHOTO and one SIGNATURE example before exporting."
+        val byClass = items.groupBy { it.classId }
+        require(byClass[PHOTO].orEmpty().size >= MIN_EXAMPLES_PER_CLASS_FOR_EXPORT &&
+            byClass[SIGNATURE].orEmpty().size >= MIN_EXAMPLES_PER_CLASS_FOR_EXPORT) {
+            "For a useful train/validation/test export, add at least 3 PHOTO and 3 SIGNATURE examples."
         }
+        val splits = stratifiedSplits(items)
         destination.parentFile?.mkdirs()
         ZipOutputStream(destination.outputStream().buffered()).use { zip ->
             zipText(zip, "data.yaml", """
@@ -97,27 +122,43 @@ class AiLearningStore(context: Context) {
                   1: SIGNATURE
             """.trimIndent() + "\n")
             items.forEach { item ->
-                val split = when (Math.floorMod(item.id.hashCode(), 10)) {
-                    0 -> "test"
-                    1, 2 -> "val"
-                    else -> "train"
-                }
-                val imagePath = "images/\${split}/\${item.id}.jpg"
-                val labelPath = "labels/\${split}/\${item.id}.txt"
+                val split = splits.getValue(item.id)
+                val imagePath = "images/${split}/${item.id}.jpg"
+                val labelPath = "labels/${split}/${item.id}.txt"
                 File(imageDir, item.imageFile).inputStream().buffered().use { input ->
                     zip.putNextEntry(ZipEntry(imagePath)); input.copyTo(zip); zip.closeEntry()
                 }
                 val w = item.right - item.left; val h = item.bottom - item.top
-                val label = "%d %.6f %.6f %.6f %.6f\n".format(
+                val label = String.format(
+                    Locale.US, "%d %.6f %.6f %.6f %.6f\n",
                     item.classId, item.left + w / 2f, item.top + h / 2f, w, h,
                 )
                 zipText(zip, labelPath, label)
             }
             zipText(zip, "README.txt",
                 "FormSnap offline reviewed dataset. Classes: 0=PHOTO, 1=SIGNATURE. " +
-                    "Each image contains one reviewed box. Check class balance and split sizes before training.\n")
+                    "Each image contains one reviewed box. Splits are stratified by class; inspect dataset quality before training.\n")
         }
         return destination
+    }
+
+    private fun stratifiedSplits(items: List<Example>): Map<String, String> {
+        val result = mutableMapOf<String, String>()
+        items.groupBy { it.classId }.forEach { (_, classItems) ->
+            // Stable ordering makes the same local dataset export reproducible.
+            val ordered = classItems.sortedBy { it.id }
+            val testCount = (ordered.size / 10).coerceAtLeast(1)
+            val valCount = (ordered.size / 5).coerceAtLeast(1)
+            ordered.forEachIndexed { index, item ->
+                val split = when {
+                    index < testCount -> "test"
+                    index < testCount + valCount -> "val"
+                    else -> "train"
+                }
+                result[item.id] = split
+            }
+        }
+        return result
     }
 
     @Synchronized
@@ -140,7 +181,7 @@ class AiLearningStore(context: Context) {
                         o.getDouble("left").toFloat(), o.getDouble("top").toFloat(),
                         o.getDouble("right").toFloat(), o.getDouble("bottom").toFloat(),
                         o.getString("source"), o.getLong("createdAt"))
-                }.getOrNull()?.let(::add)
+                }.getOrNull()?.takeIf { it.classId in PHOTO..SIGNATURE }?.let(::add)
             }
         }
     }
@@ -167,5 +208,6 @@ class AiLearningStore(context: Context) {
         const val SIGNATURE = 1
         private const val MAX_IMAGE_SIDE = 1600
         private const val JPEG_QUALITY = 92
+        private const val MIN_EXAMPLES_PER_CLASS_FOR_EXPORT = 3
     }
 }
