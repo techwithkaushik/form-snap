@@ -42,6 +42,7 @@ fun CaptureScreen(
     onImportImage: (CapturedImage) -> Unit = onImageCaptured,
     onError: (String) -> Unit = {},
     liveDetections: List<LiveDetection> = emptyList(),
+    liveDiagnostics: String = "AI: starting camera…",
     modifier: Modifier = Modifier,
 ) {
     val state by controller.state.collectAsState()
@@ -65,6 +66,18 @@ fun CaptureScreen(
         modifier = modifier.fillMaxSize().background(Color.Black),
     ) {
         cameraPreview()
+        Surface(
+            modifier = Modifier.align(Alignment.TopStart).padding(start = 10.dp, top = 12.dp, end = 88.dp),
+            color = Color.Black.copy(alpha = 0.82f),
+            shape = MaterialTheme.shapes.small,
+        ) {
+            Text(
+                text = liveDiagnostics,
+                color = Color.White,
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            )
+        }
         LiveDetectionOverlay(
             modifier = Modifier
                 .fillMaxSize()
