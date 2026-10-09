@@ -50,6 +50,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
     var annotationsByImage by remember(images) { mutableStateOf<Map<String, List<LabelBox>>>(emptyMap()) }
     var activeBox by remember { mutableStateOf<LabelBox?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var fullScreen by remember { mutableStateOf(false) }
     var savedPaths by remember(images) { mutableStateOf<Set<String>>(emptySet()) }
     var dirtyPaths by remember(images) { mutableStateOf<Set<String>>(emptySet()) }
     var status by remember { mutableStateOf("PHOTO चुनें और फोटो के चारों ओर drag करें") }
@@ -112,14 +113,17 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
     BackHandler(onBack = onExit)
     Scaffold(
         topBar = {
-            TopAppBar(
+            if (!fullScreen) TopAppBar(
                 title = { Text("Dataset Builder", fontWeight = FontWeight.Bold) },
                 navigationIcon = { TextButton(onClick = onExit) { Text("Exit") } },
-                actions = { Text((index + 1).toString() + "/" + images.size, modifier = Modifier.padding(end = 12.dp)) }
+                actions = {
+                    TextButton(onClick = { fullScreen = true }) { Text("Full screen") }
+                    Text((index + 1).toString() + "/" + images.size, modifier = Modifier.padding(end = 12.dp))
+                }
             )
         },
         bottomBar = {
-            Surface(shadowElevation = 8.dp) {
+            if (!fullScreen) Surface(shadowElevation = 8.dp) {
                 Column(Modifier.fillMaxWidth().padding(8.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         LabelClass.values().forEach { cls ->
@@ -167,7 +171,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
             }
         }
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding).background(Color(0xFF101216)).padding(4.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxSize().then(if (fullScreen) Modifier else Modifier.padding(padding)).background(Color(0xFF101216)).padding(if (fullScreen) 0.dp else 4.dp), contentAlignment = Alignment.Center) {
             if (bitmap == null) Text("Image could not be opened", color = Color.White)
             else BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 val w = constraints.maxWidth.toFloat()
@@ -211,6 +215,14 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                             Size((b.r - b.l) * dw, (b.b - b.t) * dh),
                             style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3.dp.toPx()))
                     }
+                }
+            }
+            if (fullScreen) {
+                Surface(modifier = Modifier.align(Alignment.TopEnd).padding(12.dp), color = Color(0xDD101216), shape = MaterialTheme.shapes.large) {
+                    TextButton(onClick = { fullScreen = false }) { Text("Done • Exit full screen", color = Color.White) }
+                }
+                Surface(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp), color = Color(0xDD101216), shape = MaterialTheme.shapes.large) {
+                    Text("Drag to mark " + selected.title + " • " + (index + 1) + "/" + images.size, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = selected.color, style = MaterialTheme.typography.bodyMedium)
                 }
             }
         }
