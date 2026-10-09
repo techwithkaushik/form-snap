@@ -149,9 +149,18 @@ class AndroidCameraCapture(
         if (!frameGate.shouldProcess()) { image.close(); return }
         val active = detector
         if (active == null || !inferenceBusy.compareAndSet(false, true)) { image.close(); return }
-        val bitmap = imageToBitmap(image)
-        image.close()
-        if (bitmap == null) return
+        val bitmap = try {
+            imageToBitmap(image)
+        } catch (error: Throwable) {
+            Log.e(TAG, "Unable to convert camera frame to bitmap", error)
+            null
+        } finally {
+            image.close()
+        }
+        if (bitmap == null) {
+            inferenceBusy.set(false)
+            return
+        }
         val sourceWidth = bitmap.width.toFloat().coerceAtLeast(1f)
         val sourceHeight = bitmap.height.toFloat().coerceAtLeast(1f)
         active.detectAsync(bitmap, { detections ->
@@ -303,7 +312,7 @@ class AndroidCameraCapture(
                             .onSuccess { diagnostics ->
                                 Log.i(TAG, diagnostics)
                                 detector = active
-                                presenter.onCaptureFailure("AI ready. ${diagnostics}")
+                                Log.i(TAG, "Active model ready: $diagnostics")
                             }
                             .onFailure { error ->
                                 Log.e(TAG, "Active AI model is incompatible", error)
