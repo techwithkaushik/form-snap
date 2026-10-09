@@ -228,7 +228,7 @@ private fun decodeSampledBitmap(file: File, maxDimension: Int): Bitmap? {
     if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
 
     var sample = 1
-    while (maxOf(bounds.outWidth / (sample * 2), bounds.outHeight / (sample * 2)) >= maxDimension) {
+    while (maxOf(bounds.outWidth / sample, bounds.outHeight / sample) > maxDimension) {
         sample *= 2
     }
     val options = BitmapFactory.Options().apply {
