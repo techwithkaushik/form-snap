@@ -1,6 +1,7 @@
 package org.techwithkaushik.formsnap.ai
 
 import android.graphics.RectF
+import android.util.Log
 import kotlin.math.max
 import kotlin.math.min
 
@@ -19,6 +20,20 @@ internal class YoloV8OutputDecoder(
             decodeNms(values, shape, transform)
         } else {
             decodeRawYolo(values, shape, transform)
+        }
+        if (detections.isEmpty()) {
+            val maximum = values.asSequence().filter { it.isFinite() }.maxOrNull() ?: Float.NaN
+            Log.w(
+                "FormSnapAI",
+                "YOLO decoded zero boxes: shape=${shape.contentToString()}, " +
+                    "maxRawValue=${maximum}, threshold=${config.confidenceThreshold}. " +
+                    "Check model class order, preprocessing and trained weights.",
+            )
+        } else {
+            Log.d(
+                "FormSnapAI",
+                "YOLO decoded ${detections.size} boxes before NMS; best=${detections.maxOf { it.confidence }}",
+            )
         }
 
         return nonMaximumSuppression(detections)
