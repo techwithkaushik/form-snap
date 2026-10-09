@@ -80,7 +80,7 @@ object AutoExtractionService {
                                         kind = DetectionKind.PHOTO,
                                         bounds = it.boundingBox,
                                         confidence = it.confidence,
-                                        source = "yolov8n-int8",
+                                        source = activeModel?.name ?: "bundled-model",
                                     )
                                 },
                                 signature = signature?.let {
@@ -88,10 +88,10 @@ object AutoExtractionService {
                                         kind = DetectionKind.SIGNATURE,
                                         bounds = it.boundingBox,
                                         confidence = it.confidence,
-                                        source = "yolov8n-int8",
+                                        source = activeModel?.name ?: "bundled-model",
                                     )
                                 },
-                                detectorVersion = "yolov8n-int8",
+                                detectorVersion = activeModel?.name ?: "bundled-model",
                             )
                         } else {
                             // Keep the classical fallback until the trained
