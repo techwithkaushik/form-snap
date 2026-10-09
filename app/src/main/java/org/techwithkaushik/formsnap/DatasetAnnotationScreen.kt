@@ -84,7 +84,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                     val root = File(context.filesDir, "dataset-yolo")
                     val imageDir = File(root, "train/images").apply { mkdirs() }
                     val labelDir = File(root, "train/labels").apply { mkdirs() }
-                    val base = "form_" + Integer.toUnsignedString(current.absolutePath.hashCode(), 16)
+                    val base = "form_" + Integer.toHexString(current.absolutePath.hashCode())
                     val ext = current.extension.lowercase(Locale.ROOT).let { if (it in listOf("jpg", "jpeg", "png", "webp")) it else "jpg" }
                     current.copyTo(File(imageDir, base + "." + ext), true)
                     val text = currentBoxes.joinToString("\n") { b ->
