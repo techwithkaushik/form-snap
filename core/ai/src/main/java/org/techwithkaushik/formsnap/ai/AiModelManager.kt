@@ -143,12 +143,16 @@ class AiModelManager(context: Context) {
             val outputShape = interpreter.getOutputTensor(0).shape()
             // Only accept raw two-class YOLO output. NMS output shapes are ambiguous:
             // tensor shape alone cannot prove their class order is PHOTO(0), SIGNATURE(1).
+            // Keep importer validation aligned with the decoder: raw YOLO has hundreds
+            // of candidates, while small row-wise tensors may be NMS output and are ambiguous.
+            val minRawCandidates = 256
             val isRawTwoClassOutput = outputShape.size == 3 &&
-                ((outputShape[1] == 6 && outputShape[2] > 6) ||
-                    (outputShape[2] == 6 && outputShape[1] > 6))
+                ((outputShape[1] == 6 && outputShape[2] > minRawCandidates) ||
+                    (outputShape[2] == 6 && outputShape[1] > minRawCandidates))
             require(isRawTwoClassOutput) {
                 "Incompatible output shape ${outputShape.contentToString()}. Import a raw two-class YOLO model " +
-                    "with 6 channels (4 box values + PHOTO(0) + SIGNATURE(1)). Generic COCO and NMS-output models are not supported."
+                    "with 6 channels (4 box values + PHOTO(0) + SIGNATURE(1)) and more than 256 raw candidates. " +
+                    "Generic COCO and ambiguous NMS-output models are not supported."
             }
         } catch (t: Throwable) {
             if (t is IllegalArgumentException) throw t
