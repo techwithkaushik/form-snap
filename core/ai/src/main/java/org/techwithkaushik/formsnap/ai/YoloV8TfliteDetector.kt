@@ -265,11 +265,15 @@ class YoloV8TfliteDetector(
         val scale = params.scale
         val zeroPoint = params.zeroPoint
 
-        fun put(value: Float) {
+        // Ultralytics YOLO exports expect RGB float values normalized to [0, 1].
+        // Quantized tensors must quantize that same real-value range using the
+        // tensor's scale/zero-point; feeding raw 0..255 values breaks confidence.
+        fun put(channelValue: Int) {
+            val normalized = channelValue / 255f
             when (type) {
-                DataType.FLOAT32 -> target.putFloat(value)
-                DataType.UINT8 -> target.put(quantize(value, scale, zeroPoint).coerceIn(0, 255).toByte())
-                DataType.INT8 -> target.put(quantize(value, scale, zeroPoint).coerceIn(-128, 127).toByte())
+                DataType.FLOAT32 -> target.putFloat(normalized)
+                DataType.UINT8 -> target.put(quantize(normalized, scale, zeroPoint).coerceIn(0, 255).toByte())
+                DataType.INT8 -> target.put(quantize(normalized, scale, zeroPoint).coerceIn(-128, 127).toByte())
                 else -> error("Unsupported TFLite input type: $type")
             }
         }
@@ -278,9 +282,9 @@ class YoloV8TfliteDetector(
         when (inputLayout) {
             InputLayout.NHWC -> {
                 for (pixel in pixels) {
-                    put(Color.red(pixel).toFloat())
-                    put(Color.green(pixel).toFloat())
-                    put(Color.blue(pixel).toFloat())
+                    put(Color.red(pixel))
+                    put(Color.green(pixel))
+                    put(Color.blue(pixel))
                 }
             }
             InputLayout.NCHW -> {
@@ -288,9 +292,9 @@ class YoloV8TfliteDetector(
                     for (pixel in pixels) {
                         put(
                             when (channel) {
-                                0 -> Color.red(pixel).toFloat()
-                                1 -> Color.green(pixel).toFloat()
-                                else -> Color.blue(pixel).toFloat()
+                                0 -> Color.red(pixel)
+                                1 -> Color.green(pixel)
+                                else -> Color.blue(pixel)
                             },
                         )
                     }
