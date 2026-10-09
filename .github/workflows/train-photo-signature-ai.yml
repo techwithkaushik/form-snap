@@ -1,0 +1,110 @@
+name: Train FormSnap PHOTO/SIGNATURE AI
+
+on:
+  workflow_dispatch:
+    inputs:
+      epochs:
+        description: "Training epochs (CPU runner; default 100)"
+        required: true
+        default: "100"
+        type: string
+      image_size:
+        description: "Square training/inference input size"
+        required: true
+        default: "320"
+        type: choice
+        options:
+          - "320"
+          - "640"
+      batch:
+        description: "CPU batch size"
+        required: true
+        default: "8"
+        type: choice
+        options:
+          - "4"
+          - "8"
+          - "16"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: formsnap-ai-training
+  cancel-in-progress: false
+
+jobs:
+  train-and-export:
+    name: Train, validate, export TFLite
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - name: Checkout existing foundation branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/foundation-pipeline
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: training/requirements.txt
+
+      - name: Install training dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r training/requirements.txt pyyaml
+
+      - name: Validate training inputs
+        env:
+          ROBOFLOW_API_KEY: ${{ secrets.ROBOFLOW_API_KEY }}
+          ROBOFLOW_WORKSPACE: ${{ vars.ROBOFLOW_WORKSPACE }}
+          ROBOFLOW_PROJECT: ${{ vars.ROBOFLOW_PROJECT }}
+          ROBOFLOW_VERSION: ${{ vars.ROBOFLOW_VERSION }}
+          FORMSNAP_EPOCHS: ${{ inputs.epochs }}
+          FORMSNAP_IMAGE_SIZE: ${{ inputs.image_size }}
+          FORMSNAP_BATCH: ${{ inputs.batch }}
+        run: |
+          python - <<'PY'
+          import os
+          required = ("ROBOFLOW_API_KEY", "ROBOFLOW_WORKSPACE", "ROBOFLOW_PROJECT", "ROBOFLOW_VERSION")
+          missing = [key for key in required if not os.getenv(key, "").strip()]
+          if missing:
+              raise SystemExit(
+                  "Configure repository secret ROBOFLOW_API_KEY and Actions variables "
+                  "ROBOFLOW_WORKSPACE, ROBOFLOW_PROJECT, ROBOFLOW_VERSION. Missing: "
+                  + ", ".join(missing)
+              )
+          for key, allowed in {
+              "FORMSNAP_EPOCHS": {"25", "50", "75", "100", "150", "200"},
+              "FORMSNAP_IMAGE_SIZE": {"320", "640"},
+              "FORMSNAP_BATCH": {"4", "8", "16"},
+          }.items():
+              value = os.getenv(key, "")
+              if value not in allowed:
+                  raise SystemExit(f"Invalid {key}={value!r}; allowed: {sorted(allowed)}")
+          PY
+
+      - name: Train, test, and export compatible TFLite
+        env:
+          ROBOFLOW_API_KEY: ${{ secrets.ROBOFLOW_API_KEY }}
+          ROBOFLOW_WORKSPACE: ${{ vars.ROBOFLOW_WORKSPACE }}
+          ROBOFLOW_PROJECT: ${{ vars.ROBOFLOW_PROJECT }}
+          ROBOFLOW_VERSION: ${{ vars.ROBOFLOW_VERSION }}
+          FORMSNAP_EPOCHS: ${{ inputs.epochs }}
+          FORMSNAP_IMAGE_SIZE: ${{ inputs.image_size }}
+          FORMSNAP_BATCH: ${{ inputs.batch }}
+        run: python training/scripts/train_export.py
+
+      - name: Upload trained model and evaluation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: formsnap-photo-signature-tflite
+          path: |
+            training/output/
+            training/work/runs/
+          if-no-files-found: warn
+          retention-days: 14
