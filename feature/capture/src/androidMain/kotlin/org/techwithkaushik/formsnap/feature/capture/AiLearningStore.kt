@@ -53,7 +53,6 @@ class AiLearningStore(context: Context) {
             ?: error("Cannot open source image.")
         require(bounds.outWidth > 0 && bounds.outHeight > 0) { "Unsupported source image." }
 
-        // Bound both decode and saved dimensions for low-memory devices.
         val maxSide = maxOf(bounds.outWidth, bounds.outHeight)
         val sample = Integer.highestOneBit((maxSide / MAX_IMAGE_SIDE).coerceAtLeast(1))
         val decoded = app.contentResolver.openInputStream(uri)?.use {
@@ -97,9 +96,8 @@ class AiLearningStore(context: Context) {
     }
 
     /**
-     * Exports one image and all of its boxes together. If a form was labeled once for PHOTO
-     * and again for SIGNATURE, both annotations remain on the same image and in the same split,
-     * avoiding train/validation leakage from duplicate copies of one form.
+     * Exports one image and all of its boxes together. Identical full-form images are deduplicated
+     * by content hash, preventing a photo box and signature box from leaking across dataset splits.
      */
     @Synchronized
     fun exportYoloZip(destination: File): File {
@@ -140,10 +138,10 @@ class AiLearningStore(context: Context) {
             groups.forEach { group ->
                 val split = splits.getValue(group.key)
                 val imageName = "${group.key.take(24)}.jpg"
-                val imagePath = "images/$split/$imageName"
-                val labelPath = "labels/$split/${group.key.take(24)}.txt"
                 group.file.inputStream().buffered().use { input ->
-                    zip.putNextEntry(ZipEntry(imagePath)); input.copyTo(zip); zip.closeEntry()
+                    zip.putNextEntry(ZipEntry("images/$split/$imageName"))
+                    input.copyTo(zip)
+                    zip.closeEntry()
                 }
                 val labels = group.examples.joinToString(separator = "") { item ->
                     val w = item.right - item.left
@@ -153,29 +151,26 @@ class AiLearningStore(context: Context) {
                         item.classId, item.left + w / 2f, item.top + h / 2f, w, h,
                     )
                 }
-                zipText(zip, labelPath, labels)
+                zipText(zip, "labels/$split/${group.key.take(24)}.txt", labels)
             }
             val splitSummary = listOf("train", "val", "test").joinToString("\n") { split ->
                 "$split: ${splitGroups[split].orEmpty().size} unique form images"
             }
             zipText(zip, "README.txt",
                 "FormSnap local reviewed dataset. Classes: 0=PHOTO, 1=SIGNATURE. " +
-                    "Boxes from the same image are kept together to avoid split leakage.\n$splitSummary\n" +
+                    "Boxes from identical images stay together to avoid split leakage.\n$splitSummary\n" +
                     "Exporting this ZIP does not train a model.\n")
         }
         return destination
     }
 
     private fun assignSplits(groups: List<ImageGroup>): Map<String, String> {
-        // Stable, class-aware greedy assignment: prefer the split furthest below its target
-        // for every class present in the image. Images are never split across partitions.
         val targets = mapOf("train" to 0.70, "val" to 0.20, "test" to 0.10)
-        val totalByClass = groups.flatMap { it.examples }
-            .groupingBy { it.classId }.eachCount()
+        val totalByClass = groups.flatMap { it.examples }.groupingBy { it.classId }.eachCount()
         val assignedBySplit = mutableMapOf<String, MutableMap<Int, Int>>()
         val groupCountBySplit = mutableMapOf<String, Int>()
         val result = mutableMapOf<String, String>()
-        groups.sortedByDescending { group -> group.examples.map { it.classId }.distinct().size }
+        groups.sortedByDescending { it.examples.map { e -> e.classId }.distinct().size }
             .forEach { group ->
                 val groupClasses = group.examples.groupingBy { it.classId }.eachCount()
                 val chosen = targets.keys.maxBy { split ->
@@ -206,7 +201,9 @@ class AiLearningStore(context: Context) {
                 digest.update(buffer, 0, read)
             }
         }
-        return digest.digest().joinToString("") { "%02x".format(Locale.US, it) }
+        return digest.digest().joinToString("") { byte ->
+            "%02x".format(Locale.US, byte.toInt() and 0xff)
+        }
     }
 
     @Synchronized
