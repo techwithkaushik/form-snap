@@ -8,6 +8,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.io.FileInputStream
+import java.io.InputStream
 import java.security.MessageDigest
 import java.util.Locale
 import java.util.UUID
@@ -48,16 +50,28 @@ class AiLearningStore(context: Context) {
         require(r - l >= 0.01f && b - t >= 0.01f) { "Selection is too small." }
 
         val uri = Uri.parse(sourceUri)
+        fun openSource(): InputStream = when (uri.scheme?.lowercase(Locale.US)) {
+            "file" -> {
+                val path = uri.path ?: error("The local image path is empty.")
+                FileInputStream(File(path))
+            }
+            "content", "android.resource" ->
+                app.contentResolver.openInputStream(uri)
+                    ?: error("The selected image provider returned no readable stream.")
+            else -> error("Unsupported image source scheme: ${uri.scheme ?: "missing"}. Re-import the image.")
+        }
+
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        app.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-            ?: error("Cannot open source image.")
-        require(bounds.outWidth > 0 && bounds.outHeight > 0) { "Unsupported source image." }
+        openSource().use { BitmapFactory.decodeStream(it, null, bounds) }
+        require(bounds.outWidth > 0 && bounds.outHeight > 0) {
+            "Image source opened, but Android could not decode it (unsupported or damaged image)."
+        }
 
         val maxSide = maxOf(bounds.outWidth, bounds.outHeight)
         val sample = Integer.highestOneBit((maxSide / MAX_IMAGE_SIDE).coerceAtLeast(1))
-        val decoded = app.contentResolver.openInputStream(uri)?.use {
+        val decoded = openSource().use {
             BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample })
-        } ?: error("Cannot decode source image.")
+        } ?: error("Image source opened but decoding failed.")
         val bitmap = try {
             val decodedMax = maxOf(decoded.width, decoded.height)
             if (decodedMax > MAX_IMAGE_SIDE) {
