@@ -19,84 +19,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  run_unit_test:
-    name: Run unit tests
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: feature/foundation-pipeline
-          fetch-depth: 1
-          submodules: false
-
-      - name: Cache OpenCV Android SDK
-        id: opencv-cache
-        uses: actions/cache@v4
-        with:
-          path: opencv/
-          key: opencv-android-sdk-5.0.0-${{ runner.os }}
-
-      - name: Download OpenCV Android SDK 5.0.0
-        if: steps.opencv-cache.outputs.cache-hit != 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          OPENCV_VERSION="5.0.0"
-          ZIP="$RUNNER_TEMP/opencv-android-sdk.zip"
-          ROOT="$RUNNER_TEMP/opencv-sdk"
-          curl --fail --location --retry 5 --retry-all-errors \
-            "https://github.com/opencv/opencv/releases/download/${OPENCV_VERSION}/opencv-${OPENCV_VERSION}-android-sdk.zip" \
-            -o "$ZIP"
-          rm -rf "$ROOT" opencv
-          mkdir -p "$ROOT" opencv
-          unzip -q "$ZIP" -d "$ROOT"
-          SDK_DIR="$(find "$ROOT" -type d -path '*/sdk' -print -quit)"
-          test -n "$SDK_DIR"
-          test -d "$SDK_DIR/java"
-          cp -R "$SDK_DIR/." opencv/
-
-      - name: Setup Java
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6
-        with:
-          gradle-version: "8.14.3"
-          cache-provider: enhanced
-          cache-read-only: ${{ github.event_name == 'pull_request' }}
-          validate-wrappers: false
-
-      - name: Download bootstrap YOLOv8 model
-        shell: bash
-        run: |
-          set -euo pipefail
-          MODEL_DIR="core/ai/src/main/assets"
-          MODEL="$MODEL_DIR/formsnap_bootstrap_yolov8n_float32.tflite"
-          mkdir -p "$MODEL_DIR"
-          curl --fail --location --retry 5 --retry-all-errors             "https://raw.githubusercontent.com/naz23/yolo-tensorflow-lite/main/yolov8n_float32.tflite"             -o "$MODEL"
-          test -s "$MODEL"
-          test "$(stat -c%s "$MODEL")" -gt 1000000
-          ls -lh "$MODEL"
-
-      - name: Run unit tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -x ./gradlew ]; then
-            ./gradlew :app:testDebugUnitTest --no-daemon --build-cache --stacktrace
-          else
-            gradle :app:testDebugUnitTest --no-daemon --build-cache --stacktrace
-          fi
-
   build:
     name: Build signed APK
     runs-on: ubuntu-latest
-    needs:
-      - run_unit_test
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -172,6 +97,26 @@ jobs:
         with:
           fileName: dev_keystore.jks
           encodedString: ${{ secrets.SIGNING_KEYSTORE }}
+
+      - name: Run lint
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -x ./gradlew ]; then
+            ./gradlew :app:lintRelease --no-daemon --build-cache --stacktrace
+          else
+            gradle :app:lintRelease --no-daemon --build-cache --stacktrace
+          fi
+
+      - name: Run unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -x ./gradlew ]; then
+            ./gradlew :app:testDebugUnitTest --no-daemon --build-cache --stacktrace
+          else
+            gradle :app:testDebugUnitTest --no-daemon --build-cache --stacktrace
+          fi
 
       - name: Build signed APK
         env:
