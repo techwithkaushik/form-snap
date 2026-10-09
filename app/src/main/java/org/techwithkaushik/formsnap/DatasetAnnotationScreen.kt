@@ -170,19 +170,37 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
 
 private fun writeDatasetZip(context: Context, uri: Uri) {
     val root = File(context.filesDir, "dataset-yolo")
-    val images = File(root, "train/images").listFiles()?.filter { it.isFile }.orEmpty()
+    val images = File(root, "train/images").listFiles()?.filter { it.isFile }?.sortedBy { it.name }.orEmpty()
     require(images.isNotEmpty()) { "No saved annotations" }
     context.contentResolver.openOutputStream(uri)?.use { stream ->
         ZipOutputStream(stream).use { zip ->
-            images.forEach { image ->
+            images.forEachIndexed { index, image ->
+                val split = when {
+                    images.size >= 10 && index % 10 == 8 -> "valid"
+                    images.size >= 10 && index % 10 == 9 -> "test"
+                    else -> "train"
+                }
                 val label = File(root, "train/labels/" + image.name.substringBeforeLast('.') + ".txt")
                 require(label.isFile) { "Missing label for " + image.name }
-                zip.putNextEntry(ZipEntry("train/images/" + image.name)); image.inputStream().use { it.copyTo(zip) }; zip.closeEntry()
-                zip.putNextEntry(ZipEntry("train/labels/" + label.name)); label.inputStream().use { it.copyTo(zip) }; zip.closeEntry()
+                zip.putNextEntry(ZipEntry(split + "/images/" + image.name))
+                image.inputStream().use { it.copyTo(zip) }
+                zip.closeEntry()
+                zip.putNextEntry(ZipEntry(split + "/labels/" + label.name))
+                label.inputStream().use { it.copyTo(zip) }
+                zip.closeEntry()
             }
-            val yaml = "path: .\ntrain: train/images\nval: train/images\ntest: train/images\nnames:\n  0: PHOTO\n  1: SIGNATURE\n"
+            val yaml = """path: .
+train: train/images
+val: valid/images
+test: test/images
+names:
+  0: PHOTO
+  1: SIGNATURE
+"""
             zip.putNextEntry(ZipEntry("data.yaml")); zip.write(yaml.toByteArray()); zip.closeEntry()
-            val note = "Classes: 0=PHOTO, 1=SIGNATURE. Images are currently exported under train only. Before final training, split by original form into train/valid/test and update data.yaml. Never evaluate using training images.\n"
+            val note = """Classes: 0=PHOTO, 1=SIGNATURE.
+The ZIP is split by selection order. Review the split before training; near-duplicate pages and pages from the same source form should stay in one split. If fewer than 10 images are annotated, validation/test folders may be empty.
+"""
             zip.putNextEntry(ZipEntry("README.txt")); zip.write(note.toByteArray()); zip.closeEntry()
         }
     } ?: error("Could not open ZIP output")
