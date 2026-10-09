@@ -14,6 +14,12 @@ data class LiveDetection(
     val id: Long = 0L,
     val selectionIndex: Int? = null,
     val locked: Boolean = false,
+    // Detector-space coordinates are kept separately from preview-mapped coordinates.
+    // Final extraction must use source coordinates, not the FILL_CENTER/mirrored overlay box.
+    val sourceLeft: Float? = null,
+    val sourceTop: Float? = null,
+    val sourceRight: Float? = null,
+    val sourceBottom: Float? = null,
 )
 
 data class CaptureGridState(
