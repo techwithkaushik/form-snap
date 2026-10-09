@@ -278,9 +278,9 @@ class YoloV8TfliteDetector(
         when (inputLayout) {
             InputLayout.NHWC -> {
                 for (pixel in pixels) {
-                    put(Color.red(pixel) / 255f)
-                    put(Color.green(pixel) / 255f)
-                    put(Color.blue(pixel) / 255f)
+                    put(Color.red(pixel).toFloat())
+                    put(Color.green(pixel).toFloat())
+                    put(Color.blue(pixel).toFloat())
                 }
             }
             InputLayout.NCHW -> {
@@ -288,9 +288,9 @@ class YoloV8TfliteDetector(
                     for (pixel in pixels) {
                         put(
                             when (channel) {
-                                0 -> Color.red(pixel) / 255f
-                                1 -> Color.green(pixel) / 255f
-                                else -> Color.blue(pixel) / 255f
+                                0 -> Color.red(pixel).toFloat()
+                                1 -> Color.green(pixel).toFloat()
+                                else -> Color.blue(pixel).toFloat()
                             },
                         )
                     }
