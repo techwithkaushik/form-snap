@@ -74,7 +74,7 @@ class MainActivity : ComponentActivity() {
         var mode by remember { mutableStateOf(CaptureMode.WHOLE_FORM) }
         var saveMessage by remember { mutableStateOf<String?>(null) }
         var pendingCameraMode by remember { mutableStateOf<CaptureMode?>(null) }
-        var pendingImport by remember { mutableStateOf(false) }
+        var pendingImport by remember { mutableStateOf(false) }\n        var datasetImages by remember { mutableStateOf<List<File>>(emptyList()) }\n        var showDataset by remember { mutableStateOf(false) }
         var showCameraX by remember { mutableStateOf(false) }
         var cameraXMode by remember { mutableStateOf(CameraCaptureMode.WHOLE_FORM) }
         var lockedSelections by remember { mutableStateOf<List<org.techwithkaushik.formsnap.feature.capture.LiveDetection>>(emptyList()) }
@@ -171,6 +171,23 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        val datasetPicker = rememberLauncherForActivityResult(
+            ActivityResultContracts.OpenMultipleDocuments(),
+        ) { uris ->
+            if (uris.isNotEmpty()) {
+                ioScope.launch {
+                    val importedFiles = withContext(Dispatchers.IO) {
+                        uris.mapIndexedNotNull { index, uri -> uriToFile(uri, "dataset_" + (index + 1)) }
+                    }
+                    if (importedFiles.isEmpty()) saveMessage = "No selected forms could be opened."
+                    else {
+                        datasetImages = importedFiles
+                        showDataset = true
+                    }
+                }
+            }
+        }
+
         val outputFolderLauncher = rememberLauncherForActivityResult(
             ActivityResultContracts.OpenDocumentTree(),
         ) { uri ->
@@ -228,7 +245,16 @@ class MainActivity : ComponentActivity() {
                     openDocument.launch(arrayOf("image/*"))
                 }
             },
+            onDataset = { datasetPicker.launch(arrayOf("image/*")) },
         )
+
+        if (showDataset) {
+            DatasetAnnotationScreen(
+                images = datasetImages,
+                onExit = { showDataset = false; datasetImages = emptyList() },
+                onMessage = { saveMessage = it },
+            )
+        }
 
         if (showCameraX) {
             BackHandler { showCameraX = false }
@@ -390,6 +416,7 @@ class MainActivity : ComponentActivity() {
         onAiModel: () -> Unit,
         onCamera: (CaptureMode) -> Unit,
         onImport: () -> Unit,
+        onDataset: () -> Unit,
     ) {
         Scaffold(
             topBar = {
@@ -439,6 +466,9 @@ class MainActivity : ComponentActivity() {
                             onImport()
                         }
                     }
+                }
+                item {
+                    ActionCard("Dataset Builder", "Annotate forms / export ZIP", "▧", Modifier.fillMaxWidth(), onDataset)
                 }
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
