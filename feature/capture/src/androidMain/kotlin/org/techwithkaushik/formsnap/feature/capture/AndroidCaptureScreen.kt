@@ -34,6 +34,7 @@ fun AndroidCaptureScreen(
     val camera = remember(presenter, context) { AndroidCameraCapture(context, presenter) }
     val session = remember(context) { CaptureSession.create(context) }
     var liveDetections by remember { mutableStateOf<List<LiveDetection>>(emptyList()) }
+    var liveDiagnostics by remember { mutableStateOf("AI: waiting for camera frames…") }
     var pendingSelection by remember { mutableStateOf<List<LiveDetection>>(emptyList()) }
     var permissionGranted by remember { mutableStateOf(camera.hasCameraPermission()) }
     var showLearningManager by remember { mutableStateOf(false) }
@@ -54,6 +55,7 @@ fun AndroidCaptureScreen(
 
     DisposableEffect(Unit) {
         camera.setLiveDetectionListener { detections -> liveDetections = detections }
+        camera.setLiveDiagnosticsListener { message -> liveDiagnostics = message }
         onDispose {
             camera.shutdown()
             session.close()
@@ -133,6 +135,7 @@ fun AndroidCaptureScreen(
         onImportImage = onImportImage,
         onError = onError,
         liveDetections = liveDetections,
+        liveDiagnostics = liveDiagnostics,
     )
     androidx.compose.material3.Surface(
         modifier = Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(top = 16.dp, end = 12.dp),
