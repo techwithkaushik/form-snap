@@ -51,6 +51,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
     var activeBox by remember { mutableStateOf<LabelBox?>(null) }
     var busy by remember { mutableStateOf(false) }
     var fullScreen by remember { mutableStateOf(false) }
+    var formGroupId by remember(image?.absolutePath) { mutableStateOf(image?.nameWithoutExtension.orEmpty()) }
     var savedPaths by remember(images) { mutableStateOf<Set<String>>(emptySet()) }
     var dirtyPaths by remember(images) { mutableStateOf<Set<String>>(emptySet()) }
     var status by remember { mutableStateOf("PHOTO चुनें और फोटो के चारों ओर drag करें") }
@@ -75,6 +76,8 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
     fun saveAndNext() {
         val current = image ?: return
         val currentBoxes = boxes
+        val normalizedGroup = formGroupId.trim().replace("\\t", " ").replace("\\n", " ").replace("\\r", " ")
+        if (normalizedGroup.isBlank()) { status = "एक Form Group ID दें। एक ही form की सभी photos में यही ID रखें।"; return }
         if (currentBoxes.none { it.type == LabelClass.PHOTO }) {
             status = "इस form पर कम-से-कम एक PHOTO box mark करें"; return
         }
@@ -96,6 +99,10 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                             (b.l + b.r) / 2f, (b.t + b.b) / 2f, b.r - b.l, b.b - b.t)
                     } + "\n"
                     File(labelDir, base + ".txt").writeText(text)
+                    val groupsFile = File(root, "train/groups.txt")
+                    val existing = groupsFile.takeIf { it.isFile }?.readLines().orEmpty()
+                        .filterNot { it.substringBefore("\\t") == base }
+                    groupsFile.writeText((existing + "$base\\t${normalizedGroup.lowercase(Locale.ROOT)}").joinToString("\\n", postfix = "\\n"))
                 }
                 annotationsByImage = annotationsByImage + (current.absolutePath to currentBoxes)
                 savedPaths = savedPaths + current.absolutePath
@@ -156,6 +163,13 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                         ) { Text("Clear") }
                     }
                     Text("बेहतर training: box को photo/signature के किनारे तक tight रखें; printed label, खाली जगह और बाहरी form-border शामिल न करें। हर अलग signature पर अलग SIGNATURE box बनाएँ।", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                    OutlinedTextField(value = formGroupId, onValueChange = { formGroupId = it }, label = { Text("Form Group ID") }, supportingText = { Text("एक ही original form की 2–3 photos में एक ही ID रखें; इससे train/test leakage घटेगा।") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !busy)
+                    val photoBoxes = boxes.filter { it.type == LabelClass.PHOTO }
+                    val signBoxes = boxes.filter { it.type == LabelClass.SIGNATURE }
+                    val oversized = boxes.filter { b -> (b.r - b.l) * (b.b - b.t) > if (b.type == LabelClass.PHOTO) 0.45f else 0.20f }
+                    val tinySigns = signBoxes.filter { (it.r - it.l) * (it.b - it.t) < 0.0005f || it.r - it.l < 0.01f || it.b - it.t < 0.01f }
+                    if (oversized.isNotEmpty() || tinySigns.isNotEmpty()) Text("Label review: " + (if (oversized.isNotEmpty()) "${oversized.size} unusually large box(es); " else "") + (if (tinySigns.isNotEmpty()) "${tinySigns.size} very small signature box(es)." else "check boxes against the actual object."), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    Text("This image: PHOTO ${photoBoxes.size} • SIGNATURE ${signBoxes.size}. Signature box should tightly cover ink strokes—not the whole blank field or printed border.", style = MaterialTheme.typography.bodySmall)
                     Text("एक form पर कई PHOTO/SIGNATURE boxes बना सकते हैं। Save करने के लिए दोनों classes में कम-से-कम एक box जरूरी है।", style = MaterialTheme.typography.bodySmall)
                     Text("Annotated: $saved/${images.size}", style = MaterialTheme.typography.bodySmall)
                     Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
@@ -289,14 +303,33 @@ private fun writeDatasetZip(context: Context, uri: Uri) {
         }
     }
     require(classCounts.all { it > 0 }) { "Both PHOTO and SIGNATURE labels must exist before export" }
+    val groupFile = File(root, "train/groups.txt")
+    val groupByBase = groupFile.takeIf { it.isFile }?.readLines().orEmpty()
+        .mapNotNull { line ->
+            val parts = line.split("\\t", limit = 2)
+            if (parts.size == 2 && parts[0].isNotBlank() && parts[1].isNotBlank()) parts[0] to parts[1] else null
+        }.toMap()
+    val groupByImage = images.associateWith { image ->
+        groupByBase[image.name.substringBeforeLast(".")] ?: "legacy-${image.name.substringBeforeLast(".")}"
+    }
+    val groups = groupByImage.values.distinct().sorted()
+    require(groups.size >= 3) {
+        "At least 3 distinct Form Group IDs are required for train/validation/test. Current groups: ${groups.size}. Use the same ID only for photos of the same original form."
+    }
+    val splitByGroup = groups.mapIndexed { index, group ->
+        group to when {
+            groups.size < 10 && index == groups.lastIndex -> "test"
+            groups.size < 10 && index == groups.lastIndex - 1 -> "valid"
+            groups.size < 10 -> "train"
+            index % 10 == 8 -> "valid"
+            index % 10 == 9 -> "test"
+            else -> "train"
+        }
+    }.toMap()
     context.contentResolver.openOutputStream(uri)?.use { stream ->
         ZipOutputStream(stream).use { zip ->
-            images.forEachIndexed { index, image ->
-                val split = when {
-                    images.size >= 10 && index % 10 == 8 -> "valid"
-                    images.size >= 10 && index % 10 == 9 -> "test"
-                    else -> "train"
-                }
+            images.forEach { image ->
+                val split = splitByGroup.getValue(groupByImage.getValue(image))
                 val label = labelsByImage.getValue(image)
                 // Re-encode only the exported copy. Keep the user's source image intact.
                 // Normalized YOLO coordinates remain valid after proportional resizing.
@@ -348,7 +381,7 @@ Annotation quality checklist:
 - Label every distinct signature separately; multiple boxes of either class are supported.
 - Include varied form layouts, lighting, blur, rotation, scale, and background conditions.
 - Review every box before export. Incorrect or inconsistent boxes teach the model incorrect boundaries.
-Split: images are assigned 80% train, 10% validation, 10% test by stable sorted file order. Keep near-duplicate pages and pages from the same source form in the same split to avoid data leakage; this exporter cannot automatically identify near-duplicates, so check them manually before training.
+Split: all images with the same Form Group ID are kept together in one split to reduce data leakage. Groups are assigned deterministically; with fewer than 10 groups, the final two groups are validation and test. Images without a saved group ID are treated as individual legacy groups. Group IDs do not detect near-duplicates automatically; use the same ID for all captures of the same original form.
 """
             zip.putNextEntry(ZipEntry("README.txt")); zip.write(note.toByteArray()); zip.closeEntry()
         }
