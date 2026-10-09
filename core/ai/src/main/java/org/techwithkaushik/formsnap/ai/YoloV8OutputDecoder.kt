@@ -37,9 +37,18 @@ internal class YoloV8OutputDecoder(
             )
         }
 
+        // Keep the detection budget per class, not globally. Otherwise several
+        // high-confidence PHOTO boxes can consume the global limit and discard
+        // the weaker SIGNATURE candidate before the camera UI ever sees it.
         return nonMaximumSuppression(detections)
             .filter { it.classId in 0..1 }
-            .take(config.maxDetections)
+            .groupBy { it.classId }
+            .values
+            .flatMap { classDetections ->
+                classDetections.sortedByDescending { it.confidence }
+                    .take(config.maxDetections)
+            }
+            .sortedByDescending { it.confidence }
     }
 
     private fun rawClassScoreStats(values: FloatArray, shape: IntArray): Triple<Float, Int, Int> {
