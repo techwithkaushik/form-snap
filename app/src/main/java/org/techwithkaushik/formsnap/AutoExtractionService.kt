@@ -61,7 +61,7 @@ object AutoExtractionService {
                     )
                 } else {
                     val activeModel = AiModelManager(context).activeModelFile()
-                    val aiDetector = if (activeModel != null) YoloV8TfliteDetector(context, modelFile = activeModel, config = DetectionConfig(maxClassId = 2)) else YoloV8TfliteDetector(context)
+                    val aiDetector = if (activeModel != null) YoloV8TfliteDetector(context, modelFile = activeModel, config = DetectionConfig()) else YoloV8TfliteDetector(context)
                     try {
                         if (aiDetector.modelAvailable()) {
                             val objects = aiDetector.detect(aiBitmap)
