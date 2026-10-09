@@ -7,6 +7,7 @@ import android.net.Uri
 import android.graphics.Bitmap
 import android.graphics.Matrix
 import android.view.Surface
+import android.util.Log
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
@@ -32,6 +33,10 @@ class AndroidCameraCapture(
     private val presenter: CapturePresenter,
 ) {
     private val appContext = context.applicationContext
+
+    companion object {
+        private const val TAG = "FormSnapAI"
+    }
     private var provider: ProcessCameraProvider? = null
     private var camera: Camera? = null
     private var imageCapture: ImageCapture? = null
@@ -160,10 +165,13 @@ class AndroidCameraCapture(
             val stable = stabilizeDetections(mapped)
             lastLiveDetections = stable
             onLiveDetections?.invoke(stable)
-        }, {
+        }, { error ->
             bitmap.recycle()
             inferenceBusy.set(false)
-            // Live inference failures must not interrupt camera capture.
+            Log.e(TAG, "Live PHOTO/SIGNATURE inference failed", error)
+            presenter.onCaptureFailure(
+                "AI detection failed: ${error.message ?: error::class.java.simpleName}",
+            )
         })
     }
 
@@ -285,9 +293,22 @@ class AndroidCameraCapture(
                         )
                     }.getOrNull()
                     if (active != null && active.modelAvailable()) {
-                        detector = active
+                        runCatching { active.modelDiagnostics() }
+                            .onSuccess { diagnostics ->
+                                Log.i(TAG, diagnostics)
+                                detector = active
+                                presenter.onCaptureFailure("AI ready. ${diagnostics}")
+                            }
+                            .onFailure { error ->
+                                Log.e(TAG, "Active AI model is incompatible", error)
+                                active.close()
+                                presenter.onCaptureFailure(
+                                    "Active AI model is incompatible: ${error.message ?: "unsupported output"}",
+                                )
+                            }
                     } else {
                         active?.close()
+                        presenter.onCaptureFailure("No active TFLite model. Import a trained PHOTO/SIGNATURE model.")
                     }
                 }
             }
