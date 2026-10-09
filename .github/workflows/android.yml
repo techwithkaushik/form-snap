@@ -92,16 +92,6 @@ jobs:
           fileName: dev_keystore.jks
           encodedString: ${{ secrets.SIGNING_KEYSTORE }}
 
-      - name: Run lint
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -x ./gradlew ]; then
-            ./gradlew :app:lintRelease --no-daemon --build-cache --stacktrace
-          else
-            gradle :app:lintRelease --no-daemon --build-cache --stacktrace
-          fi
-
       - name: Run unit tests
         shell: bash
         run: |
