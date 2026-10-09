@@ -20,6 +20,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -40,6 +41,8 @@ internal fun AiExampleLabelDialog(
     var end by remember { mutableStateOf<Offset?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var canvasWidth by remember { mutableIntStateOf(1) }
+    var canvasHeight by remember { mutableIntStateOf(1) }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { selected ->
         if (selected != null) {
@@ -70,7 +73,7 @@ internal fun AiExampleLabelDialog(
                 }
                 val img = bitmap
                 if (img != null) {
-                    Box(Modifier.fillMaxWidth().height(260.dp).background(Color.DarkGray)
+                    Box(Modifier.fillMaxWidth().height(260.dp).onSizeChanged { canvasWidth = it.width; canvasHeight = it.height }.background(Color.DarkGray)
                         .pointerInput(img) {
                             detectDragGestures(
                                 onDragStart = { start = it; end = it },
@@ -107,7 +110,7 @@ internal fun AiExampleLabelDialog(
                         val result = withContext(Dispatchers.IO) {
                             runCatching {
                                 // Convert screen coordinates using the same centered-fit mapping.
-                                val maxW = 1000f; val maxH = 1000f
+                                val maxW = canvasWidth.toFloat(); val maxH = canvasHeight.toFloat()
                                 val scale = minOf(maxW / img.width, maxH / img.height)
                                 val w = img.width * scale; val h = img.height * scale
                                 val ox = (maxW - w) / 2f; val oy = (maxH - h) / 2f
