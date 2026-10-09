@@ -101,8 +101,8 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                     File(labelDir, base + ".txt").writeText(text)
                     val groupsFile = File(root, "train/groups.txt")
                     val existing = groupsFile.takeIf { it.isFile }?.readLines().orEmpty()
-                        .filterNot { it.substringBefore("\\t") == base }
-                    groupsFile.writeText((existing + "$base\\t${normalizedGroup.lowercase(Locale.ROOT)}").joinToString("\\n", postfix = "\\n"))
+                        .filterNot { it.substringBefore("\t") == base }
+                    groupsFile.writeText((existing + "$base\t${normalizedGroup.lowercase(Locale.ROOT)}").joinToString("\n", postfix = "\n"))
                 }
                 annotationsByImage = annotationsByImage + (current.absolutePath to currentBoxes)
                 savedPaths = savedPaths + current.absolutePath
@@ -306,7 +306,7 @@ private fun writeDatasetZip(context: Context, uri: Uri) {
     val groupFile = File(root, "train/groups.txt")
     val groupByBase = groupFile.takeIf { it.isFile }?.readLines().orEmpty()
         .mapNotNull { line ->
-            val parts = line.split("\\t", limit = 2)
+            val parts = line.split("\t", limit = 2)
             if (parts.size == 2 && parts[0].isNotBlank() && parts[1].isNotBlank()) parts[0] to parts[1] else null
         }.toMap()
     val groupByImage = images.associateWith { image ->
