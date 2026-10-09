@@ -173,6 +173,7 @@ class AndroidCameraCapture(
         }
         if (bitmap == null) {
             inferenceBusy.set(false)
+            onLiveDiagnostics?.invoke("CAMERA FRAME ERROR\nUnable to convert image format=${image.format}")
             return
         }
         val sourceWidth = bitmap.width.toFloat().coerceAtLeast(1f)
@@ -188,8 +189,8 @@ class AndroidCameraCapture(
             val topScores = detections.sortedByDescending { it.confidence }.take(4)
                 .joinToString { "${it.label} ${"%.2f".format(java.util.Locale.US, it.confidence)}" }
                 .ifBlank { "none" }
-            val status = "AI LIVE | raw=${detections.size} visible=${mapped.size}\\nTop: $topScores"
-            Log.i(TAG, status.replace("\\n", " "))
+            val status = "AI LIVE | raw=${detections.size} visible=${mapped.size}\nTop: $topScores"
+            Log.i(TAG, status.replace("\n", " "))
             onLiveDiagnostics?.invoke(status)
             val stable = stabilizeDetections(mapped)
             lastLiveDetections = stable
@@ -198,7 +199,7 @@ class AndroidCameraCapture(
             bitmap.recycle()
             inferenceBusy.set(false)
             Log.e(TAG, "Live PHOTO/SIGNATURE inference failed", error)
-            onLiveDiagnostics?.invoke("AI INFERENCE ERROR\\n${error.javaClass.simpleName}: ${error.message ?: "unknown"}")
+            onLiveDiagnostics?.invoke("AI INFERENCE ERROR\n${error.javaClass.simpleName}: ${error.message ?: "unknown"}")
             presenter.onCaptureFailure(
                 "AI detection failed: ${error.message ?: error::class.java.simpleName}",
             )
@@ -426,7 +427,6 @@ class AndroidCameraCapture(
                                 confidenceThreshold = 0.12f,
                                 iouThreshold = 0.45f,
                                 maxDetections = 4,
-                                maxClassId = 1,
                             ),
                         )
                     }.getOrElse { error ->
@@ -442,7 +442,7 @@ class AndroidCameraCapture(
                                 Log.i(TAG, diagnostics)
                                 detector = active
                                 Log.i(TAG, "Active model ready: $diagnostics")
-                                onLiveDiagnostics?.invoke("MODEL READY\\n$diagnostics")
+                                onLiveDiagnostics?.invoke("MODEL READY\n$diagnostics")
                             }
                             .onFailure { error ->
                                 Log.e(TAG, "Active AI model is incompatible", error)
@@ -460,7 +460,7 @@ class AndroidCameraCapture(
                     }
                 } else {
                     // Previously this path stayed silent, leaving users with only the camera grid.
-                    onLiveDiagnostics?.invoke("NO ACTIVE MODEL\\nImport trained PHOTO/SIGNATURE .tflite")
+                    onLiveDiagnostics?.invoke("NO ACTIVE MODEL\nImport trained PHOTO/SIGNATURE .tflite")
                     presenter.onCaptureFailure(
                         "AI model missing. Open AI learning to collect labels, then install a trained " +
                             "PHOTO/SIGNATURE .tflite model. Labels alone cannot enable live AI detection.",
