@@ -5,7 +5,11 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.ImageFormat
 import android.graphics.Matrix
+import android.graphics.Rect
+import android.graphics.YuvImage
 import android.view.Surface
 import android.util.Log
 import androidx.camera.core.Camera
@@ -19,6 +23,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -184,24 +189,70 @@ class AndroidCameraCapture(
         })
     }
 
+    /**
+     * ImageAnalysis delivers YUV_420_888 by default, not packed ARGB pixels.
+     * Reading the Y plane directly as an ARGB bitmap corrupts the frame and
+     * prevents the detector from seeing real photo/signature content.
+     */
     private fun imageToBitmap(image: ImageProxy): Bitmap? {
-        val plane = image.planes.firstOrNull() ?: return null
+        if (image.format != ImageFormat.YUV_420_888) {
+            Log.w(TAG, "Unsupported camera analysis format: ${image.format}")
+            return null
+        }
+        val planes = image.planes
+        if (planes.size < 3) return null
+
         val width = image.width
         val height = image.height
-        val pixelStride = plane.pixelStride
-        val rowStride = plane.rowStride
-        val rowPadding = rowStride - pixelStride * width
-        val bitmapWidth = width + rowPadding / pixelStride
-        val bitmap = Bitmap.createBitmap(bitmapWidth, height, Bitmap.Config.ARGB_8888)
-        plane.buffer.rewind()
-        bitmap.copyPixelsFromBuffer(plane.buffer)
-        val cropped = Bitmap.createBitmap(bitmap, 0, 0, width, height)
-        bitmap.recycle()
+        val yPlane = planes[0]
+        val uPlane = planes[1]
+        val vPlane = planes[2]
+        val nv21 = ByteArray(width * height + 2 * ((width + 1) / 2) * ((height + 1) / 2))
+
+        val yBuffer = yPlane.buffer.duplicate()
+        var outputIndex = 0
+        for (row in 0 until height) {
+            val rowStart = row * yPlane.rowStride
+            for (col in 0 until width) {
+                nv21[outputIndex++] = yBuffer.get(rowStart + col * yPlane.pixelStride)
+            }
+        }
+
+        val chromaWidth = (width + 1) / 2
+        val chromaHeight = (height + 1) / 2
+        val uBuffer = uPlane.buffer.duplicate()
+        val vBuffer = vPlane.buffer.duplicate()
+        for (row in 0 until chromaHeight) {
+            val uRowStart = row * uPlane.rowStride
+            val vRowStart = row * vPlane.rowStride
+            for (col in 0 until chromaWidth) {
+                nv21[outputIndex++] = vBuffer.get(vRowStart + col * vPlane.pixelStride)
+                nv21[outputIndex++] = uBuffer.get(uRowStart + col * uPlane.pixelStride)
+            }
+        }
+
+        val jpeg = ByteArrayOutputStream()
+        val converted = YuvImage(nv21, ImageFormat.NV21, width, height, null)
+            .compressToJpeg(Rect(0, 0, width, height), 90, jpeg)
+        if (!converted) return null
+
+        val bitmap = BitmapFactory.decodeByteArray(jpeg.toByteArray(), 0, jpeg.size()) ?: return null
         val degrees = image.imageInfo.rotationDegrees
-        if (degrees == 0) return cropped
-        val rotated = Bitmap.createBitmap(cropped, 0, 0, cropped.width, cropped.height, Matrix().apply { postRotate(degrees.toFloat()) }, true)
-        cropped.recycle()
-        return rotated
+        if (degrees == 0) return bitmap
+        return try {
+            Bitmap.createBitmap(
+                bitmap,
+                0,
+                0,
+                bitmap.width,
+                bitmap.height,
+                Matrix().apply { postRotate(degrees.toFloat()) },
+                true,
+            ).also { if (it !== bitmap) bitmap.recycle() }
+        } catch (error: Throwable) {
+            bitmap.recycle()
+            throw error
+        }
     }
 
     private fun stabilizeDetections(current: List<LiveDetection>): List<LiveDetection> {
