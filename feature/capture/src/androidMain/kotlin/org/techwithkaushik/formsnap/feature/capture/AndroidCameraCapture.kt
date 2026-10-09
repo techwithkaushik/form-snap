@@ -195,59 +195,73 @@ class AndroidCameraCapture(
      * prevents the detector from seeing real photo/signature content.
      */
     private fun imageToBitmap(image: ImageProxy): Bitmap? {
-        if (image.format != ImageFormat.YUV_420_888) {
-            Log.w(TAG, "Unsupported camera analysis format: ${image.format}")
-            return null
-        }
-        val planes = image.planes
-        if (planes.size < 3) return null
-
         val width = image.width
         val height = image.height
-        val yPlane = planes[0]
-        val uPlane = planes[1]
-        val vPlane = planes[2]
-        val nv21 = ByteArray(width * height + 2 * ((width + 1) / 2) * ((height + 1) / 2))
-
-        val yBuffer = yPlane.buffer.duplicate()
-        var outputIndex = 0
-        for (row in 0 until height) {
-            val rowStart = row * yPlane.rowStride
-            for (col in 0 until width) {
-                nv21[outputIndex++] = yBuffer.get(rowStart + col * yPlane.pixelStride)
+        val bitmap = when (image.format) {
+            ImageFormat.FLEX_RGBA_8888 -> {
+                val plane = image.planes.firstOrNull() ?: return null
+                val packed = ByteArray(width * height * 4)
+                val source = plane.buffer.duplicate()
+                var destination = 0
+                for (row in 0 until height) {
+                    val rowStart = row * plane.rowStride
+                    for (col in 0 until width) {
+                        val pixelStart = rowStart + col * plane.pixelStride
+                        if (pixelStart + 3 >= source.limit()) return null
+                        packed[destination++] = source.get(pixelStart)
+                        packed[destination++] = source.get(pixelStart + 1)
+                        packed[destination++] = source.get(pixelStart + 2)
+                        packed[destination++] = source.get(pixelStart + 3)
+                    }
+                }
+                Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also {
+                    it.copyPixelsFromBuffer(java.nio.ByteBuffer.wrap(packed))
+                }
+            }
+            ImageFormat.YUV_420_888 -> {
+                val planes = image.planes
+                if (planes.size < 3) return null
+                val yPlane = planes[0]
+                val uPlane = planes[1]
+                val vPlane = planes[2]
+                val nv21 = ByteArray(width * height + 2 * ((width + 1) / 2) * ((height + 1) / 2))
+                val yBuffer = yPlane.buffer.duplicate()
+                var outputIndex = 0
+                for (row in 0 until height) {
+                    val rowStart = row * yPlane.rowStride
+                    for (col in 0 until width) {
+                        nv21[outputIndex++] = yBuffer.get(rowStart + col * yPlane.pixelStride)
+                    }
+                }
+                val chromaWidth = (width + 1) / 2
+                val chromaHeight = (height + 1) / 2
+                val uBuffer = uPlane.buffer.duplicate()
+                val vBuffer = vPlane.buffer.duplicate()
+                for (row in 0 until chromaHeight) {
+                    val uRowStart = row * uPlane.rowStride
+                    val vRowStart = row * vPlane.rowStride
+                    for (col in 0 until chromaWidth) {
+                        nv21[outputIndex++] = vBuffer.get(vRowStart + col * vPlane.pixelStride)
+                        nv21[outputIndex++] = uBuffer.get(uRowStart + col * uPlane.pixelStride)
+                    }
+                }
+                val jpeg = ByteArrayOutputStream()
+                val converted = YuvImage(nv21, ImageFormat.NV21, width, height, null)
+                    .compressToJpeg(Rect(0, 0, width, height), 90, jpeg)
+                if (!converted) return null
+                BitmapFactory.decodeByteArray(jpeg.toByteArray(), 0, jpeg.size()) ?: return null
+            }
+            else -> {
+                Log.w(TAG, "Unsupported camera analysis format: ${image.format}")
+                return null
             }
         }
-
-        val chromaWidth = (width + 1) / 2
-        val chromaHeight = (height + 1) / 2
-        val uBuffer = uPlane.buffer.duplicate()
-        val vBuffer = vPlane.buffer.duplicate()
-        for (row in 0 until chromaHeight) {
-            val uRowStart = row * uPlane.rowStride
-            val vRowStart = row * vPlane.rowStride
-            for (col in 0 until chromaWidth) {
-                nv21[outputIndex++] = vBuffer.get(vRowStart + col * vPlane.pixelStride)
-                nv21[outputIndex++] = uBuffer.get(uRowStart + col * uPlane.pixelStride)
-            }
-        }
-
-        val jpeg = ByteArrayOutputStream()
-        val converted = YuvImage(nv21, ImageFormat.NV21, width, height, null)
-            .compressToJpeg(Rect(0, 0, width, height), 90, jpeg)
-        if (!converted) return null
-
-        val bitmap = BitmapFactory.decodeByteArray(jpeg.toByteArray(), 0, jpeg.size()) ?: return null
         val degrees = image.imageInfo.rotationDegrees
         if (degrees == 0) return bitmap
         return try {
             Bitmap.createBitmap(
-                bitmap,
-                0,
-                0,
-                bitmap.width,
-                bitmap.height,
-                Matrix().apply { postRotate(degrees.toFloat()) },
-                true,
+                bitmap, 0, 0, bitmap.width, bitmap.height,
+                Matrix().apply { postRotate(degrees.toFloat()) }, true,
             ).also { if (it !== bitmap) bitmap.recycle() }
         } catch (error: Throwable) {
             bitmap.recycle()
