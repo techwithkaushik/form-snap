@@ -13,6 +13,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -34,6 +35,7 @@ fun AndroidCaptureScreen(
     var liveDetections by remember { mutableStateOf<List<LiveDetection>>(emptyList()) }
     var pendingSelection by remember { mutableStateOf<List<LiveDetection>>(emptyList()) }
     var permissionGranted by remember { mutableStateOf(camera.hasCameraPermission()) }
+    var showLearningManager by remember { mutableStateOf(false) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -73,8 +75,9 @@ fun AndroidCaptureScreen(
         }
     }
 
+    androidx.compose.foundation.layout.Box(modifier = modifier.fillMaxSize()) {
     CaptureScreen(
-        modifier = modifier,
+        modifier = Modifier.fillMaxSize(),
         cameraPreview = {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
@@ -130,4 +133,18 @@ fun AndroidCaptureScreen(
         onError = onError,
         liveDetections = liveDetections,
     )
+    androidx.compose.material3.Surface(
+        modifier = Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(top = 16.dp, end = 12.dp),
+        color = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.65f),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
+        onClick = { showLearningManager = true },
+    ) {
+        androidx.compose.material3.Text(
+            "AI learning",
+            color = androidx.compose.ui.graphics.Color.White,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+        )
+    }
+    if (showLearningManager) AiLearningManagerDialog { showLearningManager = false }
+    }
 }
