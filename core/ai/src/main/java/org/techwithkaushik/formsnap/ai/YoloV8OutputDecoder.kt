@@ -8,6 +8,9 @@ import kotlin.math.min
 internal class YoloV8OutputDecoder(
     private val config: DetectionConfig,
 ) {
+    private companion object {
+        const val CROSS_CLASS_DUPLICATE_IOU = 0.80f
+    }
     fun decode(
         values: FloatArray,
         shape: IntArray,
@@ -37,18 +40,28 @@ internal class YoloV8OutputDecoder(
             )
         }
 
-        // Keep the detection budget per class, not globally. Otherwise several
-        // high-confidence PHOTO boxes can consume the global limit and discard
-        // the weaker SIGNATURE candidate before the camera UI ever sees it.
-        return nonMaximumSuppression(detections)
+        // A form has at most one target PHOTO and one target SIGNATURE in the
+        // capture workflow. Keep the best candidate for each class independently:
+        // PHOTO-only and SIGNATURE-only images must still return their one detection.
+        // This also prevents low-confidence duplicates from filling the preview.
+        val bestByClass = nonMaximumSuppression(detections)
             .filter { it.classId in 0..1 }
             .groupBy { it.classId }
-            .values
-            .flatMap { classDetections ->
-                classDetections.sortedByDescending { it.confidence }
-                    .take(config.maxDetections)
+            .mapNotNull { (_, classDetections) ->
+                classDetections.maxByOrNull { it.confidence }
             }
-            .sortedByDescending { it.confidence }
+
+        // The same physical region can occasionally be assigned both class IDs.
+        // If the best boxes overlap almost completely, keep only the stronger one;
+        // distinct photo and signature regions remain independent.
+        val photo = bestByClass.firstOrNull { it.classId == 0 }
+        val signature = bestByClass.firstOrNull { it.classId == 1 }
+        if (photo != null && signature != null &&
+            iou(photo.boundingBox, signature.boundingBox) >= CROSS_CLASS_DUPLICATE_IOU
+        ) {
+            return listOf(if (photo.confidence >= signature.confidence) photo else signature)
+        }
+        return bestByClass.sortedByDescending { it.confidence }
     }
 
     private fun rawClassScoreStats(values: FloatArray, shape: IntArray): Triple<Float, Int, Int> {
