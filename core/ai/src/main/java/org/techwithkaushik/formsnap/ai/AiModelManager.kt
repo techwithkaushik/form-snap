@@ -44,11 +44,20 @@ class AiModelManager(context: Context) {
                     } else null
                 }
         }.getOrNull()
-        val originalName = providerName?.takeIf { it.isNotBlank() }
-            ?: uri.lastPathSegment?.substringAfterLast('/')?.substringBefore('?')
-                ?.takeIf { it.isNotBlank() }
-            ?: "formsnap_model_" + System.currentTimeMillis() + ".tflite"
-        require(originalName.lowercase().endsWith(".tflite")) { "Only .tflite AI models are supported." }
+        val uriName = uri.lastPathSegment?.substringAfterLast('/')?.substringBefore('?')
+            ?.takeIf { it.isNotBlank() && !it.contains(':') && !it.matches(Regex("[0-9a-fA-F-]{20,}")) }
+        val discoveredName = providerName?.takeIf { it.isNotBlank() } ?: uriName
+        // Some Android 10 document providers expose only an opaque URI and omit DISPLAY_NAME.
+        // In that case, use a neutral .tflite destination name and validate the file contents
+        // with the TFLite interpreter below; do not reject a real model based on the URI ID.
+        val originalName = when {
+            discoveredName == null -> "formsnap_model_" + System.currentTimeMillis() + ".tflite"
+            discoveredName.lowercase().endsWith(".tflite") -> discoveredName
+            !discoveredName.contains('.') -> "$discoveredName.tflite"
+            else -> throw IllegalArgumentException(
+                "Selected file is '$discoveredName', not a .tflite model. Choose the actual .tflite model file, not a dataset ZIP."
+            )
+        }
 
         val safeName = originalName.replace(Regex("[^A-Za-z0-9._-]"), "_")
         val destination = uniqueFile(safeName)
