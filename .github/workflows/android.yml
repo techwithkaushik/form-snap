@@ -12,12 +12,6 @@ on:
 permissions:
   contents: read
 
-# Keep feedback fast: only the newest commit for this branch should consume
-# an Android runner. Superseded test/build runs are cancelled automatically.
-concurrency:
-  group: android-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
   build:
     name: Build signed APK
