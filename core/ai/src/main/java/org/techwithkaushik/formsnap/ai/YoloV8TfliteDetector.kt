@@ -89,11 +89,7 @@ class YoloV8TfliteDetector(
             "Model: ${modelFile?.name ?: modelAssetName}; " +
                 "input=${input.shape().contentToString()} ${input.dataType()}; " +
                 "output=${output.shape().contentToString()} ${output.dataType()}; " +
-                if (isTwoClassClassifier(output.shape())) {
-                    "mode=CLASSIFICATION TEST ONLY; classes=PHOTO(0), SIGNATURE(1); no bounding boxes/cropping"
-                } else {
-                    "mode=OBJECT DETECTION; classes=PHOTO(0), SIGNATURE(1)"
-                }
+"mode=OBJECT DETECTION; classes=PHOTO(0), SIGNATURE(1)"
         }.get()
     }
 
@@ -104,35 +100,11 @@ class YoloV8TfliteDetector(
         val model = requireNotNull(interpreter)
         val input = requireNotNull(inputBuffer)
         val output = requireNotNull(outputBuffer)
-        // The user's Colab model is a classifier with output [1, 2]. Its
-        // training resized images directly to 128x128 (without letterboxing), so
-        // preserve that preprocessing. Return a full-frame label for testing only.
-        if (isTwoClassClassifier(outputShape)) {
-            val resized = Bitmap.createScaledBitmap(bitmap, inputWidth, inputHeight, true)
-            try {
-                input.clear()
-                writeBitmapToInput(resized, input, model.getInputTensor(0))
-                input.rewind()
-                output.clear()
-                model.run(input, output)
-                val scores = readOutputAsFloatArray(output, model.getOutputTensor(0))
-                val classId = if (scores[1] > scores[0]) 1 else 0
-                val confidence = scores[classId].coerceIn(0f, 1f)
-                if (confidence < config.confidenceThreshold) return emptyList()
-                return listOf(
-                    DetectedObject(
-                        id = 0L,
-                        classId = classId,
-                        label = classLabel(classId),
-                        confidence = confidence,
-                        boundingBox = android.graphics.RectF(
-                            0f, 0f, bitmap.width.toFloat(), bitmap.height.toFloat(),
-                        ),
-                    ),
-                )
-            } finally {
-                resized.recycle()
-            }
+        // Extraction requires spatial boxes. Never convert a classifier's
+        // whole-frame label into a fake photo/signature detection.
+        require(!isTwoClassClassifier(outputShape)) {
+            "This model only classifies the whole image and cannot locate photo/signature regions. " +
+                "Import a two-class YOLO object detector with output [1,6,N]."
         }
 
         val prepared = letterbox(bitmap, inputWidth, inputHeight)
@@ -217,15 +189,11 @@ class YoloV8TfliteDetector(
             last == 6 && shape[shape.size - 2] > 6
         val nmsOutput = last in 6..7
 
-        require(isTwoClassClassifier(shape) || channelsFirst || channelsLast || nmsOutput) {
-            "The active model output is ${shape.contentToString()}. Expected either a two-class classifier [1, 2] " +
-                "for whole-frame testing or a raw two-class PHOTO(0)/SIGNATURE(1) YOLO detector. " +
-                "Classifier mode cannot locate or crop objects."
+        require(channelsFirst || channelsLast || nmsOutput) {
+            "The active model output is ${shape.contentToString()}. Expected a two-class PHOTO(0)/SIGNATURE(1) " +
+                "YOLO object detector output. A classifier cannot locate or crop objects."
         }
     }
-
-    private fun isTwoClassClassifier(shape: IntArray): Boolean =
-        shape.contentEquals(intArrayOf(1, 2))
 
     private fun classLabel(classId: Int): String =
         when (classId) {
