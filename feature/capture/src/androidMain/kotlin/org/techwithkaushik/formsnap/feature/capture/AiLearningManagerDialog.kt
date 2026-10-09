@@ -1,6 +1,5 @@
 package org.techwithkaushik.formsnap.feature.capture
 
-import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -41,6 +40,10 @@ internal fun AiLearningManagerDialog(onDismiss: () -> Unit) {
     var exportFile by remember { mutableStateOf<File?>(null) }
     var showLabelDialog by remember { mutableStateOf(false) }
 
+    val photoCount = examples.count { it.classId == AiLearningStore.PHOTO }
+    val signatureCount = examples.count { it.classId == AiLearningStore.SIGNATURE }
+    val exportReady = photoCount >= 3 && signatureCount >= 3
+
     val saveZipLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/zip"),
     ) { uri ->
@@ -56,7 +59,7 @@ internal fun AiLearningManagerDialog(onDismiss: () -> Unit) {
                         } ?: error("Could not open destination file.")
                     }
                 }
-                message = result.fold({ "Dataset ZIP saved successfully." }, { "Export failed: ${it.message}" })
+                message = result.fold({ "Dataset ZIP saved successfully. This did not train the model." }, { "Export failed: ${it.message}" })
                 source.delete()
                 exportFile = null
             }
@@ -69,8 +72,19 @@ internal fun AiLearningManagerDialog(onDismiss: () -> Unit) {
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Reviewed examples: ${examples.size}")
-                Text("Photo: ${examples.count { it.classId == AiLearningStore.PHOTO }}  •  Signature: ${examples.count { it.classId == AiLearningStore.SIGNATURE }}")
-                Text("Examples stay on this device. Export is manual; nothing is uploaded automatically.")
+                Text("Photo: $photoCount  •  Signature: $signatureCount")
+                Text("All examples stay in this app on this device. Nothing is uploaded automatically.")
+                Text(
+                    "Training status: the on-device model-training engine is not integrated yet. " +
+                        "Saving labels improves the local dataset only; it does not change the detector."
+                )
+                Text(
+                    if (exportReady) {
+                        "Dataset check: both classes have at least 3 examples. Review variety and labels before any training."
+                    } else {
+                        "Dataset check: add at least 3 PHOTO and 3 SIGNATURE examples before exporting a train/validation/test dataset."
+                    }
+                )
                 Button(onClick = { showLabelDialog = true }) { Text("Add labeled example") }
                 message?.let { Text(it) }
                 if (examples.isEmpty()) {
@@ -84,7 +98,10 @@ internal fun AiLearningManagerDialog(onDismiss: () -> Unit) {
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(example.className)
-                                    Text("${(example.left * 100).toInt()}%, ${(example.top * 100).toInt()}% — ${(example.right * 100).toInt()}%, ${(example.bottom * 100).toInt()}%")
+                                    Text(
+                                        "${(example.left * 100).toInt()}%, ${(example.top * 100).toInt()}% — " +
+                                            "${(example.right * 100).toInt()}%, ${(example.bottom * 100).toInt()}%"
+                                    )
                                 }
                                 TextButton(onClick = {
                                     if (store.delete(example.id)) examples.remove(example)
@@ -112,7 +129,7 @@ internal fun AiLearningManagerDialog(onDismiss: () -> Unit) {
                         onFailure = { message = it.message ?: "Dataset export failed." },
                     )
                 }
-            }, enabled = examples.isNotEmpty()) { Text("Export YOLO ZIP") }
+            }, enabled = exportReady) { Text("Export reviewed dataset") }
         },
         dismissButton = {
             OutlinedButton(onClick = onDismiss) { Text("Close") }
@@ -121,7 +138,7 @@ internal fun AiLearningManagerDialog(onDismiss: () -> Unit) {
     if (showLabelDialog) {
         AiExampleLabelDialog(store = store, onSaved = { example ->
             examples.add(0, example)
-            message = "Example saved on this device."
+            message = "Example saved locally. The detector has not been trained yet."
             showLabelDialog = false
         }, onDismiss = { showLabelDialog = false })
     }
