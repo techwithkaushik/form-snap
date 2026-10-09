@@ -326,6 +326,24 @@ private fun writeDatasetZip(context: Context, uri: Uri) {
             else -> "train"
         }
     }.toMap()
+    val splitClassCounts = mutableMapOf(
+        "train" to intArrayOf(0, 0),
+        "valid" to intArrayOf(0, 0),
+        "test" to intArrayOf(0, 0),
+    )
+    images.forEach { image ->
+        val split = splitByGroup.getValue(groupByImage.getValue(image))
+        val label = labelsByImage.getValue(image)
+        label.readLines().filter { it.isNotBlank() }.forEach { line ->
+            val classId = line.trim().split(Regex("\\s+"))[0].toInt()
+            splitClassCounts.getValue(split)[classId]++
+        }
+    }
+    splitClassCounts.forEach { (split, counts) ->
+        require(counts.all { it > 0 }) {
+            "The $split split must contain both PHOTO and SIGNATURE labels. Add/relabel examples or adjust Form Group IDs."
+        }
+    }
     context.contentResolver.openOutputStream(uri)?.use { stream ->
         ZipOutputStream(stream).use { zip ->
             images.forEach { image ->
@@ -381,7 +399,7 @@ Annotation quality checklist:
 - Label every distinct signature separately; multiple boxes of either class are supported.
 - Include varied form layouts, lighting, blur, rotation, scale, and background conditions.
 - Review every box before export. Incorrect or inconsistent boxes teach the model incorrect boundaries.
-Split: all images with the same Form Group ID are kept together in one split to reduce data leakage. Groups are assigned deterministically; with fewer than 10 groups, the final two groups are validation and test. Images without a saved group ID are treated as individual legacy groups. Group IDs do not detect near-duplicates automatically; use the same ID for all captures of the same original form.
+Split: all images with the same Form Group ID are kept together in one split to reduce data leakage. Groups are assigned deterministically; with fewer than 10 groups, the final two groups are validation and test. Export is blocked if any split has no PHOTO or no SIGNATURE labels. Images without a saved group ID are treated as individual legacy groups. Group IDs do not detect near-duplicates automatically; use the same ID for all captures of the same original form.
 """
             zip.putNextEntry(ZipEntry("README.txt")); zip.write(note.toByteArray()); zip.closeEntry()
         }
