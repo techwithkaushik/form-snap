@@ -57,12 +57,14 @@ class AndroidCameraCapture(
     private var lastLiveDetections: List<LiveDetection> = emptyList()
     private val inferenceBusy = AtomicBoolean(false)
     private var onLiveDetections: ((List<LiveDetection>) -> Unit)? = null
+    private var onLiveDiagnostics: ((String) -> Unit)? = null
 
     fun hasCameraPermission(): Boolean =
         ContextCompat.checkSelfPermission(appContext, Manifest.permission.CAMERA) ==
             PackageManager.PERMISSION_GRANTED
 
     fun setLiveDetectionListener(listener: (List<LiveDetection>) -> Unit) { onLiveDetections = listener }
+    fun setLiveDiagnosticsListener(listener: (String) -> Unit) { onLiveDiagnostics = listener }
 
     fun bind(preview: PreviewView, lifecycleOwner: LifecycleOwner) {
         if (boundPreview === preview && owner === lifecycleOwner && provider != null) return
@@ -154,7 +156,13 @@ class AndroidCameraCapture(
     private fun analyze(image: ImageProxy) {
         if (!frameGate.shouldProcess()) { image.close(); return }
         val active = detector
-        if (active == null || !inferenceBusy.compareAndSet(false, true)) { image.close(); return }
+        if (active == null) {
+            onLiveDiagnostics?.invoke("AI: NO ACTIVE MODEL")
+            image.close()
+            return
+        }
+        if (!inferenceBusy.compareAndSet(false, true)) { image.close(); return }
+        onLiveDiagnostics?.invoke("AI: analyzing frame undefinedxundefined…")
         val bitmap = try {
             imageToBitmap(image)
         } catch (error: Throwable) {
@@ -177,8 +185,12 @@ class AndroidCameraCapture(
                 .filter { it.confidence >= 0.12f }
                 .map { toLiveDetection(it, sourceWidth, sourceHeight) }
                 .toList()
-            Log.i(TAG, "Live inference: rawBoxes=${detections.size}, visibleBoxes=${mapped.size}, " +
-                "topScores=${detections.sortedByDescending { it.confidence }.take(5).joinToString { "${it.label}:${"%.3f".format(java.util.Locale.US, it.confidence)}" }}")
+            val topScores = detections.sortedByDescending { it.confidence }.take(4)
+                .joinToString { "${it.label} ${"%.2f".format(java.util.Locale.US, it.confidence)}" }
+                .ifBlank { "none" }
+            val status = "AI LIVE | raw=${detections.size} visible=${mapped.size}\\nTop: $topScores"
+            Log.i(TAG, status.replace('\\n', ' '))
+            onLiveDiagnostics?.invoke(status)
             val stable = stabilizeDetections(mapped)
             lastLiveDetections = stable
             onLiveDetections?.invoke(stable)
@@ -186,6 +198,7 @@ class AndroidCameraCapture(
             bitmap.recycle()
             inferenceBusy.set(false)
             Log.e(TAG, "Live PHOTO/SIGNATURE inference failed", error)
+            onLiveDiagnostics?.invoke("AI INFERENCE ERROR\\n${error.javaClass.simpleName}: ${error.message ?: "unknown"}")
             presenter.onCaptureFailure(
                 "AI detection failed: ${error.message ?: error::class.java.simpleName}",
             )
@@ -429,6 +442,7 @@ class AndroidCameraCapture(
                                 Log.i(TAG, diagnostics)
                                 detector = active
                                 Log.i(TAG, "Active model ready: $diagnostics")
+                                onLiveDiagnostics?.invoke("MODEL READY\\n$diagnostics")
                             }
                             .onFailure { error ->
                                 Log.e(TAG, "Active AI model is incompatible", error)
@@ -446,6 +460,7 @@ class AndroidCameraCapture(
                     }
                 } else {
                     // Previously this path stayed silent, leaving users with only the camera grid.
+                    onLiveDiagnostics?.invoke("NO ACTIVE MODEL\\nImport trained PHOTO/SIGNATURE .tflite")
                     presenter.onCaptureFailure(
                         "AI model missing. Open AI learning to collect labels, then install a trained " +
                             "PHOTO/SIGNATURE .tflite model. Labels alone cannot enable live AI detection.",
