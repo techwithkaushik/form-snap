@@ -77,7 +77,7 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
             detectorModelPath = modelFile.absolutePath
         }
 
-        val scale = minOf(1.0, 1280.0 / maxOf(source.cols(), source.rows()).toDouble())
+        val scale = minOf(1.0, 640.0 / maxOf(source.cols(), source.rows()).toDouble())
         val inferenceMat = Mat()
         var bitmap: Bitmap? = null
         try {
