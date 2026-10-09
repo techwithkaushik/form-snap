@@ -47,12 +47,14 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
     val scope = rememberCoroutineScope()
     var index by remember(images) { mutableIntStateOf(0) }
     var selected by remember { mutableStateOf(LabelClass.PHOTO) }
-    var boxes by remember(images) { mutableStateOf<List<LabelBox>>(emptyList()) }
+    var annotationsByImage by remember(images) { mutableStateOf<Map<String, List<LabelBox>>>(emptyMap()) }
     var activeBox by remember { mutableStateOf<LabelBox?>(null) }
     var busy by remember { mutableStateOf(false) }
-    var saved by remember { mutableIntStateOf(0) }
+    var savedPaths by remember(images) { mutableStateOf<Set<String>>(emptySet()) }
     var status by remember { mutableStateOf("PHOTO चुनें और फोटो के चारों ओर drag करें") }
     val image = images.getOrNull(index)
+    val boxes = image?.let { annotationsByImage[it.absolutePath].orEmpty() }.orEmpty()
+    val saved = savedPaths.size
     val bitmap = remember(image?.absolutePath) { image?.let { BitmapFactory.decodeFile(it.absolutePath) } }
     val zipLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         if (uri != null) scope.launch {
@@ -67,7 +69,13 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
 
     fun saveAndNext() {
         val current = image ?: return
-        if (boxes.isEmpty()) { status = "पहले PHOTO या SIGNATURE का box बनाएँ"; return }
+        val currentBoxes = boxes
+        if (currentBoxes.none { it.type == LabelClass.PHOTO }) {
+            status = "इस form पर कम-से-कम एक PHOTO box mark करें"; return
+        }
+        if (currentBoxes.none { it.type == LabelClass.SIGNATURE }) {
+            status = "इस form पर कम-से-कम एक SIGNATURE box mark करें"; return
+        }
         scope.launch {
             busy = true
             try {
@@ -78,16 +86,16 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                     val base = "form_" + System.currentTimeMillis() + "_" + (index + 1)
                     val ext = current.extension.lowercase(Locale.ROOT).let { if (it in listOf("jpg", "jpeg", "png", "webp")) it else "jpg" }
                     current.copyTo(File(imageDir, base + "." + ext), true)
-                    val text = boxes.joinToString("\n") { b ->
+                    val text = currentBoxes.joinToString("\n") { b ->
                         String.format(Locale.US, "%d %.6f %.6f %.6f %.6f", b.type.id,
                             (b.l + b.r) / 2f, (b.t + b.b) / 2f, b.r - b.l, b.b - b.t)
                     } + "\n"
                     File(labelDir, base + ".txt").writeText(text)
                 }
-                saved++
+                annotationsByImage = annotationsByImage + (current.absolutePath to currentBoxes)
+                savedPaths = savedPaths + current.absolutePath
                 if (index < images.lastIndex) {
                     index++
-                    boxes = emptyList()
                     activeBox = null
                     status = "अगला form: PHOTO और SIGNATURE mark करें"
                 } else status = "सभी forms annotate हो गए। ZIP export करें।"
@@ -110,14 +118,33 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                 Column(Modifier.fillMaxWidth().padding(8.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         LabelClass.values().forEach { cls ->
-                            FilterChip(selected == cls, { selected = cls }, label = { Text(cls.id.toString() + " • " + cls.title) }, modifier = Modifier.weight(1f))
+                            val count = boxes.count { it.type == cls }
+                            FilterChip(selected == cls, { selected = cls }, label = { Text("${cls.id} • ${cls.title} ($count)") }, modifier = Modifier.weight(1f))
                         }
-                        OutlinedButton(onClick = { boxes = emptyList(); activeBox = null; status = "Boxes cleared" }) { Text("Clear") }
+                        OutlinedButton(
+                            onClick = {
+                                if (boxes.isNotEmpty()) {
+                                    image?.let { annotationsByImage = annotationsByImage + (it.absolutePath to boxes.dropLast(1)) }
+                                    activeBox = null
+                                    status = "आखिरी box हटाया गया"
+                                }
+                            },
+                            enabled = boxes.isNotEmpty() && !busy,
+                        ) { Text("Undo") }
+                        OutlinedButton(
+                            onClick = {
+                                image?.let { annotationsByImage = annotationsByImage + (it.absolutePath to emptyList()) }
+                                activeBox = null
+                                status = "इस form के सभी boxes हटाए गए"
+                            },
+                            enabled = boxes.isNotEmpty() && !busy,
+                        ) { Text("Clear") }
                     }
-                    Text("पूरी printed photo या पूरा handwritten signature box में रखें।", style = MaterialTheme.typography.bodySmall)
+                    Text("एक form पर कई PHOTO/SIGNATURE boxes बना सकते हैं। Save करने के लिए दोनों classes में कम-से-कम एक box जरूरी है।", style = MaterialTheme.typography.bodySmall)
+                    Text("Annotated: $saved/${images.size}", style = MaterialTheme.typography.bodySmall)
                     Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { if (index > 0) { index--; boxes = emptyList(); activeBox = null } }, enabled = index > 0 && !busy, modifier = Modifier.weight(1f)) { Text("Previous") }
+                        OutlinedButton(onClick = { if (index > 0) { index--; activeBox = null; status = "पिछले form के saved boxes जाँचें" } }, enabled = index > 0 && !busy, modifier = Modifier.weight(1f)) { Text("Previous") }
                         Button(onClick = { saveAndNext() }, enabled = image != null && !busy, modifier = Modifier.weight(1f)) { Text(if (index < images.lastIndex) "Save & Next" else "Save Form") }
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
