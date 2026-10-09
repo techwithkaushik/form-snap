@@ -74,7 +74,8 @@ class MainActivity : ComponentActivity() {
         var mode by remember { mutableStateOf(CaptureMode.WHOLE_FORM) }
         var saveMessage by remember { mutableStateOf<String?>(null) }
         var pendingCameraMode by remember { mutableStateOf<CaptureMode?>(null) }
-        var pendingImport by remember { mutableStateOf(false) }\n        var datasetImages by remember { mutableStateOf<List<File>>(emptyList()) }\n        var showDataset by remember { mutableStateOf(false) }
+        var pendingImport by remember { mutableStateOf(false) }
+        var datasetImages by remember { mutableStateOf<List<File>>(emptyList()) }\n        var showDataset by remember { mutableStateOf(false) }
         var showCameraX by remember { mutableStateOf(false) }
         var cameraXMode by remember { mutableStateOf(CameraCaptureMode.WHOLE_FORM) }
         var lockedSelections by remember { mutableStateOf<List<org.techwithkaushik.formsnap.feature.capture.LiveDetection>>(emptyList()) }
