@@ -151,6 +151,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                             enabled = boxes.isNotEmpty() && !busy,
                         ) { Text("Clear") }
                     }
+                    Text("बेहतर training: box को photo/signature के किनारे तक tight रखें; printed label, खाली जगह और बाहरी form-border शामिल न करें। हर अलग signature पर अलग SIGNATURE box बनाएँ।", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
                     Text("एक form पर कई PHOTO/SIGNATURE boxes बना सकते हैं। Save करने के लिए दोनों classes में कम-से-कम एक box जरूरी है।", style = MaterialTheme.typography.bodySmall)
                     Text("Annotated: $saved/${images.size}", style = MaterialTheme.typography.bodySmall)
                     Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
@@ -296,7 +297,12 @@ names:
 """
             zip.putNextEntry(ZipEntry("data.yaml")); zip.write(yaml.toByteArray()); zip.closeEntry()
             val note = """Classes: 0=PHOTO, 1=SIGNATURE.
-The ZIP is split by selection order. Review the split before training; near-duplicate pages and pages from the same source form should stay in one split. If fewer than 10 images are annotated, validation/test folders may be empty.
+Annotation quality checklist:
+- Draw a tight box around the actual photo or signature, not its printed caption or surrounding form border.
+- Label every distinct signature separately; multiple boxes of either class are supported.
+- Include varied form layouts, lighting, blur, rotation, scale, and background conditions.
+- Review every box before export. Incorrect or inconsistent boxes teach the model incorrect boundaries.
+Split: images are assigned 80% train, 10% validation, 10% test by the stable sorted file order (when there are at least 10 images). Keep near-duplicate pages and pages from the same source form in the same split to avoid data leakage. For fewer than 10 images, validation/test folders may be empty.
 """
             zip.putNextEntry(ZipEntry("README.txt")); zip.write(note.toByteArray()); zip.closeEntry()
         }
