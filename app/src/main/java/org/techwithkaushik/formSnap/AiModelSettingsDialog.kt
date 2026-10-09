@@ -93,6 +93,9 @@ fun AiModelSettingsDialog(
                                             models = manager.models()
                                             onMessage("Active model: ${model.name}")
                                         }
+                                        .onFailure {
+                                            onMessage("Cannot activate model: ${it.message ?: "incompatible model"}")
+                                        }
                                 },
                                 onBackup = {
                                     backupName = model.name
