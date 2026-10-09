@@ -132,8 +132,38 @@ class AiModelManager(context: Context) {
                 "Unsupported batch size ${inputShape[0]}; FormSnap runs one image at a time (batch size 1)."
             }
             require(inputShape.all { it > 0 }) { "Model input dimensions must all be fixed and positive." }
+            require(input.dataType() in setOf(
+                org.tensorflow.lite.DataType.FLOAT32,
+                org.tensorflow.lite.DataType.UINT8,
+                org.tensorflow.lite.DataType.INT8,
+            )) {
+                "Unsupported input data type ${input.dataType()}; FormSnap supports FLOAT32, UINT8, and INT8 image tensors."
+            }
+            if (input.dataType() == org.tensorflow.lite.DataType.UINT8 ||
+                input.dataType() == org.tensorflow.lite.DataType.INT8
+            ) {
+                require(input.quantizationParams().scale > 0f) {
+                    "Quantized model input has invalid quantization parameters."
+                }
+            }
 
-            val outputShape = interpreter.getOutputTensor(0).shape()
+            val outputTensor = interpreter.getOutputTensor(0)
+            require(outputTensor.dataType() in setOf(
+                org.tensorflow.lite.DataType.FLOAT32,
+                org.tensorflow.lite.DataType.UINT8,
+                org.tensorflow.lite.DataType.INT8,
+            )) {
+                "Unsupported output data type ${outputTensor.dataType()}; FormSnap supports FLOAT32, UINT8, and INT8 outputs."
+            }
+            if (outputTensor.dataType() == org.tensorflow.lite.DataType.UINT8 ||
+                outputTensor.dataType() == org.tensorflow.lite.DataType.INT8
+            ) {
+                require(outputTensor.quantizationParams().scale > 0f) {
+                    "Quantized model output has invalid quantization parameters."
+                }
+            }
+
+            val outputShape = outputTensor.shape()
             val minRawCandidates = 256
             val isRawTwoClassOutput = outputShape.size == 3 &&
                 ((outputShape[1] == 6 && outputShape[2] > minRawCandidates) ||
@@ -148,9 +178,25 @@ class AiModelManager(context: Context) {
                 )
             }
             require(isRawTwoClassOutput || isTwoClassClassifier) {
-                "Unsupported output shape ${outputShape.contentToString()}. Required: a float32 two-class classifier [1, 2] " +
+                "Unsupported output shape ${outputShape.contentToString()}. Required: a two-class classifier [1, 2] " +
                     "or a raw two-class YOLO detector with 6 channels. Do not use an 80-class COCO YOLO model. " +
                     "Classifier mode labels the whole frame only; it cannot locate or crop PHOTO/SIGNATURE."
+            }
+
+            // Run a real inference before activating the imported file. Shape checks alone
+            // cannot catch models with unsupported operators or broken runtime tensors.
+            val smokeInput = java.nio.ByteBuffer.allocateDirect(input.numBytes())
+                .order(java.nio.ByteOrder.nativeOrder())
+            val smokeOutput = java.nio.ByteBuffer.allocateDirect(outputTensor.numBytes())
+                .order(java.nio.ByteOrder.nativeOrder())
+            try {
+                interpreter.run(smokeInput, smokeOutput)
+            } catch (t: Throwable) {
+                throw IllegalArgumentException(
+                    "The model tensors look compatible, but TensorFlow Lite could not run inference. " +
+                        "Re-export the PHOTO/SIGNATURE model for Android TFLite.",
+                    t,
+                )
             }
         } catch (t: Throwable) {
             if (t is IllegalArgumentException) throw t
