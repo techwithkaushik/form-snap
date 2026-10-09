@@ -26,8 +26,13 @@ internal class YoloV8OutputDecoder(
             .take(config.maxDetections)
     }
 
+    /*
+     * Raw two-class YOLOv8 at 320px has 2,100 candidates; at 640px it has
+     * 8,400. A small final dimension alone is not enough to identify NMS:
+     * raw channel-last output is also [1, N, 6].
+     */
     private fun looksLikeNmsOutput(shape: IntArray): Boolean =
-        shape.last() in 6..7
+        shape.size >= 3 && shape.last() in 6..7 && shape[shape.size - 2] <= 1000
 
     private fun decodeNms(
         values: FloatArray,
@@ -82,7 +87,7 @@ internal class YoloV8OutputDecoder(
         val candidates: Int
         val channelsFirst: Boolean
 
-        if (a in 7..256 && b > a) {
+        if (a == 6 && b > a || a in 7..256 && b > a) {
             channels = a
             candidates = b
             channelsFirst = true
@@ -200,4 +205,3 @@ internal class YoloV8OutputDecoder(
         return if (union > 0f) intersection / union else 0f
     }
 }
-
