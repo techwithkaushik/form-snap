@@ -178,7 +178,7 @@ class YoloV8TfliteDetector(
         // This avoids GPU delegate ABI/classpath conflicts across old Android
         // devices. The detector still runs fully offline and on-device.
         val options = Interpreter.Options().apply {
-            setNumThreads(4)
+            setNumThreads(2)
         }
 
         val created = Interpreter(modelBuffer, options)
