@@ -51,6 +51,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
     var activeBox by remember { mutableStateOf<LabelBox?>(null) }
     var busy by remember { mutableStateOf(false) }
     var savedPaths by remember(images) { mutableStateOf<Set<String>>(emptySet()) }
+    var dirtyPaths by remember(images) { mutableStateOf<Set<String>>(emptySet()) }
     var status by remember { mutableStateOf("PHOTO चुनें और फोटो के चारों ओर drag करें") }
     val image = images.getOrNull(index)
     val boxes = image?.let { annotationsByImage[it.absolutePath].orEmpty() }.orEmpty()
@@ -83,7 +84,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                     val root = File(context.filesDir, "dataset-yolo")
                     val imageDir = File(root, "train/images").apply { mkdirs() }
                     val labelDir = File(root, "train/labels").apply { mkdirs() }
-                    val base = "form_" + System.currentTimeMillis() + "_" + (index + 1)
+                    val base = "form_" + Integer.toUnsignedString(current.absolutePath.hashCode(), 16)
                     val ext = current.extension.lowercase(Locale.ROOT).let { if (it in listOf("jpg", "jpeg", "png", "webp")) it else "jpg" }
                     current.copyTo(File(imageDir, base + "." + ext), true)
                     val text = currentBoxes.joinToString("\n") { b ->
@@ -94,6 +95,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                 }
                 annotationsByImage = annotationsByImage + (current.absolutePath to currentBoxes)
                 savedPaths = savedPaths + current.absolutePath
+                dirtyPaths = dirtyPaths - current.absolutePath
                 if (index < images.lastIndex) {
                     index++
                     activeBox = null
@@ -124,7 +126,10 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                         OutlinedButton(
                             onClick = {
                                 if (boxes.isNotEmpty()) {
-                                    image?.let { annotationsByImage = annotationsByImage + (it.absolutePath to boxes.dropLast(1)) }
+                                    image?.let {
+                                        annotationsByImage = annotationsByImage + (it.absolutePath to boxes.dropLast(1))
+                                        if (it.absolutePath in savedPaths) dirtyPaths = dirtyPaths + it.absolutePath
+                                    }
                                     activeBox = null
                                     status = "आखिरी box हटाया गया"
                                 }
@@ -133,9 +138,12 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                         ) { Text("Undo") }
                         OutlinedButton(
                             onClick = {
-                                image?.let { annotationsByImage = annotationsByImage + (it.absolutePath to emptyList()) }
+                                image?.let {
+                                    annotationsByImage = annotationsByImage + (it.absolutePath to emptyList())
+                                    if (it.absolutePath in savedPaths) dirtyPaths = dirtyPaths + it.absolutePath
+                                }
                                 activeBox = null
-                                status = "इस form के सभी boxes हटाए गए"
+                                status = "सभी boxes हटे। दोबारा mark करके Save करें; बदले हुए dataset को export से पहले save करना जरूरी है।"
                             },
                             enabled = boxes.isNotEmpty() && !busy,
                         ) { Text("Clear") }
@@ -148,7 +156,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                         Button(onClick = { saveAndNext() }, enabled = image != null && !busy, modifier = Modifier.weight(1f)) { Text(if (index < images.lastIndex) "Save & Next" else "Save Form") }
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { zipLauncher.launch("formsnap-dataset.zip") }, enabled = saved > 0 && !busy, modifier = Modifier.weight(1f)) { Text("Export dataset.zip") }
+                        OutlinedButton(onClick = { zipLauncher.launch("formsnap-dataset.zip") }, enabled = saved > 0 && dirtyPaths.isEmpty() && !busy, modifier = Modifier.weight(1f)) { Text(if (dirtyPaths.isEmpty()) "Export dataset.zip" else "Save edits first") }
                         TextButton(onClick = onExit, enabled = !busy) { Text("Finish") }
                     }
                 }
@@ -177,6 +185,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                                 if (b.r - b.l > .005f && b.b - b.t > .005f) {
                                     image?.let { current ->
                                         annotationsByImage = annotationsByImage + (current.absolutePath to (boxes + b))
+                                        if (current.absolutePath in savedPaths) dirtyPaths = dirtyPaths + current.absolutePath
                                     }
                                 }
                             }
