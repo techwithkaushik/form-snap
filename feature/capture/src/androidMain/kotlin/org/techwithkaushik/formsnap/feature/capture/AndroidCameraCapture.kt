@@ -174,10 +174,11 @@ class AndroidCameraCapture(
             inferenceBusy.set(false)
             val mapped = detections
                 .asSequence()
-                .filter { it.confidence >= 0.30f }
+                .filter { it.confidence >= 0.12f }
                 .map { toLiveDetection(it, sourceWidth, sourceHeight) }
                 .toList()
-            Log.d(TAG, "Live detector returned ${detections.size} boxes; ${mapped.size} passed confidence threshold")
+            Log.i(TAG, "Live inference: rawBoxes=${detections.size}, visibleBoxes=${mapped.size}, " +
+                "topScores=${detections.sortedByDescending { it.confidence }.take(5).joinToString { "${it.label}:${"%.3f".format(java.util.Locale.US, it.confidence)}" }}")
             val stable = stabilizeDetections(mapped)
             lastLiveDetections = stable
             onLiveDetections?.invoke(stable)
@@ -409,7 +410,7 @@ class AndroidCameraCapture(
                             modelFile = importedModel,
                             config = DetectionConfig(
                                 inputSize = 320,
-                                confidenceThreshold = 0.35f,
+                                confidenceThreshold = 0.12f,
                                 iouThreshold = 0.45f,
                                 maxDetections = 4,
                                 maxClassId = 1,
