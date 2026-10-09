@@ -5,6 +5,7 @@ import android.net.Uri
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import org.tensorflow.lite.Interpreter
 
 data class AiModelInfo(
     val file: File,
@@ -43,6 +44,9 @@ class AiModelManager(context: Context) {
                 FileOutputStream(temp).use { output -> input.copyTo(output); output.fd.sync() }
             } ?: error("Unable to open selected model.")
             require(temp.length() > 0L) { "Selected model is empty." }
+
+            // Validate before publishing the file or changing the active-model preference.
+            validateCompatibleModel(temp)
             require(temp.renameTo(destination)) { "Unable to store AI model." }
             setActive(destination.name)
             return AiModelInfo(destination, destination.name, destination.length(), true)
@@ -54,13 +58,19 @@ class AiModelManager(context: Context) {
     }
 
     fun setActive(name: String) {
-        require(File(modelsDir, name).isFile) { "AI model not found." }
-        prefs.edit().putString(KEY_ACTIVE, name).apply()
+        val file = File(modelsDir, name)
+        require(file.isFile && file.length() > 0L) { "AI model not found or empty." }
+        validateCompatibleModel(file)
+        // Commit only after validation so a bad model cannot replace a working model.
+        check(prefs.edit().putString(KEY_ACTIVE, name).commit()) {
+            "Unable to save active AI model preference."
+        }
     }
 
     fun delete(name: String) {
         require(name != activeModelName()) { "Active model cannot be deleted. Activate another model first." }
-        File(modelsDir, name).delete()
+        val file = File(modelsDir, name)
+        if (file.exists()) require(file.delete()) { "Unable to delete AI model." }
     }
 
     fun exportModel(name: String, destination: Uri) {
@@ -69,6 +79,57 @@ class AiModelManager(context: Context) {
         appContext.contentResolver.openOutputStream(destination)?.use { output ->
             FileInputStream(source).use { input -> input.copyTo(output) }
         } ?: error("Unable to create backup file.")
+    }
+
+    private fun validateCompatibleModel(file: File) {
+        require(file.extension.equals("tflite", ignoreCase = true)) {
+            "Only .tflite AI models are supported."
+        }
+        require(file.length() > 0L) { "AI model file is empty." }
+
+        val modelBuffer = FileInputStream(file).use { input ->
+            input.channel.use { channel ->
+                channel.map(java.nio.channels.FileChannel.MapMode.READ_ONLY, 0, channel.size())
+            }
+        }
+        val interpreter = try {
+            Interpreter(modelBuffer, Interpreter.Options().setNumThreads(1))
+        } catch (t: Throwable) {
+            throw IllegalArgumentException("This file is not a loadable TensorFlow Lite model.", t)
+        }
+
+        try {
+            require(interpreter.inputTensorCount == 1 && interpreter.outputTensorCount == 1) {
+                "FormSnap currently supports models with exactly one input and one output tensor."
+            }
+            val input = interpreter.getInputTensor(0)
+            val inputShape = input.shape()
+            require(inputShape.size == 4) {
+                "Unsupported input shape ${inputShape.contentToString()}; expected a 4D RGB image tensor."
+            }
+            val channelsLast = inputShape[3] == 3
+            val channelsFirst = inputShape[1] == 3
+            require(channelsLast || channelsFirst) {
+                "Unsupported input shape ${inputShape.contentToString()}; expected RGB channels in NHWC or NCHW layout."
+            }
+            require(inputShape.all { it > 0 }) { "Model input dimensions must all be fixed and positive." }
+
+            val outputShape = interpreter.getOutputTensor(0).shape()
+            // Only accept raw two-class YOLO output. NMS output shapes are ambiguous:
+            // tensor shape alone cannot prove their class order is PHOTO(0), SIGNATURE(1).
+            val isRawTwoClassOutput = outputShape.size == 3 &&
+                ((outputShape[1] == 6 && outputShape[2] > 6) ||
+                    (outputShape[2] == 6 && outputShape[1] > 6))
+            require(isRawTwoClassOutput) {
+                "Incompatible output shape ${outputShape.contentToString()}. Import a raw two-class YOLO model " +
+                    "with 6 channels (4 box values + PHOTO(0) + SIGNATURE(1)). Generic COCO and NMS-output models are not supported."
+            }
+        } catch (t: Throwable) {
+            if (t is IllegalArgumentException) throw t
+            throw IllegalArgumentException("Unable to validate this AI model: ${t.message ?: "unknown error"}", t)
+        } finally {
+            interpreter.close()
+        }
     }
 
     private fun uniqueFile(name: String): File {
