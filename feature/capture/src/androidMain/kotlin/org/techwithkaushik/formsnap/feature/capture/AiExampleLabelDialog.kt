@@ -46,14 +46,48 @@ internal fun AiExampleLabelDialog(
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { selected ->
         if (selected != null) {
-            uri = selected
             start = null
             end = null
+            error = null
+            busy = true
             scope.launch {
-                bitmap = withContext(Dispatchers.IO) {
-                    context.contentResolver.openInputStream(selected)?.use { BitmapFactory.decodeStream(it) }
+                val imported = withContext(Dispatchers.IO) {
+                    runCatching {
+                        // Copy the picker URI immediately into app-private storage. Some document
+                        // providers return temporary URIs that cannot be reopened when saving labels.
+                        val input = context.contentResolver.openInputStream(selected)
+                            ?: error("The selected image provider returned no readable stream.")
+                        val directory = java.io.File(context.filesDir, "ai-learning/imports")
+                        check(directory.exists() || directory.mkdirs()) {
+                            "Could not create the local AI Learning image folder."
+                        }
+                        val target = java.io.File(directory, "import-${java.util.UUID.randomUUID()}.img")
+                        try {
+                            input.use { source ->
+                                target.outputStream().buffered().use { destination -> source.copyTo(destination) }
+                            }
+                            val decoded = BitmapFactory.decodeFile(target.absolutePath)
+                                ?: error("Unsupported or damaged image file.")
+                            target to decoded
+                        } catch (failure: Throwable) {
+                            target.delete()
+                            throw failure
+                        }
+                    }
                 }
-                if (bitmap == null) error = "Image could not be opened."
+                busy = false
+                imported.fold(
+                    onSuccess = { (file, decoded) ->
+                        uri = Uri.fromFile(file)
+                        bitmap = decoded
+                        error = null
+                    },
+                    onFailure = { failure ->
+                        uri = null
+                        bitmap = null
+                        error = "Image import failed: ${failure.message ?: failure.javaClass.simpleName}"
+                    },
+                )
             }
         }
     }
