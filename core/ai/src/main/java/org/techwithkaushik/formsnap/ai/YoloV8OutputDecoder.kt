@@ -22,11 +22,12 @@ internal class YoloV8OutputDecoder(
             decodeRawYolo(values, shape, transform)
         }
         if (detections.isEmpty()) {
-            val maximum = values.asSequence().filter { it.isFinite() }.maxOrNull() ?: Float.NaN
+            val scoreStats = rawClassScoreStats(values, shape)
             Log.w(
                 "FormSnapAI",
                 "YOLO decoded zero boxes: shape=${shape.contentToString()}, " +
-                    "maxRawValue=${maximum}, threshold=${config.confidenceThreshold}. " +
+                    "bestClassScore=${scoreStats.first}, above005=${scoreStats.second}, " +
+                    "above012=${scoreStats.third}, threshold=${config.confidenceThreshold}. " +
                     "Check model class order, preprocessing and trained weights.",
             )
         } else {
@@ -39,6 +40,32 @@ internal class YoloV8OutputDecoder(
         return nonMaximumSuppression(detections)
             .filter { it.classId in 0..1 }
             .take(config.maxDetections)
+    }
+
+    private fun rawClassScoreStats(values: FloatArray, shape: IntArray): Triple<Float, Int, Int> {
+        if (shape.size < 3) return Triple(Float.NaN, 0, 0)
+        val a = shape[shape.size - 2]
+        val b = shape.last()
+        val channelsFirst = a == 6 && b > a
+        val channels = if (channelsFirst) a else b
+        val candidates = if (channelsFirst) b else a
+        if (channels != 6 || candidates <= 0 || values.size < channels * candidates) {
+            return Triple(Float.NaN, 0, 0)
+        }
+        var best = 0f
+        var above005 = 0
+        var above012 = 0
+        for (candidate in 0 until candidates) {
+            val score0 = if (channelsFirst) values[4 * candidates + candidate] else values[candidate * channels + 4]
+            val score1 = if (channelsFirst) values[5 * candidates + candidate] else values[candidate * channels + 5]
+            val score = max(score0, score1)
+            if (score.isFinite()) {
+                best = max(best, score)
+                if (score >= 0.05f) above005++
+                if (score >= 0.12f) above012++
+            }
+        }
+        return Triple(best, above005, above012)
     }
 
     /*
