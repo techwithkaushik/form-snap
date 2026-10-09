@@ -243,16 +243,57 @@ class AndroidCameraCapture(
 
     private fun area(d: LiveDetection): Float =
         (d.right - d.left).coerceAtLeast(0f) * (d.bottom - d.top).coerceAtLeast(0f)
-    private fun toLiveDetection(detection: DetectedObject, sourceWidth: Float, sourceHeight: Float): LiveDetection =
-        LiveDetection(
+    /**
+     * Convert detector coordinates into the visible PreviewView coordinates.
+     * PreviewView defaults to FILL_CENTER, so a camera frame with a different
+     * aspect ratio is center-cropped. Front-camera preview is mirrored as well.
+     */
+    private fun toLiveDetection(
+        detection: DetectedObject,
+        sourceWidth: Float,
+        sourceHeight: Float,
+    ): LiveDetection {
+        var left = (detection.boundingBox.left / sourceWidth).coerceIn(0f, 1f)
+        var top = (detection.boundingBox.top / sourceHeight).coerceIn(0f, 1f)
+        var right = (detection.boundingBox.right / sourceWidth).coerceIn(0f, 1f)
+        var bottom = (detection.boundingBox.bottom / sourceHeight).coerceIn(0f, 1f)
+
+        val viewWidth = previewView?.width?.toFloat() ?: 0f
+        val viewHeight = previewView?.height?.toFloat() ?: 0f
+        if (viewWidth > 0f && viewHeight > 0f && sourceWidth > 0f && sourceHeight > 0f) {
+            val sourceAspect = sourceWidth / sourceHeight
+            val viewAspect = viewWidth / viewHeight
+            if (sourceAspect > viewAspect) {
+                // The source is wider than the view; FILL_CENTER crops both sides.
+                val visibleFraction = (viewAspect / sourceAspect).coerceIn(0f, 1f)
+                val cropStart = (1f - visibleFraction) / 2f
+                left = (left - cropStart) / visibleFraction
+                right = (right - cropStart) / visibleFraction
+            } else if (sourceAspect < viewAspect) {
+                // The source is taller than the view; FILL_CENTER crops top/bottom.
+                val visibleFraction = (sourceAspect / viewAspect).coerceIn(0f, 1f)
+                val cropStart = (1f - visibleFraction) / 2f
+                top = (top - cropStart) / visibleFraction
+                bottom = (bottom - cropStart) / visibleFraction
+            }
+        }
+
+        if (presenter.state.value.lens == CameraLens.FRONT) {
+            val mirroredLeft = 1f - right
+            right = 1f - left
+            left = mirroredLeft
+        }
+
+        return LiveDetection(
             label = detection.label,
             confidence = detection.confidence,
             id = detection.id,
-            left = detection.boundingBox.left / sourceWidth,
-            top = detection.boundingBox.top / sourceHeight,
-            right = detection.boundingBox.right / sourceWidth,
-            bottom = detection.boundingBox.bottom / sourceHeight,
+            left = left.coerceIn(0f, 1f),
+            top = top.coerceIn(0f, 1f),
+            right = right.coerceIn(0f, 1f),
+            bottom = bottom.coerceIn(0f, 1f),
         )
+    }
 
     private fun bindUseCases(cameraProvider: ProcessCameraProvider) {
         val lifecycleOwner = owner ?: return
