@@ -89,7 +89,11 @@ class YoloV8TfliteDetector(
             "Model: ${modelFile?.name ?: modelAssetName}; " +
                 "input=${input.shape().contentToString()} ${input.dataType()}; " +
                 "output=${output.shape().contentToString()} ${output.dataType()}; " +
-                "classes=PHOTO(0), SIGNATURE(1)"
+                if (isTwoClassClassifier(output.shape())) {
+                    "mode=CLASSIFICATION TEST ONLY; classes=PHOTO(0), SIGNATURE(1); no bounding boxes/cropping"
+                } else {
+                    "mode=OBJECT DETECTION; classes=PHOTO(0), SIGNATURE(1)"
+                }
         }.get()
     }
 
