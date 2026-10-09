@@ -33,8 +33,8 @@ class AiModelManager(context: Context) {
         prefs.getString(KEY_ACTIVE, null)?.takeIf { name -> File(modelsDir, name).isFile }
 
     fun importModel(uri: Uri): AiModelInfo {
-        // Content-provider URIs commonly have opaque IDs as lastPathSegment. Prefer the
-        // provider's real display name so a genuine .tflite file is not rejected by its URI ID.
+        // Android document providers can return an opaque URI or a misleading display name.
+        // The actual file content and tensor contract are authoritative, not the provider name.
         val providerName = runCatching {
             appContext.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
                 ?.use { cursor ->
@@ -47,17 +47,11 @@ class AiModelManager(context: Context) {
         val uriName = uri.lastPathSegment?.substringAfterLast('/')?.substringBefore('?')
             ?.takeIf { it.isNotBlank() && !it.contains(':') && !it.matches(Regex("[0-9a-fA-F-]{20,}")) }
         val discoveredName = providerName?.takeIf { it.isNotBlank() } ?: uriName
-        // Some Android 10 document providers expose only an opaque URI and omit DISPLAY_NAME.
-        // In that case, use a neutral .tflite destination name and validate the file contents
-        // with the TFLite interpreter below; do not reject a real model based on the URI ID.
-        val originalName = when {
-            discoveredName == null -> "formsnap_model_" + System.currentTimeMillis() + ".tflite"
-            discoveredName.lowercase().endsWith(".tflite") -> discoveredName
-            !discoveredName.contains('.') -> "$discoveredName.tflite"
-            else -> throw IllegalArgumentException(
-                "Selected file is '$discoveredName', not a .tflite model. Choose the actual .tflite model file, not a dataset ZIP."
-            )
-        }
+        // Keep a useful name only when the provider clearly supplies a .tflite name.
+        // Otherwise use a neutral .tflite name and validate the copied bytes with TFLite.
+        val originalName = discoveredName
+            ?.takeIf { it.lowercase().endsWith(".tflite") }
+            ?: "formsnap_model_" + System.currentTimeMillis() + ".tflite"
 
         val safeName = originalName.replace(Regex("[^A-Za-z0-9._-]"), "_")
         val destination = uniqueFile(safeName)
@@ -68,7 +62,7 @@ class AiModelManager(context: Context) {
             } ?: error("Unable to open selected model.")
             require(temp.length() > 0L) { "Selected model is empty." }
 
-            // Validate before publishing the file or changing the active-model preference.
+            // Validate the actual model bytes before publishing the file or changing preferences.
             validateCompatibleModel(temp)
             require(temp.renameTo(destination)) { "Unable to store AI model." }
             setActive(destination.name)
@@ -84,7 +78,6 @@ class AiModelManager(context: Context) {
         val file = File(modelsDir, name)
         require(file.isFile && file.length() > 0L) { "AI model not found or empty." }
         validateCompatibleModel(file)
-        // Commit only after validation so a bad model cannot replace a working model.
         check(prefs.edit().putString(KEY_ACTIVE, name).commit()) {
             "Unable to save active AI model preference."
         }
@@ -105,9 +98,6 @@ class AiModelManager(context: Context) {
     }
 
     private fun validateCompatibleModel(file: File) {
-        require(file.extension.equals("tflite", ignoreCase = true)) {
-            "Only .tflite AI models are supported."
-        }
         require(file.length() > 0L) { "AI model file is empty." }
 
         val modelBuffer = FileInputStream(file).use { input ->
@@ -118,7 +108,10 @@ class AiModelManager(context: Context) {
         val interpreter = try {
             Interpreter(modelBuffer, Interpreter.Options().setNumThreads(1))
         } catch (t: Throwable) {
-            throw IllegalArgumentException("This file is not a loadable TensorFlow Lite model.", t)
+            throw IllegalArgumentException(
+                "Selected file is not a loadable TensorFlow Lite model (.tflite). Choose photo_sign_model.tflite, not a ZIP or dataset file.",
+                t,
+            )
         }
 
         try {
@@ -141,9 +134,6 @@ class AiModelManager(context: Context) {
             require(inputShape.all { it > 0 }) { "Model input dimensions must all be fixed and positive." }
 
             val outputShape = interpreter.getOutputTensor(0).shape()
-            // Accept either the existing YOLO detector contract or this user's
-            // two-class image classifier contract. Classification is test-only: it
-            // reports the dominant class for the entire frame and cannot crop objects.
             val minRawCandidates = 256
             val isRawTwoClassOutput = outputShape.size == 3 &&
                 ((outputShape[1] == 6 && outputShape[2] > minRawCandidates) ||
