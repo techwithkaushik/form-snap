@@ -164,13 +164,13 @@ object AutoExtractionService {
             detection: LiveDetection,
             kind: DetectionKind,
         ): DetectionCandidate {
-            val left = (detection.left.coerceIn(0f, 1f) * sourceWidth)
+            val left = ((detection.sourceLeft ?: detection.left).coerceIn(0f, 1f) * sourceWidth)
                 .coerceIn(0f, sourceWidth - 1f)
-            val top = (detection.top.coerceIn(0f, 1f) * sourceHeight)
+            val top = ((detection.sourceTop ?: detection.top).coerceIn(0f, 1f) * sourceHeight)
                 .coerceIn(0f, sourceHeight - 1f)
-            val right = (detection.right.coerceIn(0f, 1f) * sourceWidth)
+            val right = ((detection.sourceRight ?: detection.right).coerceIn(0f, 1f) * sourceWidth)
                 .coerceIn(left + 1f, sourceWidth.toFloat())
-            val bottom = (detection.bottom.coerceIn(0f, 1f) * sourceHeight)
+            val bottom = ((detection.sourceBottom ?: detection.bottom).coerceIn(0f, 1f) * sourceHeight)
                 .coerceIn(top + 1f, sourceHeight.toFloat())
 
             return DetectionCandidate(
