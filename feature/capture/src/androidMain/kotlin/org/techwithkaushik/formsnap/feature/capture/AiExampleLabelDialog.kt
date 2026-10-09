@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -82,7 +83,7 @@ internal fun AiExampleLabelDialog(
                             val h = img.height * scale
                             val ox = (size.width - w) / 2f
                             val oy = (size.height - h) / 2f
-                            drawImage(img.asImageBitmap(), dstOffset = IntSize(ox.toInt(), oy.toInt()), dstSize = IntSize(w.toInt(), h.toInt()))
+                            drawImage(img.asImageBitmap(), dstOffset = IntOffset(ox.toInt(), oy.toInt()), dstSize = IntSize(w.toInt(), h.toInt()))
                             val a = start; val b = end
                             if (a != null && b != null) {
                                 val l = minOf(a.x, b.x).coerceIn(ox, ox + w)
