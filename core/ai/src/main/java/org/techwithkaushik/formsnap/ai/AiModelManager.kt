@@ -168,19 +168,16 @@ class AiModelManager(context: Context) {
             val isRawTwoClassOutput = outputShape.size == 3 &&
                 ((outputShape[1] == 6 && outputShape[2] > minRawCandidates) ||
                     (outputShape[2] == 6 && outputShape[1] > minRawCandidates))
-            val isTwoClassClassifier = outputShape.contentEquals(intArrayOf(1, 2)) &&
-                input.dataType() == org.tensorflow.lite.DataType.FLOAT32
             if (outputShape.size == 3 && outputShape.any { it == 84 }) {
                 throw IllegalArgumentException(
                     "This is an 80-class YOLO model (output ${outputShape.contentToString()}), not a PHOTO/SIGNATURE model. " +
-                        "Please import photo_sign_model.tflite with input [1,128,128,3] and output [1,2], " +
-                        "or train/export a YOLO detector with exactly 2 classes: PHOTO and SIGNATURE."
+                        "Export a YOLO object detector with exactly 2 classes: PHOTO and SIGNATURE."
                 )
             }
-            require(isRawTwoClassOutput || isTwoClassClassifier) {
-                "Unsupported output shape ${outputShape.contentToString()}. Required: a two-class classifier [1, 2] " +
-                    "or a raw two-class YOLO detector with 6 channels. Do not use an 80-class COCO YOLO model. " +
-                    "Classifier mode labels the whole frame only; it cannot locate or crop PHOTO/SIGNATURE."
+            require(isRawTwoClassOutput) {
+                "Unsupported output shape ${outputShape.contentToString()}. FormSnap needs a YOLO object detector " +
+                    "with exactly 2 classes and 6 output channels (PHOTO=0, SIGNATURE=1). A classifier cannot " +
+                    "locate/crop regions; an 80-class COCO model is not compatible."
             }
 
             // Run a real inference before activating the imported file. Shape checks alone
