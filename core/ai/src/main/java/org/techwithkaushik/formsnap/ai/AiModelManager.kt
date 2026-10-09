@@ -2,6 +2,7 @@ package org.techwithkaushik.formsnap.ai
 
 import android.content.Context
 import android.net.Uri
+import android.provider.OpenableColumns
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -32,8 +33,21 @@ class AiModelManager(context: Context) {
         prefs.getString(KEY_ACTIVE, null)?.takeIf { name -> File(modelsDir, name).isFile }
 
     fun importModel(uri: Uri): AiModelInfo {
-        val originalName = uri.lastPathSegment?.substringAfterLast('/')?.substringBefore('?')
-            ?.takeIf { it.isNotBlank() } ?: "formsnap_model_" + System.currentTimeMillis() + ".tflite"
+        // Content-provider URIs commonly have opaque IDs as lastPathSegment. Prefer the
+        // provider's real display name so a genuine .tflite file is not rejected by its URI ID.
+        val providerName = runCatching {
+            appContext.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                ?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        if (index >= 0) cursor.getString(index) else null
+                    } else null
+                }
+        }.getOrNull()
+        val originalName = providerName?.takeIf { it.isNotBlank() }
+            ?: uri.lastPathSegment?.substringAfterLast('/')?.substringBefore('?')
+                ?.takeIf { it.isNotBlank() }
+            ?: "formsnap_model_" + System.currentTimeMillis() + ".tflite"
         require(originalName.lowercase().endsWith(".tflite")) { "Only .tflite AI models are supported." }
 
         val safeName = originalName.replace(Regex("[^A-Za-z0-9._-]"), "_")
