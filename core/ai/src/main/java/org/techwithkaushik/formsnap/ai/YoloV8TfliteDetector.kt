@@ -153,15 +153,17 @@ class YoloV8TfliteDetector(
         if (interpreter != null) return
 
         check(modelAvailable()) {
-            "AI model '$modelAssetName' is missing. Add the trained YOLOv8 INT8 model to src/main/assets."
+            "No AI model is available. Open AI Model in FormSnap and import your trained PHOTO/SIGNATURE .tflite detector."
         }
 
         val modelBuffer = if (modelFile != null) {
-            FileInputStream(modelFile).channel.map(
-                java.nio.channels.FileChannel.MapMode.READ_ONLY,
-                0,
-                modelFile.length(),
-            )
+            FileInputStream(modelFile).use { stream ->
+                stream.channel.map(
+                    java.nio.channels.FileChannel.MapMode.READ_ONLY,
+                    0,
+                    modelFile.length(),
+                )
+            }
         } else {
             val descriptor = appContext.assets.openFd(modelAssetName)
             val mapped = FileInputStream(descriptor.fileDescriptor).channel.map(
