@@ -8,6 +8,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
 import android.graphics.Matrix
+import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.graphics.YuvImage
 import android.view.Surface
@@ -176,6 +177,7 @@ class AndroidCameraCapture(
                 .filter { it.confidence >= 0.30f }
                 .map { toLiveDetection(it, sourceWidth, sourceHeight) }
                 .toList()
+            Log.d(TAG, "Live detector returned ${detections.size} boxes; ${mapped.size} passed confidence threshold")
             val stable = stabilizeDetections(mapped)
             lastLiveDetections = stable
             onLiveDetections?.invoke(stable)
@@ -198,24 +200,30 @@ class AndroidCameraCapture(
         val width = image.width
         val height = image.height
         val bitmap = when (image.format) {
-            ImageFormat.FLEX_RGBA_8888 -> {
+            // CameraX OUTPUT_IMAGE_FORMAT_RGBA_8888 reports PixelFormat.RGBA_8888
+            // on supported devices; FLEX_RGBA_8888 may also be reported by providers.
+            PixelFormat.RGBA_8888, ImageFormat.FLEX_RGBA_8888 -> {
                 val plane = image.planes.firstOrNull() ?: return null
-                val packed = ByteArray(width * height * 4)
                 val source = plane.buffer.duplicate()
-                var destination = 0
+                val pixels = IntArray(width * height)
                 for (row in 0 until height) {
                     val rowStart = row * plane.rowStride
                     for (col in 0 until width) {
                         val pixelStart = rowStart + col * plane.pixelStride
-                        if (pixelStart + 3 >= source.limit()) return null
-                        packed[destination++] = source.get(pixelStart)
-                        packed[destination++] = source.get(pixelStart + 1)
-                        packed[destination++] = source.get(pixelStart + 2)
-                        packed[destination++] = source.get(pixelStart + 3)
+                        if (pixelStart + 3 >= source.limit()) {
+                            Log.e(TAG, "RGBA frame buffer is shorter than rowStride/pixelStride require")
+                            return null
+                        }
+                        val red = source.get(pixelStart).toInt() and 0xFF
+                        val green = source.get(pixelStart + 1).toInt() and 0xFF
+                        val blue = source.get(pixelStart + 2).toInt() and 0xFF
+                        val alpha = source.get(pixelStart + 3).toInt() and 0xFF
+                        pixels[row * width + col] =
+                            (alpha shl 24) or (red shl 16) or (green shl 8) or blue
                     }
                 }
                 Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also {
-                    it.copyPixelsFromBuffer(java.nio.ByteBuffer.wrap(packed))
+                    it.setPixels(pixels, 0, width, 0, 0, width, height)
                 }
             }
             ImageFormat.YUV_420_888 -> {
