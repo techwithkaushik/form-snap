@@ -82,7 +82,7 @@ def main() -> None:
 
     # This is only a pretrained starting point. It is NOT the final FormSnap model.
     model = YOLO("yolov8n.pt")
-    train_results = model.train(
+    model.train(
         data=str(data_yaml),
         imgsz=MODEL_SIZE,
         epochs=EPOCHS,
@@ -99,7 +99,9 @@ def main() -> None:
         verbose=True,
     )
 
-    best_weights = Path(train_results.save_dir) / "weights" / "best.pt"
+    # Ultralytics stores the actual run directory on the trainer; train() returns metrics.
+    run_dir = Path(model.trainer.save_dir)
+    best_weights = run_dir / "weights" / "best.pt"
     if not best_weights.is_file():
         raise RuntimeError(f"Training did not produce best.pt: {best_weights}")
 
@@ -113,8 +115,7 @@ def main() -> None:
         plots=True,
     )
 
-    # Float32 first: it is easier to validate against the app's current input
-    # normalization and decoder than a quantized model.
+    # Float32 first: validate the model before attempting quantization.
     exported = best.export(
         format="tflite",
         imgsz=MODEL_SIZE,
@@ -125,11 +126,10 @@ def main() -> None:
     exported_path = Path(str(exported))
     candidates = [exported_path] if exported_path.is_file() else list(exported_path.rglob("*.tflite"))
     if not candidates:
-        candidates = list(Path(train_results.save_dir).rglob("*.tflite"))
+        candidates = list(run_dir.rglob("*.tflite"))
     if not candidates:
         raise RuntimeError("Ultralytics export finished without producing a .tflite file.")
 
-    # Prefer the explicitly float32 artifact when the exporter creates multiple files.
     candidates.sort(key=lambda path: ("float32" not in path.name.lower(), len(path.name)))
     source_model = candidates[0]
     destination = EXPORT_DIR / "formsnap_photo_signature_yolov8n_float32.tflite"
@@ -154,11 +154,11 @@ def main() -> None:
         raise RuntimeError(f"Unsupported TFLite input shape for FormSnap: {input_shape}")
 
     channels_first = len(output_shape) >= 3 and output_shape[-2] == 6 and output_shape[-1] > 6
-    channels_last = len(output_shape) >= 3 and output_shape[-1] == 6 and output_shape[-2] > 6
+    channels_last = len(output_shape) >= 3 and output_shape[-1] == 6 and output_shape[-2] > 256
     if not (channels_first or channels_last):
         raise RuntimeError(
             f"TFLite output shape {output_shape} does not match FormSnap's current "
-            "two-class raw YOLO decoder ([1, 6, N] or [1, N, 6])."
+            "two-class raw YOLO decoder ([1, 6, N] or [1, N, 6] with more than 256 candidates)."
         )
 
     report = {
