@@ -10,6 +10,15 @@ internal class YoloV8OutputDecoder(
 ) {
     private companion object {
         const val CROSS_CLASS_DUPLICATE_IOU = 0.80f
+        const val MAX_CANDIDATES_PER_CLASS = 100
+        const val PHOTO_MIN_CONFIDENCE = 0.45f
+        const val SIGNATURE_MIN_CONFIDENCE = 0.35f
+    }
+
+    private fun thresholdFor(classId: Int): Float = when (classId) {
+        0 -> max(config.confidenceThreshold, PHOTO_MIN_CONFIDENCE)
+        1 -> max(config.confidenceThreshold, SIGNATURE_MIN_CONFIDENCE)
+        else -> 1.0f
     }
     fun decode(
         values: FloatArray,
@@ -23,7 +32,16 @@ internal class YoloV8OutputDecoder(
             decodeNms(values, shape, transform)
         } else {
             decodeRawYolo(values, shape, transform)
+        }.filter { detection ->
+            detection.confidence >= thresholdFor(detection.classId)
         }
+            // Bound NMS work on slower ARM devices. The final output is at most
+            // one box per class, so processing thousands of weak candidates is wasteful.
+            .groupBy { it.classId }
+            .values
+            .flatMap { classDetections ->
+                classDetections.sortedByDescending { it.confidence }.take(MAX_CANDIDATES_PER_CLASS)
+            }
         if (detections.isEmpty()) {
             val scoreStats = rawClassScoreStats(values, shape)
             Log.w(
