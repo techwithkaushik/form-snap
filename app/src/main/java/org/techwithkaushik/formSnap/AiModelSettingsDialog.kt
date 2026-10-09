@@ -73,7 +73,7 @@ fun AiModelSettingsDialog(
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Button(
-                    onClick = { importLauncher.launch(arrayOf("application/octet-stream", "application/*")) },
+                    onClick = { importLauncher.launch(arrayOf("*/*")) },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text("Import AI Model (.tflite)")
