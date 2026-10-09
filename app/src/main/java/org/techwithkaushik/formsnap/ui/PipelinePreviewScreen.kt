@@ -616,6 +616,51 @@ private fun OutputPreviewCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
+            val lowConfidence = confidence != null && confidence < 0.35f
+            val reviewConfidence = confidence != null && confidence >= 0.35f && confidence < 0.60f
+            if (lowConfidence || reviewConfidence) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (lowConfidence) MaterialTheme.colorScheme.errorContainer
+                    else MaterialTheme.colorScheme.tertiaryContainer,
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        Text(
+                            if (lowConfidence) "!" else "↗",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = if (lowConfidence) MaterialTheme.colorScheme.onErrorContainer
+                            else MaterialTheme.colorScheme.onTertiaryContainer,
+                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                if (lowConfidence) "Low-confidence detection"
+                                else "Please review this crop",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (lowConfidence) MaterialTheme.colorScheme.onErrorContainer
+                                else MaterialTheme.colorScheme.onTertiaryContainer,
+                            )
+                            Text(
+                                if (lowConfidence) {
+                                    "Do not rely on this box alone. Tap Adjust crop and check that the complete ${title.lowercase()} is included without extra form borders."
+                                } else {
+                                    "Check the crop edges before saving. Adjust crop is available if the box misses any part."
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (lowConfidence) MaterialTheme.colorScheme.onErrorContainer
+                                else MaterialTheme.colorScheme.onTertiaryContainer,
+                            )
+                        }
+                    }
+                }
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
