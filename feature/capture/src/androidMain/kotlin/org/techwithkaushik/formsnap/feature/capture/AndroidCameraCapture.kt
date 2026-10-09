@@ -162,7 +162,7 @@ class AndroidCameraCapture(
             return
         }
         if (!inferenceBusy.compareAndSet(false, true)) { image.close(); return }
-        onLiveDiagnostics?.invoke("AI: analyzing frame undefinedxundefined…")
+        onLiveDiagnostics?.invoke("AI: analyzing frame " + image.width + "x" + image.height + "…")
         val bitmap = try {
             imageToBitmap(image)
         } catch (error: Throwable) {
