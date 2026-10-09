@@ -57,7 +57,7 @@ class AiLearningStore(context: Context) {
         } ?: error("Cannot decode source image.")
 
         val id = UUID.randomUUID().toString()
-        val image = File(imageDir, "$" + "{id}.jpg")
+        val image = File(imageDir, "\${id}.jpg")
         try {
             FileOutputStream(image).use {
                 check(bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, JPEG_QUALITY, it))
@@ -102,8 +102,8 @@ class AiLearningStore(context: Context) {
                     1, 2 -> "val"
                     else -> "train"
                 }
-                val imagePath = "images/$" + "{$split}/$" + "{item.id}.jpg"
-                val labelPath = "labels/$" + "{$split}/$" + "{item.id}.txt"
+                val imagePath = "images/\${split}/\${item.id}.jpg"
+                val labelPath = "labels/\${split}/\${item.id}.txt"
                 File(imageDir, item.imageFile).inputStream().buffered().use { input ->
                     zip.putNextEntry(ZipEntry(imagePath)); input.copyTo(zip); zip.closeEntry()
                 }
