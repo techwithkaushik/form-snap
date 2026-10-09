@@ -189,7 +189,7 @@ class AndroidCameraCapture(
                 .joinToString { "${it.label} ${"%.2f".format(java.util.Locale.US, it.confidence)}" }
                 .ifBlank { "none" }
             val status = "AI LIVE | raw=${detections.size} visible=${mapped.size}\\nTop: $topScores"
-            Log.i(TAG, status.replace('\\n', ' '))
+            Log.i(TAG, status.replace("\\n", " "))
             onLiveDiagnostics?.invoke(status)
             val stable = stabilizeDetections(mapped)
             lastLiveDetections = stable
