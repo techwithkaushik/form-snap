@@ -74,6 +74,25 @@ class YoloV8TfliteDetector(
             true
         }.getOrDefault(false)
 
+    /**
+     * Returns the actual tensor metadata after loading the model.
+     * Useful for diagnosing imported models that do not match FormSnap's
+     * PHOTO(0)/SIGNATURE(1) detector contract.
+     */
+    fun modelDiagnostics(): String {
+        check(!closed) { "Detector is already closed." }
+        return executor.submit<String> {
+            ensureInterpreter()
+            val model = requireNotNull(interpreter)
+            val input = model.getInputTensor(0)
+            val output = model.getOutputTensor(0)
+            "Model: ${modelFile?.name ?: modelAssetName}; " +
+                "input=${input.shape().contentToString()} ${input.dataType()}; " +
+                "output=${output.shape().contentToString()} ${output.dataType()}; " +
+                "classes=PHOTO(0), SIGNATURE(1)"
+        }.get()
+    }
+
     private fun detectOnInferenceThread(bitmap: Bitmap): List<DetectedObject> {
         require(!bitmap.isRecycled) { "Input bitmap is recycled." }
         ensureInterpreter()
@@ -147,12 +166,34 @@ class YoloV8TfliteDetector(
             InputLayout.NHWC -> inputShape[2]
             InputLayout.NCHW -> inputShape[3]
         }.takeIf { it > 0 } ?: config.inputSize
+        validateOutputContract(outputShape)
         inputBuffer = ByteBuffer
             .allocateDirect(created.getInputTensor(0).numBytes())
             .order(ByteOrder.nativeOrder())
         outputBuffer = ByteBuffer
             .allocateDirect(created.getOutputTensor(0).numBytes())
             .order(ByteOrder.nativeOrder())
+    }
+
+    private fun validateOutputContract(shape: IntArray) {
+        require(shape.size >= 2) {
+            "Unsupported FormSnap model output shape ${shape.contentToString()}. " +
+                "Expected a 2-class PHOTO/SIGNATURE YOLO output."
+        }
+
+        val last = shape.last()
+        val channelsFirst = shape.size >= 3 &&
+            shape[shape.size - 2] == 6 && last > 6
+        val channelsLast = shape.size >= 3 &&
+            last == 6 && shape[shape.size - 2] > 6
+        val nmsOutput = last in 6..7
+
+        require(channelsFirst || channelsLast || nmsOutput) {
+            "The active model output is ${shape.contentToString()}, which does not match " +
+                "FormSnap's 2-class PHOTO(0)/SIGNATURE(1) model. " +
+                "A generic COCO model will not detect photos or signatures. " +
+                "Import a model trained specifically for these two classes."
+        }
     }
 
     private enum class InputLayout {
