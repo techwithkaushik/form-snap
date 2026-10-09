@@ -44,6 +44,10 @@ class YoloV8TfliteDetector(
     private var inputHeight: Int = config.inputSize
     private var inputWidth: Int = config.inputSize
 
+    @Volatile
+    var lastInferenceDiagnostics: String = "Inference has not run"
+        private set
+
     fun detect(bitmap: Bitmap): List<DetectedObject> {
         check(!closed) { "Detector is already closed." }
         val future: Future<List<DetectedObject>> = executor.submit<List<DetectedObject>> {
@@ -108,10 +112,40 @@ class YoloV8TfliteDetector(
             output.clear()
             model.run(input, output)
             val values = readOutputAsFloatArray(output, model.getOutputTensor(0))
+            lastInferenceDiagnostics = summarizeOutput(values, outputShape)
             return decoder.decode(values, outputShape, prepared.transform)
         } finally {
             prepared.bitmap.recycle()
         }
+    }
+
+    private fun summarizeOutput(values: FloatArray, shape: IntArray): String {
+        if (shape.size < 3) return "tensor=${shape.contentToString()} values=${values.size}"
+        val a = shape[shape.size - 2]
+        val b = shape.last()
+        val channelsFirst = a == 6 && b > a
+        val channels = if (channelsFirst) a else b
+        val candidates = if (channelsFirst) b else a
+        if (channels != 6 || candidates <= 0 || values.size < channels * candidates) {
+            val finite = values.filter { it.isFinite() }
+            return "tensor=${shape.contentToString()} min=${finite.minOrNull()} max=${finite.maxOrNull()}"
+        }
+        var best0 = Float.NEGATIVE_INFINITY
+        var best1 = Float.NEGATIVE_INFINITY
+        var above005 = 0
+        var above012 = 0
+        var minClass = Float.POSITIVE_INFINITY
+        var maxClass = Float.NEGATIVE_INFINITY
+        for (i in 0 until candidates) {
+            val s0 = if (channelsFirst) values[4 * candidates + i] else values[i * channels + 4]
+            val s1 = if (channelsFirst) values[5 * candidates + i] else values[i * channels + 5]
+            if (s0.isFinite()) { best0 = maxOf(best0, s0); minClass = minOf(minClass, s0); maxClass = maxOf(maxClass, s0) }
+            if (s1.isFinite()) { best1 = maxOf(best1, s1); minClass = minOf(minClass, s1); maxClass = maxOf(maxClass, s1) }
+            val score = maxOf(s0, s1)
+            if (score.isFinite() && score >= 0.05f) above005++
+            if (score.isFinite() && score >= 0.12f) above012++
+        }
+        return "tensor=${shape.contentToString()} classRange=${"%.3f".format(java.util.Locale.US, minClass)}..${"%.3f".format(java.util.Locale.US, maxClass)} bestP=${"%.3f".format(java.util.Locale.US, best0)} bestS=${"%.3f".format(java.util.Locale.US, best1)} >=.05:$above005 >=.12:$above012"
     }
 
     private fun ensureInterpreter() {
