@@ -173,7 +173,13 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                     detectDragGestures(
                         onDragStart = { start = it; activeBox = null },
                         onDragEnd = {
-                            activeBox?.let { b -> if (b.r - b.l > .005f && b.b - b.t > .005f) boxes = boxes + b }
+                            activeBox?.let { b ->
+                                if (b.r - b.l > .005f && b.b - b.t > .005f) {
+                                    image?.let { current ->
+                                        annotationsByImage = annotationsByImage + (current.absolutePath to (boxes + b))
+                                    }
+                                }
+                            }
                             activeBox = null
                             start = null
                         },
