@@ -14,6 +14,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.techwithkaushik.formSnap.foundation.ProcessingPaths
+import org.techwithkaushik.formsnap.ai.AiModelManager
+import org.techwithkaushik.formsnap.ai.DetectionConfig
+import org.techwithkaushik.formsnap.ai.DetectedClass
+import org.techwithkaushik.formsnap.ai.YoloV8TfliteDetector
+import org.opencv.android.Utils
+import org.opencv.core.Mat
+import org.opencv.imgproc.Imgproc
 import java.io.File
 import kotlin.math.roundToInt
 
@@ -50,6 +57,75 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
     private val sessionDir = ProcessingPaths.session(context)
     private val previewScope = CoroutineScope(Dispatchers.Main.immediate)
     private var previewJob: Job? = null
+    private val aiModelManager = AiModelManager(context)
+    private var detectorModelPath: String? = null
+    private var aiDetector: YoloV8TfliteDetector? = null
+
+    /** Prefer an imported FormSnap model; preserve original-resolution crop coordinates. */
+    private fun detectWithActiveModel(source: Mat): DetectionResult? {
+        val modelFile = aiModelManager.activeModelFile() ?: run {
+            closeAiDetector()
+            return null
+        }
+        if (detectorModelPath != modelFile.absolutePath || aiDetector == null) {
+            closeAiDetector()
+            aiDetector = YoloV8TfliteDetector(
+                context = context,
+                modelFile = modelFile,
+                config = DetectionConfig(inputSize = 320, confidenceThreshold = 0.35f),
+            )
+            detectorModelPath = modelFile.absolutePath
+        }
+
+        val scale = minOf(1.0, 1280.0 / maxOf(source.cols(), source.rows()).toDouble())
+        val inferenceMat = Mat()
+        var bitmap: Bitmap? = null
+        try {
+            if (scale < 1.0) {
+                Imgproc.resize(source, inferenceMat, org.opencv.core.Size(), scale, scale, Imgproc.INTER_AREA)
+            } else {
+                source.copyTo(inferenceMat)
+            }
+            bitmap = Bitmap.createBitmap(inferenceMat.cols(), inferenceMat.rows(), Bitmap.Config.ARGB_8888)
+            Utils.matToBitmap(inferenceMat, bitmap)
+            val detections = requireNotNull(aiDetector).detect(bitmap)
+            val scaleX = source.cols().toFloat() / inferenceMat.cols().toFloat()
+            val scaleY = source.rows().toFloat() / inferenceMat.rows().toFloat()
+
+            fun candidate(classId: Int): DetectionCandidate? =
+                detections.asSequence().filter { it.classId == classId }
+                    .maxByOrNull { it.confidence }?.let { detected ->
+                        DetectionCandidate(
+                            kind = if (classId == DetectedClass.PHOTO.id) DetectionKind.PHOTO else DetectionKind.SIGNATURE,
+                            bounds = android.graphics.RectF(
+                                detected.boundingBox.left * scaleX,
+                                detected.boundingBox.top * scaleY,
+                                detected.boundingBox.right * scaleX,
+                                detected.boundingBox.bottom * scaleY,
+                            ),
+                            confidence = detected.confidence,
+                            source = "tflite-yolov8:" + modelFile.name,
+                        )
+                    }
+
+            return DetectionResult(
+                sourceWidth = source.cols(),
+                sourceHeight = source.rows(),
+                photo = candidate(DetectedClass.PHOTO.id),
+                signature = candidate(DetectedClass.SIGNATURE.id),
+                detectorVersion = "tflite-yolov8-v1",
+            )
+        } finally {
+            bitmap?.recycle()
+            inferenceMat.release()
+        }
+    }
+
+    private fun closeAiDetector() {
+        runCatching { aiDetector?.close() }
+        aiDetector = null
+        detectorModelPath = null
+    }
 
     private fun clearCurrentResults() {
         _state.value = PreviewProcessingState(
@@ -111,7 +187,9 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
                             detectorVersion = "opencv-close-capture-v1",
                         )
                     } else {
-                        UniversalDetectionEngine.detect(source = source)
+                        // Prefer the imported model, with an offline OpenCV fallback on inference errors.
+                        runCatching { detectWithActiveModel(source) }.getOrNull()
+                            ?: UniversalDetectionEngine.detect(source = source)
                     }
 
                     PreviewDetectionBundle(detection = detection)
@@ -441,6 +519,7 @@ class PipelinePreviewViewModel(private val context: Context) : AutoCloseable {
     override fun close() {
         previewJob?.cancel()
         previewScope.cancel()
+        closeAiDetector()
         sessionDir.deleteRecursively()
     }
 }
