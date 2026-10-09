@@ -56,7 +56,10 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
     val image = images.getOrNull(index)
     val boxes = image?.let { annotationsByImage[it.absolutePath].orEmpty() }.orEmpty()
     val saved = savedPaths.size
-    val bitmap = remember(image?.absolutePath) { image?.let { BitmapFactory.decodeFile(it.absolutePath) } }
+    val bitmap = remember(image?.absolutePath) { image?.let { decodeSampledBitmap(it, 1800) } }
+    DisposableEffect(bitmap) {
+        onDispose { bitmap?.recycle() }
+    }
     val zipLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         if (uri != null) scope.launch {
             busy = true
@@ -213,6 +216,28 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
     }
 }
 
+
+/**
+ * Decode large form images at a bounded resolution. Uniform downsampling preserves
+ * normalized YOLO coordinates while avoiding full-resolution bitmap allocations on
+ * memory-constrained Android devices.
+ */
+private fun decodeSampledBitmap(file: File, maxDimension: Int): Bitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(file.absolutePath, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+    var sample = 1
+    while (maxOf(bounds.outWidth / (sample * 2), bounds.outHeight / (sample * 2)) >= maxDimension) {
+        sample *= 2
+    }
+    val options = BitmapFactory.Options().apply {
+        inSampleSize = sample
+        inPreferredConfig = Bitmap.Config.RGB_565
+    }
+    return BitmapFactory.decodeFile(file.absolutePath, options)
+}
+
 private fun writeDatasetZip(context: Context, uri: Uri) {
     val root = File(context.filesDir, "dataset-yolo")
     val images = File(root, "train/images").listFiles()?.filter { it.isFile }?.sortedBy { it.name }.orEmpty()
@@ -229,7 +254,7 @@ private fun writeDatasetZip(context: Context, uri: Uri) {
                 require(label.isFile) { "Missing label for " + image.name }
                 // Re-encode only the exported copy. Keep the user's source image intact.
                 // Normalized YOLO coordinates remain valid after proportional resizing.
-                val decoded = BitmapFactory.decodeFile(image.absolutePath)
+                val decoded = decodeSampledBitmap(image, 1600)
                     ?: error("Could not decode dataset image: ${image.name}")
                 val maxDimension = 1600
                 val resizeScale = minOf(
