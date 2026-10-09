@@ -16,7 +16,7 @@ permissions:
 # an Android runner. Superseded test/build runs are cancelled automatically.
 concurrency:
   group: android-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
