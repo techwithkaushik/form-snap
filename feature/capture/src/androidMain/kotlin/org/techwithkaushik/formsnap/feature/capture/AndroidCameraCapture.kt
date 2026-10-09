@@ -291,7 +291,13 @@ class AndroidCameraCapture(
                                 maxClassId = 1,
                             ),
                         )
-                    }.getOrNull()
+                    }.getOrElse { error ->
+                        Log.e(TAG, "Unable to initialize active AI model", error)
+                        presenter.onCaptureFailure(
+                            "Unable to initialize AI model: ${error.message ?: error::class.java.simpleName}",
+                        )
+                        null
+                    }
                     if (active != null && active.modelAvailable()) {
                         runCatching { active.modelDiagnostics() }
                             .onSuccess { diagnostics ->
@@ -308,8 +314,17 @@ class AndroidCameraCapture(
                             }
                     } else {
                         active?.close()
-                        presenter.onCaptureFailure("No active TFLite model. Import a trained PHOTO/SIGNATURE model.")
+                        presenter.onCaptureFailure(
+                            "No compatible active AI model. Import a trained PHOTO/SIGNATURE .tflite model; " +
+                                "saving labels or exporting a dataset does not train the detector.",
+                        )
                     }
+                } else {
+                    // Previously this path stayed silent, leaving users with only the camera grid.
+                    presenter.onCaptureFailure(
+                        "AI model missing. Open AI learning to collect labels, then install a trained " +
+                            "PHOTO/SIGNATURE .tflite model. Labels alone cannot enable live AI detection.",
+                    )
                 }
             }
             camera = cameraProvider.bindToLifecycle(
