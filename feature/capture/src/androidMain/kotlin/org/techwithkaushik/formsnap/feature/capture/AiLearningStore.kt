@@ -8,6 +8,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.security.MessageDigest
 import java.util.Locale
 import java.util.UUID
 import java.util.zip.ZipEntry
@@ -28,14 +29,13 @@ class AiLearningStore(context: Context) {
         val className: String get() = if (classId == PHOTO) "PHOTO" else "SIGNATURE"
     }
 
+    private data class ImageGroup(val key: String, val file: File, val examples: List<Example>)
+
     @Synchronized fun examples(): List<Example> = readAll()
     @Synchronized fun count(): Int = readAll().size
     @Synchronized fun count(classId: Int): Int = readAll().count { it.classId == classId }
 
-    /**
-     * Keeps the full source image, not just its crop: the detector must learn the object's
-     * location in a complete form. Coordinates are normalized to the source image.
-     */
+    /** Store the complete form image, since object detection requires its original context. */
     @Synchronized
     fun saveReviewedCrop(
         sourceUri: String, classId: Int,
@@ -53,8 +53,7 @@ class AiLearningStore(context: Context) {
             ?: error("Cannot open source image.")
         require(bounds.outWidth > 0 && bounds.outHeight > 0) { "Unsupported source image." }
 
-        // Decode conservatively, then scale to a hard maximum. inSampleSize alone can leave
-        // images nearly twice MAX_IMAGE_SIDE, increasing disk use and future training memory.
+        // Bound both decode and saved dimensions for low-memory devices.
         val maxSide = maxOf(bounds.outWidth, bounds.outHeight)
         val sample = Integer.highestOneBit((maxSide / MAX_IMAGE_SIDE).coerceAtLeast(1))
         val decoded = app.contentResolver.openInputStream(uri)?.use {
@@ -70,16 +69,14 @@ class AiLearningStore(context: Context) {
                     (decoded.height * scale).toInt().coerceAtLeast(1),
                     true,
                 ).also { if (it !== decoded) decoded.recycle() }
-            } else {
-                decoded
-            }
+            } else decoded
         } catch (failure: Throwable) {
             if (!decoded.isRecycled) decoded.recycle()
             throw failure
         }
 
         val id = UUID.randomUUID().toString()
-        val image = File(imageDir, "${id}.jpg")
+        val image = File(imageDir, "$id.jpg")
         try {
             FileOutputStream(image).use {
                 check(bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, it))
@@ -99,17 +96,36 @@ class AiLearningStore(context: Context) {
         return example
     }
 
-    /** Explicitly exports a standard YOLO dataset ZIP; it is never uploaded automatically. */
+    /**
+     * Exports one image and all of its boxes together. If a form was labeled once for PHOTO
+     * and again for SIGNATURE, both annotations remain on the same image and in the same split,
+     * avoiding train/validation leakage from duplicate copies of one form.
+     */
     @Synchronized
     fun exportYoloZip(destination: File): File {
-        val items = readAll().filter { File(imageDir, it.imageFile).isFile }
-        require(items.isNotEmpty()) { "No reviewed examples to export yet." }
-        val byClass = items.groupBy { it.classId }
-        require(byClass[PHOTO].orEmpty().size >= MIN_EXAMPLES_PER_CLASS_FOR_EXPORT &&
-            byClass[SIGNATURE].orEmpty().size >= MIN_EXAMPLES_PER_CLASS_FOR_EXPORT) {
-            "For a useful train/validation/test export, add at least 3 PHOTO and 3 SIGNATURE examples."
+        val groups = readAll()
+            .mapNotNull { example ->
+                val file = File(imageDir, example.imageFile)
+                if (file.isFile && file.length() > 0L) example to file else null
+            }
+            .groupBy { (_, file) -> sha256(file) }
+            .map { (hash, pairs) -> ImageGroup(hash, pairs.first().second, pairs.map { it.first }) }
+            .sortedBy { it.key }
+
+        require(groups.isNotEmpty()) { "No reviewed examples to export yet." }
+        val boxCounts = groups.flatMap { it.examples }.groupingBy { it.classId }.eachCount()
+        require(boxCounts.getOrDefault(PHOTO, 0) >= MIN_BOXES_PER_CLASS_FOR_EXPORT &&
+            boxCounts.getOrDefault(SIGNATURE, 0) >= MIN_BOXES_PER_CLASS_FOR_EXPORT) {
+            "Add at least 10 PHOTO and 10 SIGNATURE boxes before exporting a dataset."
         }
-        val splits = stratifiedSplits(items)
+        val splits = assignSplits(groups)
+        val splitGroups = groups.groupBy { splits.getValue(it.key) }
+        require(splitGroups["train"].orEmpty().isNotEmpty() &&
+            splitGroups["val"].orEmpty().isNotEmpty() &&
+            splitGroups["test"].orEmpty().isNotEmpty()) {
+            "Not enough distinct form images for train/validation/test splits. Add more different forms."
+        }
+
         destination.parentFile?.mkdirs()
         ZipOutputStream(destination.outputStream().buffered()).use { zip ->
             zipText(zip, "data.yaml", """
@@ -121,44 +137,76 @@ class AiLearningStore(context: Context) {
                   0: PHOTO
                   1: SIGNATURE
             """.trimIndent() + "\n")
-            items.forEach { item ->
-                val split = splits.getValue(item.id)
-                val imagePath = "images/${split}/${item.id}.jpg"
-                val labelPath = "labels/${split}/${item.id}.txt"
-                File(imageDir, item.imageFile).inputStream().buffered().use { input ->
+            groups.forEach { group ->
+                val split = splits.getValue(group.key)
+                val imageName = "${group.key.take(24)}.jpg"
+                val imagePath = "images/$split/$imageName"
+                val labelPath = "labels/$split/${group.key.take(24)}.txt"
+                group.file.inputStream().buffered().use { input ->
                     zip.putNextEntry(ZipEntry(imagePath)); input.copyTo(zip); zip.closeEntry()
                 }
-                val w = item.right - item.left; val h = item.bottom - item.top
-                val label = String.format(
-                    Locale.US, "%d %.6f %.6f %.6f %.6f\n",
-                    item.classId, item.left + w / 2f, item.top + h / 2f, w, h,
-                )
-                zipText(zip, labelPath, label)
+                val labels = group.examples.joinToString(separator = "") { item ->
+                    val w = item.right - item.left
+                    val h = item.bottom - item.top
+                    String.format(
+                        Locale.US, "%d %.6f %.6f %.6f %.6f\n",
+                        item.classId, item.left + w / 2f, item.top + h / 2f, w, h,
+                    )
+                }
+                zipText(zip, labelPath, labels)
+            }
+            val splitSummary = listOf("train", "val", "test").joinToString("\n") { split ->
+                "$split: ${splitGroups[split].orEmpty().size} unique form images"
             }
             zipText(zip, "README.txt",
-                "FormSnap offline reviewed dataset. Classes: 0=PHOTO, 1=SIGNATURE. " +
-                    "Each image contains one reviewed box. Splits are stratified by class; inspect dataset quality before training.\n")
+                "FormSnap local reviewed dataset. Classes: 0=PHOTO, 1=SIGNATURE. " +
+                    "Boxes from the same image are kept together to avoid split leakage.\n$splitSummary\n" +
+                    "Exporting this ZIP does not train a model.\n")
         }
         return destination
     }
 
-    private fun stratifiedSplits(items: List<Example>): Map<String, String> {
+    private fun assignSplits(groups: List<ImageGroup>): Map<String, String> {
+        // Stable, class-aware greedy assignment: prefer the split furthest below its target
+        // for every class present in the image. Images are never split across partitions.
+        val targets = mapOf("train" to 0.70, "val" to 0.20, "test" to 0.10)
+        val totalByClass = groups.flatMap { it.examples }
+            .groupingBy { it.classId }.eachCount()
+        val assignedBySplit = mutableMapOf<String, MutableMap<Int, Int>>()
+        val groupCountBySplit = mutableMapOf<String, Int>()
         val result = mutableMapOf<String, String>()
-        items.groupBy { it.classId }.forEach { (_, classItems) ->
-            // Stable ordering makes the same local dataset export reproducible.
-            val ordered = classItems.sortedBy { it.id }
-            val testCount = (ordered.size / 10).coerceAtLeast(1)
-            val valCount = (ordered.size / 5).coerceAtLeast(1)
-            ordered.forEachIndexed { index, item ->
-                val split = when {
-                    index < testCount -> "test"
-                    index < testCount + valCount -> "val"
-                    else -> "train"
+        groups.sortedByDescending { group -> group.examples.map { it.classId }.distinct().size }
+            .forEach { group ->
+                val groupClasses = group.examples.groupingBy { it.classId }.eachCount()
+                val chosen = targets.keys.maxBy { split ->
+                    val counts = assignedBySplit.getOrPut(split) { mutableMapOf() }
+                    groupClasses.entries.sumOf { (classId, count) ->
+                        val total = totalByClass.getOrDefault(classId, 0).coerceAtLeast(1)
+                        val desired = total * targets.getValue(split)
+                        (desired - counts.getOrDefault(classId, 0)) * count.toDouble() / total
+                    } - groupCountBySplit.getOrDefault(split, 0) * 0.0001
                 }
-                result[item.id] = split
+                result[group.key] = chosen
+                groupClasses.forEach { (classId, count) ->
+                    val counts = assignedBySplit.getValue(chosen)
+                    counts[classId] = counts.getOrDefault(classId, 0) + count
+                }
+                groupCountBySplit[chosen] = groupCountBySplit.getOrDefault(chosen, 0) + 1
+            }
+        return result
+    }
+
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().buffered().use { input ->
+            val buffer = ByteArray(8192)
+            while (true) {
+                val read = input.read(buffer)
+                if (read < 0) break
+                digest.update(buffer, 0, read)
             }
         }
-        return result
+        return digest.digest().joinToString("") { "%02x".format(Locale.US, it) }
     }
 
     @Synchronized
@@ -208,6 +256,6 @@ class AiLearningStore(context: Context) {
         const val SIGNATURE = 1
         private const val MAX_IMAGE_SIDE = 1600
         private const val JPEG_QUALITY = 92
-        private const val MIN_EXAMPLES_PER_CLASS_FOR_EXPORT = 3
+        private const val MIN_BOXES_PER_CLASS_FOR_EXPORT = 10
     }
 }
