@@ -213,7 +213,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                     (boxes + listOfNotNull(activeBox)).forEach { b ->
                         drawRect(b.type.color, Offset(ox + b.l * dw, oy + b.t * dh),
                             Size((b.r - b.l) * dw, (b.b - b.t) * dh),
-                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3.dp.toPx()))
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx()))
                     }
                 }
             }
