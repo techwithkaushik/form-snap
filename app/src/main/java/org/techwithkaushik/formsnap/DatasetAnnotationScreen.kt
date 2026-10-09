@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.Locale
 import java.util.zip.ZipEntry
@@ -183,9 +184,36 @@ private fun writeDatasetZip(context: Context, uri: Uri) {
                 }
                 val label = File(root, "train/labels/" + image.name.substringBeforeLast('.') + ".txt")
                 require(label.isFile) { "Missing label for " + image.name }
-                zip.putNextEntry(ZipEntry(split + "/images/" + image.name))
-                image.inputStream().use { it.copyTo(zip) }
-                zip.closeEntry()
+                // Re-encode only the exported copy. Keep the user's source image intact.
+                // Normalized YOLO coordinates remain valid after proportional resizing.
+                val decoded = BitmapFactory.decodeFile(image.absolutePath)
+                    ?: error("Could not decode dataset image: ${image.name}")
+                val maxDimension = 1600
+                val resizeScale = minOf(
+                    1f,
+                    maxDimension.toFloat() / maxOf(decoded.width, decoded.height),
+                )
+                val exportBitmap = if (resizeScale < 1f) {
+                    Bitmap.createScaledBitmap(
+                        decoded,
+                        (decoded.width * resizeScale).toInt().coerceAtLeast(1),
+                        (decoded.height * resizeScale).toInt().coerceAtLeast(1),
+                        true,
+                    )
+                } else decoded
+                val compressed = ByteArrayOutputStream()
+                try {
+                    check(exportBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 82, compressed)) {
+                        "Could not compress dataset image: ${image.name}"
+                    }
+                    val jpgName = image.name.substringBeforeLast('.') + ".jpg"
+                    zip.putNextEntry(ZipEntry(split + "/images/" + jpgName))
+                    compressed.writeTo(zip)
+                    zip.closeEntry()
+                } finally {
+                    if (exportBitmap !== decoded) exportBitmap.recycle()
+                    decoded.recycle()
+                }
                 zip.putNextEntry(ZipEntry(split + "/labels/" + label.name))
                 label.inputStream().use { it.copyTo(zip) }
                 zip.closeEntry()
