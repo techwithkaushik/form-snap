@@ -381,6 +381,10 @@ class AndroidCameraCapture(
             top = top.coerceIn(0f, 1f),
             right = right.coerceIn(0f, 1f),
             bottom = bottom.coerceIn(0f, 1f),
+            sourceLeft = (detection.boundingBox.left / sourceWidth).coerceIn(0f, 1f),
+            sourceTop = (detection.boundingBox.top / sourceHeight).coerceIn(0f, 1f),
+            sourceRight = (detection.boundingBox.right / sourceWidth).coerceIn(0f, 1f),
+            sourceBottom = (detection.boundingBox.bottom / sourceHeight).coerceIn(0f, 1f),
         )
     }
 
