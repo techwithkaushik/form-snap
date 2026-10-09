@@ -39,6 +39,7 @@ internal fun AiLearningManagerDialog(onDismiss: () -> Unit) {
     val examples = remember { mutableStateListOf<AiLearningStore.Example>().apply { addAll(store.examples()) } }
     var message by remember { mutableStateOf<String?>(null) }
     var exportFile by remember { mutableStateOf<File?>(null) }
+    var showLabelDialog by remember { mutableStateOf(false) }
 
     val saveZipLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/zip"),
@@ -70,6 +71,7 @@ internal fun AiLearningManagerDialog(onDismiss: () -> Unit) {
                 Text("Reviewed examples: ${examples.size}")
                 Text("Photo: ${examples.count { it.classId == AiLearningStore.PHOTO }}  •  Signature: ${examples.count { it.classId == AiLearningStore.SIGNATURE }}")
                 Text("Examples stay on this device. Export is manual; nothing is uploaded automatically.")
+                Button(onClick = { showLabelDialog = true }) { Text("Add labeled example") }
                 message?.let { Text(it) }
                 if (examples.isEmpty()) {
                     Text("No reviewed examples collected yet.")
@@ -116,4 +118,11 @@ internal fun AiLearningManagerDialog(onDismiss: () -> Unit) {
             OutlinedButton(onClick = onDismiss) { Text("Close") }
         },
     )
+    if (showLabelDialog) {
+        AiExampleLabelDialog(store = store, onSaved = { example ->
+            examples.add(0, example)
+            message = "Example saved on this device."
+            showLabelDialog = false
+        }, onDismiss = { showLabelDialog = false })
+    }
 }
