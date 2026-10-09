@@ -112,6 +112,9 @@ class AiModelManager(context: Context) {
             require(channelsLast || channelsFirst) {
                 "Unsupported input shape ${inputShape.contentToString()}; expected RGB channels in NHWC or NCHW layout."
             }
+            require(inputShape[0] == 1) {
+                "Unsupported batch size ${inputShape[0]}; FormSnap runs one image at a time (batch size 1)."
+            }
             require(inputShape.all { it > 0 }) { "Model input dimensions must all be fixed and positive." }
 
             val outputShape = interpreter.getOutputTensor(0).shape()
