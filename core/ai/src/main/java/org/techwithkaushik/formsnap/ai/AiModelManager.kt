@@ -141,18 +141,19 @@ class AiModelManager(context: Context) {
             require(inputShape.all { it > 0 }) { "Model input dimensions must all be fixed and positive." }
 
             val outputShape = interpreter.getOutputTensor(0).shape()
-            // Only accept raw two-class YOLO output. NMS output shapes are ambiguous:
-            // tensor shape alone cannot prove their class order is PHOTO(0), SIGNATURE(1).
-            // Keep importer validation aligned with the decoder: raw YOLO has hundreds
-            // of candidates, while small row-wise tensors may be NMS output and are ambiguous.
+            // Accept either the existing YOLO detector contract or this user's
+            // two-class image classifier contract. Classification is test-only: it
+            // reports the dominant class for the entire frame and cannot crop objects.
             val minRawCandidates = 256
             val isRawTwoClassOutput = outputShape.size == 3 &&
                 ((outputShape[1] == 6 && outputShape[2] > minRawCandidates) ||
                     (outputShape[2] == 6 && outputShape[1] > minRawCandidates))
-            require(isRawTwoClassOutput) {
-                "Incompatible output shape ${outputShape.contentToString()}. Import a raw two-class YOLO model " +
-                    "with 6 channels (4 box values + PHOTO(0) + SIGNATURE(1)) and more than 256 raw candidates. " +
-                    "Generic COCO and ambiguous NMS-output models are not supported."
+            val isTwoClassClassifier = outputShape.contentEquals(intArrayOf(1, 2)) &&
+                input.dataType() == org.tensorflow.lite.DataType.FLOAT32
+            require(isRawTwoClassOutput || isTwoClassClassifier) {
+                "Unsupported output shape ${outputShape.contentToString()}. Import either a raw two-class YOLO " +
+                    "model (6 channels and >256 candidates) or a float32 two-class classifier [1, 2]. " +
+                    "Classifier mode only labels the whole frame; it cannot locate or crop PHOTO/SIGNATURE."
             }
         } catch (t: Throwable) {
             if (t is IllegalArgumentException) throw t
