@@ -200,8 +200,9 @@ class AndroidCameraCapture(
         val width = image.width
         val height = image.height
         val bitmap = when (image.format) {
-            // CameraX OUTPUT_IMAGE_FORMAT_RGBA_8888 reports PixelFormat.RGBA_8888
-            // on supported devices; FLEX_RGBA_8888 may also be reported by providers.
+            // CameraX's OUTPUT_IMAGE_FORMAT_RGBA_8888 plane is documented in
+            // A, R, G, B byte order (despite the format name). FLEX_RGBA_8888
+            // providers can expose RGBA; use the configured CameraX output contract here.
             PixelFormat.RGBA_8888, ImageFormat.FLEX_RGBA_8888 -> {
                 val plane = image.planes.firstOrNull() ?: return null
                 val source = plane.buffer.duplicate()
@@ -214,10 +215,10 @@ class AndroidCameraCapture(
                             Log.e(TAG, "RGBA frame buffer is shorter than rowStride/pixelStride require")
                             return null
                         }
-                        val red = source.get(pixelStart).toInt() and 0xFF
-                        val green = source.get(pixelStart + 1).toInt() and 0xFF
-                        val blue = source.get(pixelStart + 2).toInt() and 0xFF
-                        val alpha = source.get(pixelStart + 3).toInt() and 0xFF
+                        val alpha = source.get(pixelStart).toInt() and 0xFF
+                        val red = source.get(pixelStart + 1).toInt() and 0xFF
+                        val green = source.get(pixelStart + 2).toInt() and 0xFF
+                        val blue = source.get(pixelStart + 3).toInt() and 0xFF
                         pixels[row * width + col] =
                             (alpha shl 24) or (red shl 16) or (green shl 8) or blue
                     }
