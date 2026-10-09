@@ -242,7 +242,41 @@ private fun decodeSampledBitmap(file: File, maxDimension: Int): Bitmap? {
 private fun writeDatasetZip(context: Context, uri: Uri) {
     val root = File(context.filesDir, "dataset-yolo")
     val images = File(root, "train/images").listFiles()?.filter { it.isFile }?.sortedBy { it.name }.orEmpty()
-    require(images.isNotEmpty()) { "No saved annotations" }
+    require(images.size >= 10) {
+        "At least 10 annotated forms are required for train/validation/test export; current count: ${images.size}"
+    }
+    val labelsByImage = images.associateWith { image ->
+        File(root, "train/labels/" + image.name.substringBeforeLast('.') + ".txt")
+    }
+    val classCounts = intArrayOf(0, 0)
+    labelsByImage.forEach { (image, label) ->
+        require(label.isFile) { "Missing label for ${image.name}" }
+        val lines = label.readLines().filter { it.isNotBlank() }
+        require(lines.isNotEmpty()) { "Empty label file for ${image.name}" }
+        lines.forEachIndexed { lineIndex, line ->
+            val values = line.trim().split(Regex("\\s+"))
+            require(values.size == 5) {
+                "Invalid YOLO label at ${label.name}:${lineIndex + 1}; expected class x_center y_center width height"
+            }
+            val classId = values[0].toIntOrNull()
+                ?: error("Invalid class ID at ${label.name}:${lineIndex + 1}")
+            require(classId in 0..1) { "Unknown class ID $classId in ${label.name}" }
+            val box = values.drop(1).mapNotNull { it.toFloatOrNull() }
+            require(box.size == 4 && box.all { it.isFinite() }) {
+                "Invalid numeric coordinates at ${label.name}:${lineIndex + 1}"
+            }
+            val (cx, cy, width, height) = box
+            require(cx in 0f..1f && cy in 0f..1f && width > 0f && width <= 1f && height > 0f && height <= 1f) {
+                "Coordinates out of range at ${label.name}:${lineIndex + 1}"
+            }
+            require(cx - width / 2f >= -0.0001f && cy - height / 2f >= -0.0001f &&
+                cx + width / 2f <= 1.0001f && cy + height / 2f <= 1.0001f) {
+                "Box extends outside image at ${label.name}:${lineIndex + 1}"
+            }
+            classCounts[classId]++
+        }
+    }
+    require(classCounts.all { it > 0 }) { "Both PHOTO and SIGNATURE labels must exist before export" }
     context.contentResolver.openOutputStream(uri)?.use { stream ->
         ZipOutputStream(stream).use { zip ->
             images.forEachIndexed { index, image ->
@@ -251,8 +285,7 @@ private fun writeDatasetZip(context: Context, uri: Uri) {
                     images.size >= 10 && index % 10 == 9 -> "test"
                     else -> "train"
                 }
-                val label = File(root, "train/labels/" + image.name.substringBeforeLast('.') + ".txt")
-                require(label.isFile) { "Missing label for " + image.name }
+                val label = labelsByImage.getValue(image)
                 // Re-encode only the exported copy. Keep the user's source image intact.
                 // Normalized YOLO coordinates remain valid after proportional resizing.
                 val decoded = decodeSampledBitmap(image, 1600)
@@ -297,12 +330,13 @@ names:
 """
             zip.putNextEntry(ZipEntry("data.yaml")); zip.write(yaml.toByteArray()); zip.closeEntry()
             val note = """Classes: 0=PHOTO, 1=SIGNATURE.
+Dataset preflight: export requires at least 10 images and checks every YOLO label for valid class IDs, finite normalized coordinates, positive box size, and image-boundary containment. The export is blocked if any label is invalid.
 Annotation quality checklist:
 - Draw a tight box around the actual photo or signature, not its printed caption or surrounding form border.
 - Label every distinct signature separately; multiple boxes of either class are supported.
 - Include varied form layouts, lighting, blur, rotation, scale, and background conditions.
 - Review every box before export. Incorrect or inconsistent boxes teach the model incorrect boundaries.
-Split: images are assigned 80% train, 10% validation, 10% test by the stable sorted file order (when there are at least 10 images). Keep near-duplicate pages and pages from the same source form in the same split to avoid data leakage. For fewer than 10 images, validation/test folders may be empty.
+Split: images are assigned 80% train, 10% validation, 10% test by stable sorted file order. Keep near-duplicate pages and pages from the same source form in the same split to avoid data leakage; this exporter cannot automatically identify near-duplicates, so check them manually before training.
 """
             zip.putNextEntry(ZipEntry("README.txt")); zip.write(note.toByteArray()); zip.closeEntry()
         }
