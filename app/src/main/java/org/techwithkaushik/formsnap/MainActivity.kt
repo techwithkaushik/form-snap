@@ -247,7 +247,7 @@ class MainActivity : ComponentActivity() {
                     openDocument.launch(arrayOf("image/*"))
                 }
             },
-            onDataset = { datasetPicker.launch(arrayOf("image/*")) },
+            onDataset = { datasetImages = emptyList(); showDataset = true },
         )
 
         if (showDataset) {
