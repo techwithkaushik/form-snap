@@ -316,7 +316,10 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 4.dp)) {
                         items(libraryImages, key = { it.absolutePath }) { item ->
                             val itemIndex = libraryImages.indexOf(item)
-                            val thumb by produceState<Bitmap?>(initialValue = null, key1 = item.absolutePath) { value = withContext(Dispatchers.IO) { decodeSampledBitmap(item, 150) } }
+                            val thumbState = produceState<Bitmap?>(initialValue = null, key1 = item.absolutePath) {
+                                value = withContext(Dispatchers.IO) { decodeSampledBitmap(item, 150) }
+                            }
+                            val thumb = thumbState.value
                             DisposableEffect(thumb) { onDispose { thumb?.recycle() } }
                             Column(
                                 Modifier.width(84.dp)
