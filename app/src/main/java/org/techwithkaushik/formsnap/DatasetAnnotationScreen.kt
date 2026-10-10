@@ -13,6 +13,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -45,20 +47,108 @@ private data class LabelBox(val type: LabelClass, val l: Float, val t: Float, va
 internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onMessage: (String) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var index by remember(images) { mutableIntStateOf(0) }
+    var libraryImages by remember { mutableStateOf<List<File>>(emptyList()) }
+    var index by remember { mutableIntStateOf(0) }
     var selected by remember { mutableStateOf(LabelClass.PHOTO) }
-    var annotationsByImage by remember(images) { mutableStateOf<Map<String, List<LabelBox>>>(emptyMap()) }
+    var annotationsByImage by remember { mutableStateOf<Map<String, List<LabelBox>>>(emptyMap()) }
     var activeBox by remember { mutableStateOf<LabelBox?>(null) }
     var busy by remember { mutableStateOf(false) }
     var fullScreen by remember { mutableStateOf(false) }
-    var formGroupId by remember(index) { mutableStateOf(images.getOrNull(index)?.nameWithoutExtension.orEmpty()) }
+    var formGroupId by remember(index, libraryImages) { mutableStateOf(libraryImages.getOrNull(index)?.nameWithoutExtension.orEmpty()) }
+    var confirmRemove by remember { mutableStateOf(false) }
     var savedPaths by remember(images) { mutableStateOf<Set<String>>(emptySet()) }
     var dirtyPaths by remember(images) { mutableStateOf<Set<String>>(emptySet()) }
     var status by remember { mutableStateOf("PHOTO चुनें और फोटो के चारों ओर drag करें") }
-    val image = images.getOrNull(index)
+    val image = libraryImages.getOrNull(index)
     val boxes = image?.let { annotationsByImage[it.absolutePath].orEmpty() }.orEmpty()
     val saved = savedPaths.size
     val bitmap = remember(image?.absolutePath) { image?.let { decodeSampledBitmap(it, 1800) } }
+
+    // Dataset images and YOLO labels live in app-private storage, not transient picker cache.
+    // This makes the library available after leaving the screen or restarting the app.
+    LaunchedEffect(images) {
+        busy = true
+        try {
+            val loaded = withContext(Dispatchers.IO) {
+                val root = File(context.filesDir, "dataset-yolo")
+                val imageDir = File(root, "train/images").apply { mkdirs() }
+                val labelDir = File(root, "train/labels").apply { mkdirs() }
+                images.forEachIndexed { i, source ->
+                    if (source.isFile && source.length() > 0L) {
+                        val alreadyManaged = runCatching { source.canonicalFile.parentFile == imageDir.canonicalFile }.getOrDefault(false)
+                        if (!alreadyManaged) {
+                            val ext = source.extension.lowercase(Locale.ROOT).let { if (it in listOf("jpg", "jpeg", "png", "webp")) it else "jpg" }
+                            var destination = File(imageDir, "import_${System.currentTimeMillis()}_${i}_${source.nameWithoutExtension.take(40)}.$ext")
+                            var suffix = 1
+                            while (destination.exists()) {
+                                destination = File(imageDir, "import_${System.currentTimeMillis()}_${i}_${suffix++}.$ext")
+                            }
+                            source.copyTo(destination, false)
+                        }
+                    }
+                }
+                val all = imageDir.listFiles()?.filter { it.isFile && it.extension.lowercase(Locale.ROOT) in listOf("jpg", "jpeg", "png", "webp") }?.sortedBy { it.name.lowercase(Locale.ROOT) }.orEmpty()
+                val loadedAnnotations = mutableMapOf<String, List<LabelBox>>()
+                val loadedSaved = mutableSetOf<String>()
+                val groupFile = File(root, "train/groups.txt")
+                val groups = groupFile.takeIf { it.isFile }?.readLines().orEmpty().mapNotNull { line ->
+                    val parts = line.split("\\t", limit = 2)
+                    if (parts.size == 2) parts[0] to parts[1] else null
+                }.toMap()
+                all.forEach { file ->
+                    val label = File(labelDir, file.nameWithoutExtension + ".txt")
+                    if (label.isFile) {
+                        loadedSaved += file.absolutePath
+                        val parsed = label.readLines().mapNotNull { line ->
+                            val v = line.trim().split(Regex("\\s+"))
+                            if (v.size != 5) null else runCatching {
+                                val cls = LabelClass.values().first { it.id == v[0].toInt() }
+                                val cx = v[1].toFloat(); val cy = v[2].toFloat()
+                                val bw = v[3].toFloat(); val bh = v[4].toFloat()
+                                LabelBox(cls, (cx - bw / 2f).coerceIn(0f, 1f), (cy - bh / 2f).coerceIn(0f, 1f),
+                                    (cx + bw / 2f).coerceIn(0f, 1f), (cy + bh / 2f).coerceIn(0f, 1f))
+                            }.getOrNull()
+                        }
+                        loadedAnnotations[file.absolutePath] = parsed
+                    }
+                }
+                Triple(all, loadedAnnotations, loadedSaved)
+            }
+            libraryImages = loaded.first
+            annotationsByImage = loaded.second
+            savedPaths = loaded.third
+            dirtyPaths = emptySet()
+            index = index.coerceIn(0, (loaded.first.size - 1).coerceAtLeast(0))
+            status = if (loaded.first.isEmpty()) "Dataset खाली है। Add images दबाकर images जोड़ें।" else "Saved dataset loaded: ${loaded.first.size} images"
+        } catch (e: Exception) {
+            status = "Dataset load failed: " + (e.message ?: "unknown error")
+        } finally { busy = false }
+    }
+
+    val addImagesLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) scope.launch {
+            busy = true
+            try {
+                withContext(Dispatchers.IO) {
+                    val dir = File(context.filesDir, "dataset-yolo/train/images").apply { mkdirs() }
+                    uris.forEachIndexed { i, uri ->
+                        val mime = context.contentResolver.getType(uri)?.lowercase(Locale.ROOT).orEmpty()
+                        val ext = when (mime) { "image/png" -> "png"; "image/webp" -> "webp"; else -> "jpg" }
+                        var out = File(dir, "added_${System.currentTimeMillis()}_${i}.$ext")
+                        while (out.exists()) out = File(dir, "added_${System.currentTimeMillis()}_${i}_${System.nanoTime()}.$ext")
+                        context.contentResolver.openInputStream(uri)?.use { input -> out.outputStream().use { output -> input.copyTo(output) } }
+                            ?: error("Could not open selected image")
+                        check(out.length() > 0L) { "Selected image is empty" }
+                    }
+                }
+                val dir = File(context.filesDir, "dataset-yolo/train/images")
+                libraryImages = dir.listFiles()?.filter { it.isFile && it.extension.lowercase(Locale.ROOT) in listOf("jpg", "jpeg", "png", "webp") }?.sortedBy { it.name.lowercase(Locale.ROOT) }.orEmpty()
+                index = (libraryImages.size - uris.size).coerceAtLeast(0)
+                status = "${uris.size} image(s) added. Label objects present, then Save."
+            } catch (e: Exception) { status = "Add images failed: " + (e.message ?: "unknown error") }
+            finally { busy = false }
+        }
+    }
     DisposableEffect(bitmap) {
         onDispose { bitmap?.recycle() }
     }
@@ -86,11 +176,8 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
             try {
                 withContext(Dispatchers.IO) {
                     val root = File(context.filesDir, "dataset-yolo")
-                    val imageDir = File(root, "train/images").apply { mkdirs() }
                     val labelDir = File(root, "train/labels").apply { mkdirs() }
-                    val base = "form_" + Integer.toHexString(current.absolutePath.hashCode())
-                    val ext = current.extension.lowercase(Locale.ROOT).let { if (it in listOf("jpg", "jpeg", "png", "webp")) it else "jpg" }
-                    current.copyTo(File(imageDir, base + "." + ext), true)
+                    val base = current.nameWithoutExtension
                     val text = currentBoxes.joinToString("\n") { b ->
                         String.format(Locale.US, "%d %.6f %.6f %.6f %.6f", b.type.id,
                             (b.l + b.r) / 2f, (b.t + b.b) / 2f, b.r - b.l, b.b - b.t)
@@ -114,6 +201,40 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
         }
     }
 
+    if (confirmRemove) {
+        AlertDialog(
+            onDismissRequest = { confirmRemove = false },
+            title = { Text("Remove this image?") },
+            text = { Text("Image और उसकी saved annotations dataset से permanently हट जाएँगी। Original source file नहीं हटेगी।") },
+            confirmButton = {
+                TextButton(onClick = {
+                    val target = image
+                    confirmRemove = false
+                    if (target != null) scope.launch {
+                        busy = true
+                        try {
+                            withContext(Dispatchers.IO) {
+                                target.delete()
+                                File(context.filesDir, "dataset-yolo/train/labels/${target.nameWithoutExtension}.txt").delete()
+                                val groupsFile = File(context.filesDir, "dataset-yolo/train/groups.txt")
+                                if (groupsFile.isFile) groupsFile.writeText(groupsFile.readLines().filterNot { it.substringBefore("\\t") == target.nameWithoutExtension }.joinToString("\\n", postfix = "\\n"))
+                            }
+                            annotationsByImage = annotationsByImage - target.absolutePath
+                            savedPaths = savedPaths - target.absolutePath
+                            dirtyPaths = dirtyPaths - target.absolutePath
+                            libraryImages = libraryImages.filterNot { it.absolutePath == target.absolutePath }
+                            index = index.coerceIn(0, (libraryImages.size - 1).coerceAtLeast(0))
+                            activeBox = null
+                            status = "Image और उसकी annotations हटाई गईं"
+                        } catch (e: Exception) { status = "Remove failed: " + (e.message ?: "unknown error") }
+                        finally { busy = false }
+                    }
+                }) { Text("Remove") }
+            },
+            dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text("Cancel") } },
+        )
+    }
+
     BackHandler(onBack = onExit)
     Scaffold(
         topBar = {
@@ -121,8 +242,9 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                 title = { Text("Dataset Builder", fontWeight = FontWeight.Bold) },
                 navigationIcon = { TextButton(onClick = onExit) { Text("Exit") } },
                 actions = {
+                    TextButton(onClick = { addImagesLauncher.launch(arrayOf("image/*")) }) { Text("Add images") }
                     TextButton(onClick = { fullScreen = true }) { Text("Full screen") }
-                    Text((index + 1).toString() + "/" + images.size, modifier = Modifier.padding(end = 12.dp))
+                    Text((if (libraryImages.isEmpty()) 0 else index + 1).toString() + "/" + libraryImages.size, modifier = Modifier.padding(end = 12.dp))
                 }
             )
         },
@@ -168,11 +290,22 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                     if (oversized.isNotEmpty() || tinySigns.isNotEmpty()) Text("Label review: " + (if (oversized.isNotEmpty()) "${oversized.size} unusually large box(es); " else "") + (if (tinySigns.isNotEmpty()) "${tinySigns.size} very small signature box(es)." else "check boxes against the actual object."), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                     Text("This image: PHOTO ${photoBoxes.size} • SIGNATURE ${signBoxes.size}. Signature box should tightly cover ink strokes—not the whole blank field or printed border.", style = MaterialTheme.typography.bodySmall)
                     Text("PHOTO और SIGNATURE independent हैं: PHOTO-only, SIGNATURE-only, दोनों वाले और किसी भी target के बिना images भी Save करें। जो object मौजूद नहीं है उसका box न बनाएँ।", style = MaterialTheme.typography.bodySmall)
-                    Text("Annotated: $saved/${images.size}", style = MaterialTheme.typography.bodySmall)
+                    Text("Annotated: $saved/${libraryImages.size}", style = MaterialTheme.typography.bodySmall)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(vertical = 4.dp)) {
+                        items(libraryImages, key = { it.absolutePath }) { item ->
+                            val itemIndex = libraryImages.indexOf(item)
+                            AssistChip(
+                                onClick = { index = itemIndex; activeBox = null; status = item.name },
+                                label = { Text("${if (item.absolutePath in savedPaths) "✓ " else "○ "}${itemIndex + 1}. ${item.name.take(14)}") },
+                                enabled = !busy,
+                            )
+                        }
+                    }
                     Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = { if (index > 0) { index--; activeBox = null; status = "पिछले form के saved boxes जाँचें" } }, enabled = index > 0 && !busy, modifier = Modifier.weight(1f)) { Text("Previous") }
-                        Button(onClick = { saveAndNext() }, enabled = image != null && !busy, modifier = Modifier.weight(1f)) { Text(if (index < images.lastIndex) "Save & Next" else "Save Form") }
+                        Button(onClick = { saveAndNext() }, enabled = image != null && !busy, modifier = Modifier.weight(1f)) { Text(if (index < libraryImages.lastIndex) "Save & Next" else "Save Form") }
+                        OutlinedButton(onClick = { confirmRemove = true }, enabled = image != null && !busy, modifier = Modifier.weight(1f)) { Text("Remove image") }
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = { zipLauncher.launch("formsnap-dataset.zip") }, enabled = saved > 0 && dirtyPaths.isEmpty() && !busy, modifier = Modifier.weight(1f)) { Text(if (dirtyPaths.isEmpty()) "Export dataset.zip" else "Save edits first") }
@@ -183,7 +316,12 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
         }
     ) { padding ->
         Box(Modifier.fillMaxSize().then(if (fullScreen) Modifier else Modifier.padding(padding)).background(Color(0xFF101216)).padding(if (fullScreen) 0.dp else 4.dp), contentAlignment = Alignment.Center) {
-            if (bitmap == null) Text("Image could not be opened", color = Color.White)
+            if (libraryImages.isEmpty()) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("No dataset images yet", color = Color.White)
+                    Button(onClick = { addImagesLauncher.launch(arrayOf("image/*")) }, enabled = !busy) { Text("Add images") }
+                }
+            } else if (bitmap == null) Text("Image could not be opened", color = Color.White)
             else BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 val w = constraints.maxWidth.toFloat()
                 val h = constraints.maxHeight.toFloat()
