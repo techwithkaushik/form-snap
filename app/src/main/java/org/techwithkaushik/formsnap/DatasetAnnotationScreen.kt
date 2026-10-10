@@ -78,12 +78,9 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
         val currentBoxes = boxes
         val normalizedGroup = formGroupId.trim().replace("\\t", " ").replace("\\n", " ").replace("\\r", " ")
         if (normalizedGroup.isBlank()) { status = "एक Form Group ID दें। एक ही form की सभी photos में यही ID रखें।"; return }
-        if (currentBoxes.none { it.type == LabelClass.PHOTO }) {
-            status = "इस form पर कम-से-कम एक PHOTO box mark करें"; return
-        }
-        if (currentBoxes.none { it.type == LabelClass.SIGNATURE }) {
-            status = "इस form पर कम-से-कम एक SIGNATURE box mark करें"; return
-        }
+        // PHOTO and SIGNATURE are independent classes. Save images containing either class,
+        // both classes, and true negative images with no target at all; empty YOLO label
+        // files represent negative samples.
         scope.launch {
             busy = true
             try {
@@ -110,7 +107,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                 if (index < images.lastIndex) {
                     index++
                     activeBox = null
-                    status = "अगला form: PHOTO और SIGNATURE mark करें"
+                    status = "अगला image: sirf jo objects dikh rahe hain unhe label karein; missing class force na karein"
                 } else status = "सभी forms annotate हो गए। ZIP export करें।"
             } catch (e: Exception) { status = "Save failed: " + (e.message ?: "unknown error") }
             finally { busy = false }
@@ -170,7 +167,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                     val tinySigns = signBoxes.filter { (it.r - it.l) * (it.b - it.t) < 0.0005f || it.r - it.l < 0.01f || it.b - it.t < 0.01f }
                     if (oversized.isNotEmpty() || tinySigns.isNotEmpty()) Text("Label review: " + (if (oversized.isNotEmpty()) "${oversized.size} unusually large box(es); " else "") + (if (tinySigns.isNotEmpty()) "${tinySigns.size} very small signature box(es)." else "check boxes against the actual object."), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                     Text("This image: PHOTO ${photoBoxes.size} • SIGNATURE ${signBoxes.size}. Signature box should tightly cover ink strokes—not the whole blank field or printed border.", style = MaterialTheme.typography.bodySmall)
-                    Text("एक form पर कई PHOTO/SIGNATURE boxes बना सकते हैं। Save करने के लिए दोनों classes में कम-से-कम एक box जरूरी है।", style = MaterialTheme.typography.bodySmall)
+                    Text("PHOTO और SIGNATURE independent हैं: PHOTO-only, SIGNATURE-only, दोनों वाले और किसी भी target के बिना images भी Save करें। जो object मौजूद नहीं है उसका box न बनाएँ।", style = MaterialTheme.typography.bodySmall)
                     Text("Annotated: $saved/${images.size}", style = MaterialTheme.typography.bodySmall)
                     Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -278,7 +275,7 @@ private fun writeDatasetZip(context: Context, uri: Uri) {
     labelsByImage.forEach { (image, label) ->
         require(label.isFile) { "Missing label for ${image.name}" }
         val lines = label.readLines().filter { it.isNotBlank() }
-        require(lines.isNotEmpty()) { "Empty label file for ${image.name}" }
+        // Empty label files are valid YOLO negative samples: this image contains neither target.
         lines.forEachIndexed { lineIndex, line ->
             val values = line.trim().split(Regex("\\s+"))
             require(values.size == 5) {
@@ -341,7 +338,8 @@ private fun writeDatasetZip(context: Context, uri: Uri) {
     }
     splitClassCounts.forEach { (split, counts) ->
         require(counts.all { it > 0 }) {
-            "The $split split must contain both PHOTO and SIGNATURE labels. Add/relabel examples or adjust Form Group IDs."
+            "The $split split must contain at least one PHOTO and one SIGNATURE label overall. " +
+                "Individual images may contain either class, both classes, or neither."
         }
     }
     context.contentResolver.openOutputStream(uri)?.use { stream ->
@@ -393,13 +391,14 @@ names:
 """
             zip.putNextEntry(ZipEntry("data.yaml")); zip.write(yaml.toByteArray()); zip.closeEntry()
             val note = """Classes: 0=PHOTO, 1=SIGNATURE.
-Dataset preflight: export requires at least 10 images and checks every YOLO label for valid class IDs, finite normalized coordinates, positive box size, and image-boundary containment. The export is blocked if any label is invalid.
+Dataset preflight: export requires at least 10 images and checks every YOLO label for valid class IDs, finite normalized coordinates, positive box size, and image-boundary containment. Empty label files are valid negative samples; the export is blocked if any non-empty label is invalid.
 Annotation quality checklist:
 - Draw a tight box around the actual photo or signature, not its printed caption or surrounding form border.
 - Label every distinct signature separately; multiple boxes of either class are supported.
+- Classes are independent: include PHOTO-only, SIGNATURE-only, both-class images, and negative images with neither object. Never draw a fake box for a missing class.
 - Include varied form layouts, lighting, blur, rotation, scale, and background conditions.
 - Review every box before export. Incorrect or inconsistent boxes teach the model incorrect boundaries.
-Split: all images with the same Form Group ID are kept together in one split to reduce data leakage. Groups are assigned deterministically; with fewer than 10 groups, the final two groups are validation and test. Export is blocked if any split has no PHOTO or no SIGNATURE labels. Images without a saved group ID are treated as individual legacy groups. Group IDs do not detect near-duplicates automatically; use the same ID for all captures of the same original form.
+Split: all images with the same Form Group ID are kept together in one split to reduce data leakage. Groups are assigned deterministically; with fewer than 10 groups, the final two groups are validation and test. Each split must contain PHOTO and SIGNATURE examples overall, but individual images may contain only one class or neither. Images without a saved group ID are treated as individual legacy groups. Group IDs do not detect near-duplicates automatically; use the same ID for all captures of the same original form.
 """
             zip.putNextEntry(ZipEntry("README.txt")); zip.write(note.toByteArray()); zip.closeEntry()
         }
