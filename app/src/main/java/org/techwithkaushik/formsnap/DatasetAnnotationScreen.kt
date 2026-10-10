@@ -96,7 +96,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                 val loadedSaved = mutableSetOf<String>()
                 val groupFile = File(root, "train/groups.txt")
                 val groups = groupFile.takeIf { it.isFile }?.readLines().orEmpty().mapNotNull { line ->
-                    val parts = line.split("\\t", limit = 2)
+                    val parts = line.split("\t", limit = 2)
                     if (parts.size == 2) parts[0] to parts[1] else null
                 }.toMap()
                 all.forEach { file ->
@@ -223,7 +223,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                                 target.delete()
                                 File(context.filesDir, "dataset-yolo/train/labels/${target.nameWithoutExtension}.txt").delete()
                                 val groupsFile = File(context.filesDir, "dataset-yolo/train/groups.txt")
-                                if (groupsFile.isFile) groupsFile.writeText(groupsFile.readLines().filterNot { it.substringBefore("\\t") == target.nameWithoutExtension }.joinToString("\\n", postfix = "\\n"))
+                                if (groupsFile.isFile) groupsFile.writeText(groupsFile.readLines().filterNot { it.substringBefore("\t") == target.nameWithoutExtension }.joinToString("\n", postfix = "\n"))
                             }
                             annotationsByImage = annotationsByImage - target.absolutePath
                             savedPaths = savedPaths - target.absolutePath
@@ -465,7 +465,7 @@ private fun writeDatasetZip(context: Context, uri: Uri) {
     val groupFile = File(root, "train/groups.txt")
     val groupByBase = groupFile.takeIf { it.isFile }?.readLines().orEmpty()
         .mapNotNull { line ->
-            val parts = line.split("\t", limit = 2)
+                    val parts = line.split("\t", limit = 2)
             if (parts.size == 2 && parts[0].isNotBlank() && parts[1].isNotBlank()) parts[0] to parts[1] else null
         }.toMap()
     val groupByImage = images.associateWith { image ->
