@@ -249,7 +249,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
         )
     }
 
-    BackHandler(onBack = onExit)
+    BackHandler(onBack = { if (fullScreen) fullScreen = false else onExit() })
     Scaffold(
         topBar = {
             if (!fullScreen) TopAppBar(
@@ -262,7 +262,6 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                 navigationIcon = { TextButton(onClick = onExit, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("Exit") } },
                 actions = {
                     TextButton(onClick = { addImagesLauncher.launch(arrayOf("image/*")) }, contentPadding = PaddingValues(horizontal = 6.dp)) { Text("+ Add") }
-                    TextButton(onClick = { fullScreen = true }, contentPadding = PaddingValues(horizontal = 6.dp)) { Text("Expand") }
                     Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(12.dp), modifier = Modifier.padding(start = 2.dp, end = 8.dp)) {
                         Text((if (libraryImages.isEmpty()) 0 else index + 1).toString() + "/" + libraryImages.size, modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
                     }
@@ -316,7 +315,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 4.dp)) {
                         items(libraryImages, key = { it.absolutePath }) { item ->
                             val itemIndex = libraryImages.indexOf(item)
-                            val thumb = remember(item.absolutePath) { decodeSampledBitmap(item, 180) }
+                            val thumb by produceState<Bitmap?>(initialValue = null, key1 = item.absolutePath) { value = withContext(Dispatchers.IO) { decodeSampledBitmap(item, 150) } }
                             DisposableEffect(thumb) { onDispose { thumb?.recycle() } }
                             Column(
                                 Modifier.width(84.dp)
@@ -372,7 +371,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                 Image(bitmap.asImageBitmap(), "Imported form", Modifier.size(
                     with(androidx.compose.ui.platform.LocalDensity.current) { dw.toDp() },
                     with(androidx.compose.ui.platform.LocalDensity.current) { dh.toDp() }), contentScale = ContentScale.FillBounds)
-                Canvas(Modifier.fillMaxSize().pointerInput(index, selected, dw, dh, ox, oy) {
+                Canvas(Modifier.fillMaxSize().pointerInput(index) { detectTapGestures(onTap = { if (!fullScreen) fullScreen = true }) }.pointerInput(index, selected, dw, dh, ox, oy) {
                     var start: Offset? = null
                     detectDragGestures(
                         onDragStart = { start = it; activeBox = null },
@@ -407,7 +406,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
             }
             if (fullScreen) {
                 Surface(modifier = Modifier.align(Alignment.TopEnd).padding(12.dp), color = Color(0xDD101216), shape = MaterialTheme.shapes.large) {
-                    TextButton(onClick = { fullScreen = false }) { Text("Done • Exit full screen", color = Color.White) }
+                    TextButton(onClick = { fullScreen = false }) { Text("Done", color = Color.White) }
                 }
                 Surface(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp), color = Color(0xDD101216), shape = MaterialTheme.shapes.large) {
                     Text("Drag to mark " + selected.title + " • " + (index + 1) + "/" + libraryImages.size, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = selected.color, style = MaterialTheme.typography.bodyMedium)
