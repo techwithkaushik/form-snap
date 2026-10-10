@@ -55,10 +55,13 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
     var index by remember { mutableIntStateOf(0) }
     var selected by remember { mutableStateOf(LabelClass.PHOTO) }
     var annotationsByImage by remember { mutableStateOf<Map<String, List<LabelBox>>>(emptyMap()) }
+    var groupIds by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var activeBox by remember { mutableStateOf<LabelBox?>(null) }
     var busy by remember { mutableStateOf(false) }
     var fullScreen by remember { mutableStateOf(false) }
-    var formGroupId by remember(index, libraryImages) { mutableStateOf(libraryImages.getOrNull(index)?.nameWithoutExtension.orEmpty()) }
+    var formGroupId by remember(index, libraryImages, groupIds) {
+        mutableStateOf(libraryImages.getOrNull(index)?.let { groupIds[it.nameWithoutExtension] ?: it.nameWithoutExtension }.orEmpty())
+    }
     var confirmRemove by remember { mutableStateOf(false) }
     var savedPaths by remember(images) { mutableStateOf<Set<String>>(emptySet()) }
     var dirtyPaths by remember(images) { mutableStateOf<Set<String>>(emptySet()) }
@@ -116,11 +119,12 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                         loadedAnnotations[file.absolutePath] = parsed
                     }
                 }
-                Triple(all, loadedAnnotations, loadedSaved)
+                Triple(all, loadedAnnotations, Pair(loadedSaved, groups))
             }
             libraryImages = loaded.first
             annotationsByImage = loaded.second
-            savedPaths = loaded.third
+            savedPaths = loaded.third.first
+            groupIds = loaded.third.second
             dirtyPaths = emptySet()
             index = index.coerceIn(0, (loaded.first.size - 1).coerceAtLeast(0))
             status = if (loaded.first.isEmpty()) "Dataset खाली है। Add images दबाकर images जोड़ें।" else "Saved dataset loaded: ${loaded.first.size} images"
@@ -196,6 +200,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                 }
                 annotationsByImage = annotationsByImage + (current.absolutePath to currentBoxes)
                 savedPaths = savedPaths + current.absolutePath
+                groupIds = groupIds + (base to normalizedGroup.lowercase(Locale.ROOT))
                 dirtyPaths = dirtyPaths - current.absolutePath
                 if (index < images.lastIndex) {
                     index++
@@ -227,6 +232,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                             }
                             annotationsByImage = annotationsByImage - target.absolutePath
                             savedPaths = savedPaths - target.absolutePath
+                            groupIds = groupIds - target.nameWithoutExtension
                             dirtyPaths = dirtyPaths - target.absolutePath
                             libraryImages = libraryImages.filterNot { it.absolutePath == target.absolutePath }
                             index = index.coerceIn(0, (libraryImages.size - 1).coerceAtLeast(0))
