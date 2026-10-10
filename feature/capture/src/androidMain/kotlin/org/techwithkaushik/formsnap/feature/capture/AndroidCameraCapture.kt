@@ -309,13 +309,15 @@ class AndroidCameraCapture(
             if (bestIndex < 0 || bestIou < 0.15f) next else {
                 used[bestIndex] = true
                 val previous = lastLiveDetections[bestIndex]
-                val alpha = 0.45f
+                // Do not interpolate box coordinates across frames: a bad early
+                // prediction can otherwise make the rectangle visibly travel from
+                // the bottom of the preview toward the real object over several
+                // inferences. Render the latest model coordinates immediately and
+                // smooth confidence only.
+                val confidenceAlpha = 0.45f
                 next.copy(
-                    confidence = previous.confidence * (1f - alpha) + next.confidence * alpha,
-                    left = previous.left * (1f - alpha) + next.left * alpha,
-                    top = previous.top * (1f - alpha) + next.top * alpha,
-                    right = previous.right * (1f - alpha) + next.right * alpha,
-                    bottom = previous.bottom * (1f - alpha) + next.bottom * alpha,
+                    confidence = previous.confidence * (1f - confidenceAlpha) +
+                        next.confidence * confidenceAlpha,
                 )
             }
         }
