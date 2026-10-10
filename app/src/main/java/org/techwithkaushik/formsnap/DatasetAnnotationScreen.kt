@@ -42,8 +42,8 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
 private enum class LabelClass(val id: Int, val title: String, val color: Color) {
-    PHOTO(0, "PHOTO", Color(0xFF00C853)),
-    SIGNATURE(1, "SIGNATURE", Color(0xFFFF6D00))
+    PHOTO(0, "Photo", Color(0xFF00C853)),
+    SIGNATURE(1, "Signature", Color(0xFFFF6D00))
 }
 private data class LabelBox(val type: LabelClass, val l: Float, val t: Float, val r: Float, val b: Float)
 
@@ -184,10 +184,10 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
         scope.launch {
             busy = true
             try {
+                val base = current.nameWithoutExtension
                 withContext(Dispatchers.IO) {
                     val root = File(context.filesDir, "dataset-yolo")
                     val labelDir = File(root, "train/labels").apply { mkdirs() }
-                    val base = current.nameWithoutExtension
                     val text = currentBoxes.joinToString("\n") { b ->
                         String.format(Locale.US, "%d %.6f %.6f %.6f %.6f", b.type.id,
                             (b.l + b.r) / 2f, (b.t + b.b) / 2f, b.r - b.l, b.b - b.t)
@@ -558,7 +558,7 @@ names:
   1: SIGNATURE
 """
             zip.putNextEntry(ZipEntry("data.yaml")); zip.write(yaml.toByteArray()); zip.closeEntry()
-            val note = """Classes: 0=PHOTO, 1=SIGNATURE.
+            val note = """Classes: 0=Photo, 1=Signature.
 Dataset preflight: export requires at least 10 images and checks every YOLO label for valid class IDs, finite normalized coordinates, positive box size, and image-boundary containment. Empty label files are valid negative samples; the export is blocked if any non-empty label is invalid.
 Annotation quality checklist:
 - Draw a tight box around the actual photo or signature, not its printed caption or surrounding form border.
