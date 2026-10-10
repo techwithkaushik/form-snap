@@ -249,7 +249,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
         )
     }
 
-    BackHandler(onBack = { if (fullScreen) fullScreen = false else onExit() })
+    BackHandler(onBack = onExit)
     Scaffold(
         topBar = {
             if (!fullScreen) TopAppBar(
