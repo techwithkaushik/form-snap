@@ -15,6 +15,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
@@ -202,7 +204,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                 savedPaths = savedPaths + current.absolutePath
                 groupIds = groupIds + (base to normalizedGroup.lowercase(Locale.ROOT))
                 dirtyPaths = dirtyPaths - current.absolutePath
-                if (index < images.lastIndex) {
+                if (index < libraryImages.lastIndex) {
                     index++
                     activeBox = null
                     status = "अगला image: sirf jo objects dikh rahe hain unhe label karein; missing class force na karein"
@@ -251,12 +253,19 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
     Scaffold(
         topBar = {
             if (!fullScreen) TopAppBar(
-                title = { Text("Dataset Builder", fontWeight = FontWeight.Bold) },
-                navigationIcon = { TextButton(onClick = onExit) { Text("Exit") } },
+                title = {
+                    Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
+                        Text("Dataset Builder", fontWeight = FontWeight.Bold, maxLines = 1, style = MaterialTheme.typography.titleMedium)
+                        Text("${libraryImages.size} images • ${savedPaths.size} saved", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                    }
+                },
+                navigationIcon = { TextButton(onClick = onExit, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("Exit") } },
                 actions = {
-                    TextButton(onClick = { addImagesLauncher.launch(arrayOf("image/*")) }) { Text("Add images") }
-                    TextButton(onClick = { fullScreen = true }) { Text("Full screen") }
-                    Text((if (libraryImages.isEmpty()) 0 else index + 1).toString() + "/" + libraryImages.size, modifier = Modifier.padding(end = 12.dp))
+                    TextButton(onClick = { addImagesLauncher.launch(arrayOf("image/*")) }, contentPadding = PaddingValues(horizontal = 6.dp)) { Text("+ Add") }
+                    TextButton(onClick = { fullScreen = true }, contentPadding = PaddingValues(horizontal = 6.dp)) { Text("Expand") }
+                    Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(12.dp), modifier = Modifier.padding(start = 2.dp, end = 8.dp)) {
+                        Text((if (libraryImages.isEmpty()) 0 else index + 1).toString() + "/" + libraryImages.size, modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                    }
                 }
             )
         },
@@ -266,7 +275,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         LabelClass.values().forEach { cls ->
                             val count = boxes.count { it.type == cls }
-                            FilterChip(selected == cls, { selected = cls }, label = { Text("${cls.id} • ${cls.title} ($count)") }, modifier = Modifier.weight(1f))
+                            FilterChip(selected == cls, { selected = cls }, label = { Text("${cls.id}  ${cls.title}  $count", maxLines = 1) }, modifier = Modifier.weight(1f))
                         }
                         OutlinedButton(
                             onClick = {
@@ -293,25 +302,25 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                             enabled = boxes.isNotEmpty() && !busy,
                         ) { Text("Clear") }
                     }
-                    Text("बेहतर training: box को photo/signature के किनारे तक tight रखें; printed label, खाली जगह और बाहरी form-border शामिल न करें। हर अलग signature पर अलग Signature box बनाएँ।", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
-                    OutlinedTextField(value = formGroupId, onValueChange = { formGroupId = it }, label = { Text("Form Group ID") }, supportingText = { Text("एक ही original form की 2–3 photos में एक ही ID रखें; इससे train/test leakage घटेगा।") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !busy)
+                    Text("ANNOTATION TIP  •  Box को object के किनारे तक tight रखें। Printed label, खाली जगह और form-border शामिल न करें।", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+                    OutlinedTextField(value = formGroupId, onValueChange = { formGroupId = it }, label = { Text("Form Group ID") }, supportingText = { Text("एक original form की सभी photos में same ID रखें।") }, singleLine = true, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth(), enabled = !busy)
                     val photoBoxes = boxes.filter { it.type == LabelClass.PHOTO }
                     val signBoxes = boxes.filter { it.type == LabelClass.SIGNATURE }
                     val oversized = boxes.filter { b -> (b.r - b.l) * (b.b - b.t) > if (b.type == LabelClass.PHOTO) 0.45f else 0.20f }
                     val tinySigns = signBoxes.filter { (it.r - it.l) * (it.b - it.t) < 0.0005f || it.r - it.l < 0.01f || it.b - it.t < 0.01f }
                     if (oversized.isNotEmpty() || tinySigns.isNotEmpty()) Text("Label review: " + (if (oversized.isNotEmpty()) "${oversized.size} unusually large box(es); " else "") + (if (tinySigns.isNotEmpty()) "${tinySigns.size} very small signature box(es)." else "check boxes against the actual object."), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                    Text("This image: Photo ${photoBoxes.size} • Signature ${signBoxes.size}. Signature box should tightly cover ink strokes—not the whole blank field or printed border.", style = MaterialTheme.typography.bodySmall)
-                    Text("Photo और Signature independent हैं: Photo-only, Signature-only, दोनों वाले और किसी भी target के बिना images भी Save करें। जो object मौजूद नहीं है उसका box न बनाएँ।", style = MaterialTheme.typography.bodySmall)
-                    Text("Annotated: $saved/${libraryImages.size}", style = MaterialTheme.typography.bodySmall)
-                    Text("All dataset images • tap any thumbnail to edit", style = MaterialTheme.typography.labelMedium)
+                    Text("This image  •  Photo ${photoBoxes.size}  •  Signature ${signBoxes.size}", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                    Text("Photo और Signature independent हैं। जो object मौजूद नहीं है, उसका box न बनाएँ। Negative images भी save कर सकते हैं।", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Progress  •  $saved / ${libraryImages.size} images saved", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                    Text("YOUR DATASET  ·  Tap a thumbnail to edit", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 4.dp)) {
                         items(libraryImages, key = { it.absolutePath }) { item ->
                             val itemIndex = libraryImages.indexOf(item)
                             val thumb = remember(item.absolutePath) { decodeSampledBitmap(item, 180) }
                             DisposableEffect(thumb) { onDispose { thumb?.recycle() } }
                             Column(
-                                Modifier.width(78.dp)
-                                    .border(2.dp, if (itemIndex == index) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
+                                Modifier.width(84.dp)
+                                    .border(if (itemIndex == index) 2.dp else 1.dp, if (itemIndex == index) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
                                     .clickable(enabled = !busy) { index = itemIndex; activeBox = null; status = item.name }
                                     .padding(4.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -320,7 +329,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                                 if (thumb != null) Image(
                                     bitmap = thumb.asImageBitmap(),
                                     contentDescription = item.name,
-                                    modifier = Modifier.fillMaxWidth().height(70.dp).clip(RoundedCornerShape(4.dp)),
+                                    modifier = Modifier.fillMaxWidth().height(76.dp).clip(RoundedCornerShape(8.dp)),
                                     contentScale = ContentScale.Crop,
                                 ) else Box(Modifier.fillMaxWidth().height(70.dp), contentAlignment = Alignment.Center) { Text("?", style = MaterialTheme.typography.titleMedium) }
                                 Text(
@@ -338,8 +347,8 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                         OutlinedButton(onClick = { confirmRemove = true }, enabled = image != null && !busy, modifier = Modifier.weight(1f)) { Text("Remove image") }
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { zipLauncher.launch("formsnap-dataset.zip") }, enabled = saved == libraryImages.size && libraryImages.isNotEmpty() && dirtyPaths.isEmpty() && !busy, modifier = Modifier.weight(1f)) { Text(if (dirtyPaths.isNotEmpty()) "Save edits first" else if (saved != libraryImages.size) "Save all images first" else "Export dataset.zip") }
-                        TextButton(onClick = onExit, enabled = !busy) { Text("Finish") }
+                        OutlinedButton(onClick = { zipLauncher.launch("formsnap-dataset.zip") }, enabled = saved == libraryImages.size && libraryImages.isNotEmpty() && dirtyPaths.isEmpty() && !busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text(if (dirtyPaths.isNotEmpty()) "Save edits first" else if (saved != libraryImages.size) "Save all images first" else "Export dataset.zip") }
+                        TextButton(onClick = onExit, enabled = !busy, contentPadding = PaddingValues(horizontal = 10.dp)) { Text("Finish") }
                     }
                 }
             }
@@ -401,7 +410,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                     TextButton(onClick = { fullScreen = false }) { Text("Done • Exit full screen", color = Color.White) }
                 }
                 Surface(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp), color = Color(0xDD101216), shape = MaterialTheme.shapes.large) {
-                    Text("Drag to mark " + selected.title + " • " + (index + 1) + "/" + images.size, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = selected.color, style = MaterialTheme.typography.bodyMedium)
+                    Text("Drag to mark " + selected.title + " • " + (index + 1) + "/" + libraryImages.size, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = selected.color, style = MaterialTheme.typography.bodyMedium)
                 }
             }
         }
