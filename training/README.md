@@ -10,9 +10,9 @@ This pipeline trains a **custom two-class object detector** and exports a TFLite
    - `PHOTO` (class ID 0)
    - `SIGNATURE` (class ID 1)
 4. Upload your form images.
-5. Draw a tight bounding box around each visible pasted/photo area and each handwritten signature. Do not label the full form, printed labels like "Photo", blank signature lines, or table borders. If the form has no photo/signature, do not invent a box.
+5. Draw tight boxes only around objects that are actually present. PHOTO and SIGNATURE are independent classes: include PHOTO-only images, SIGNATURE-only images, images with both, and negative images containing neither (with an empty YOLO label file). Never invent a box for a missing class. Do not label the full form, printed labels like "Photo", blank signature lines, or table borders.
 6. Include varied real cases: color and black-and-white photos, photocopies, tilted forms, different photo aspect ratios, faint/dark/blue signatures, boxed and unboxed areas, and different lighting/distance. Ensure permission to use every image.
-7. Generate a dataset version in **YOLOv8** format with separate **train, valid, and test** splits. Keep near-duplicate scans of the same form in the same split to prevent leakage. Aim for at least hundreds of varied labeled examples to start; quality and diversity matter more than raw count.
+7. Generate a dataset version in **YOLOv8** format with separate **train, valid, and test** splits. Keep near-duplicate scans of the same form in the same split to prevent leakage. Ensure PHOTO and SIGNATURE each occur in every split overall, but do not require both classes in every individual image. Include hard negative examples such as blank signature lines, printed photo captions, borders, and forms where one or both targets are absent. Aim for at least hundreds of varied examples to start; quality and diversity matter more than raw count.
 8. Confirm the exported class order is exactly `PHOTO`, `SIGNATURE`. Create a new version after any label/class-order changes.
 
 ## 2. Configure GitHub Actions
