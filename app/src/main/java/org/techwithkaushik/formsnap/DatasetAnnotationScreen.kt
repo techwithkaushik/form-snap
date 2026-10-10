@@ -9,6 +9,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -23,6 +25,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -293,14 +297,32 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                     Text("This image: PHOTO ${photoBoxes.size} • SIGNATURE ${signBoxes.size}. Signature box should tightly cover ink strokes—not the whole blank field or printed border.", style = MaterialTheme.typography.bodySmall)
                     Text("PHOTO और SIGNATURE independent हैं: PHOTO-only, SIGNATURE-only, दोनों वाले और किसी भी target के बिना images भी Save करें। जो object मौजूद नहीं है उसका box न बनाएँ।", style = MaterialTheme.typography.bodySmall)
                     Text("Annotated: $saved/${libraryImages.size}", style = MaterialTheme.typography.bodySmall)
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(vertical = 4.dp)) {
+                    Text("All dataset images • tap any thumbnail to edit", style = MaterialTheme.typography.labelMedium)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 4.dp)) {
                         items(libraryImages, key = { it.absolutePath }) { item ->
                             val itemIndex = libraryImages.indexOf(item)
-                            AssistChip(
-                                onClick = { index = itemIndex; activeBox = null; status = item.name },
-                                label = { Text("${if (item.absolutePath in savedPaths) "✓ " else "○ "}${itemIndex + 1}. ${item.name.take(14)}") },
-                                enabled = !busy,
-                            )
+                            val thumb = remember(item.absolutePath) { decodeSampledBitmap(item, 180) }
+                            DisposableEffect(thumb) { onDispose { thumb?.recycle() } }
+                            Column(
+                                Modifier.width(78.dp)
+                                    .border(2.dp, if (itemIndex == index) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
+                                    .clickable(enabled = !busy) { index = itemIndex; activeBox = null; status = item.name }
+                                    .padding(4.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(3.dp),
+                            ) {
+                                if (thumb != null) Image(
+                                    bitmap = thumb.asImageBitmap(),
+                                    contentDescription = item.name,
+                                    modifier = Modifier.fillMaxWidth().height(70.dp).clip(RoundedCornerShape(4.dp)),
+                                    contentScale = ContentScale.Crop,
+                                ) else Box(Modifier.fillMaxWidth().height(70.dp), contentAlignment = Alignment.Center) { Text("?", style = MaterialTheme.typography.titleMedium) }
+                                Text(
+                                    "${if (item.absolutePath in savedPaths) "✓" else "○"} ${itemIndex + 1}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1,
+                                )
+                            }
                         }
                     }
                     Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
