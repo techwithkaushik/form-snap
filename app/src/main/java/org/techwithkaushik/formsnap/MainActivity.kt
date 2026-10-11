@@ -268,7 +268,7 @@ class MainActivity : ComponentActivity() {
                 store = autoSaveStore,
                 refreshKey = savedImagesRefresh,
                 onBack = { savedImagesOpen = false },
-                onMessage = { saveMessage = it; savedImagesRefresh++ },
+                onMessage = { saveMessage = it },
             )
         }
 
