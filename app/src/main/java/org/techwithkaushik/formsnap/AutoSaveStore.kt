@@ -27,14 +27,15 @@ class AutoSaveStore(private val context: Context) {
 
     fun saveDetection(modelName: String, annotationName: String, bytes: ByteArray, extension: String, mimeType: String): String {
         val tree = folderUri() ?: throw IOException("Choose an output folder first.")
-        val modelFolder = ensureDirectory(tree, safeSegment(modelName.removeSuffix(".tflite")))
+        val appFolder = ensureDirectory(tree, "FormSnap")
+        val modelFolder = ensureDirectory(appFolder, safeSegment(modelName.removeSuffix(".tflite")))
         val classFolder = ensureDirectory(modelFolder, safeSegment(annotationName))
         val fileName = safeSegment(annotationName) + "_" + System.currentTimeMillis() + "." + extension.lowercase()
         val uri = DocumentsContract.createDocument(context.contentResolver, classFolder, mimeType, fileName)
             ?: throw IOException("Unable to create $fileName")
         context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
             ?: throw IOException("Unable to write $fileName")
-        return safeSegment(modelName.removeSuffix(".tflite")) + "/" + safeSegment(annotationName) + "/" + fileName
+        return "FormSnap/" + safeSegment(modelName.removeSuffix(".tflite")) + "/" + safeSegment(annotationName) + "/" + fileName
     }
 
     private fun ensureDirectory(parent: Uri, name: String): Uri {
