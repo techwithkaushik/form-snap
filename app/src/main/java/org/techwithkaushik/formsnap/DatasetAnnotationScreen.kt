@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -73,6 +74,10 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
     val boxes = image?.let { annotationsByImage[it.absolutePath].orEmpty() }.orEmpty()
     val saved = savedPaths.size
     val bitmap = remember(image?.absolutePath) { image?.let { decodeSampledBitmap(it, 1800) } }
+    val thumbnailListState = rememberLazyListState()
+    LaunchedEffect(index, libraryImages.size) {
+        if (libraryImages.isNotEmpty()) thumbnailListState.animateScrollToItem(index.coerceIn(0, libraryImages.lastIndex))
+    }
 
     // Dataset images and YOLO labels live in app-private storage, not transient picker cache.
     // This makes the library available after leaving the screen or restarting the app.
@@ -250,7 +255,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
         )
     }
 
-    BackHandler(onBack = onExit)
+    BackHandler { /* Keep Dataset Builder open on system Back; use Finish to leave safely. */ }
     Scaffold(
         topBar = {
             if (!fullScreen) TopAppBar(
@@ -270,7 +275,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
             )
         },
         bottomBar = {
-            if (!fullScreen) Surface(shadowElevation = 8.dp) {
+            Surface(shadowElevation = 8.dp) {
                 Column(Modifier.fillMaxWidth().padding(8.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         LabelClass.values().forEach { cls ->
@@ -317,7 +322,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                     if (oversized.isNotEmpty() || tinySigns.isNotEmpty()) Text("Label review: " + (if (oversized.isNotEmpty()) "${oversized.size} unusually large box(es); " else "") + (if (tinySigns.isNotEmpty()) "${tinySigns.size} very small signature box(es)." else "check boxes against the actual object."), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                     Text("This image  •  Photo ${photoBoxes.size}  •  Signature ${signBoxes.size}", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
                     Text("$saved/${libraryImages.size} saved", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 4.dp)) {
+                    LazyRow(state = thumbnailListState, horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 4.dp)) {
                         items(libraryImages, key = { it.absolutePath }) { item ->
                             val itemIndex = libraryImages.indexOf(item)
                             val thumbState = produceState<Bitmap?>(initialValue = null, key1 = item.absolutePath) {
@@ -348,9 +353,9 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                         }
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { if (index > 0) { index--; activeBox = null; status = "पिछले form के saved boxes जाँचें" } }, enabled = index > 0 && !busy, modifier = Modifier.weight(1f)) { Text("Previous") }
-                        Button(onClick = { saveAndNext() }, enabled = image != null && !busy, modifier = Modifier.weight(1f)) { Text(if (index < libraryImages.lastIndex) "Save & Next" else "Save Form") }
-                        OutlinedButton(onClick = { confirmRemove = true }, enabled = image != null && !busy, modifier = Modifier.weight(1f)) { Text("Remove image") }
+                        OutlinedButton(onClick = { if (index > 0) { index--; activeBox = null; status = "पिछले form के saved boxes जाँचें" } }, enabled = index > 0 && !busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) { Text("Previous") }
+                        Button(onClick = { saveAndNext() }, enabled = image != null && !busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) { Text(if (index < libraryImages.lastIndex) "Save & Next" else "Save Form") }
+                        OutlinedButton(onClick = { confirmRemove = true }, enabled = image != null && !busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) { Text("Remove image") }
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = { zipLauncher.launch("formsnap-dataset.zip") }, enabled = saved == libraryImages.size && libraryImages.isNotEmpty() && dirtyPaths.isEmpty() && !busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text(if (dirtyPaths.isNotEmpty()) "Save edits first" else if (saved != libraryImages.size) "Save all images first" else "Export dataset.zip") }
@@ -412,8 +417,14 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                 }
             }
             if (fullScreen) {
-                Surface(modifier = Modifier.align(Alignment.TopEnd).padding(12.dp), color = Color(0xDD101216), shape = MaterialTheme.shapes.large) {
-                    TextButton(onClick = { fullScreen = false }) { Text("Done", color = Color.White) }
+                Surface(modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(12.dp), color = Color(0xDD101216), shape = RoundedCornerShape(8.dp)) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        LabelClass.values().forEach { cls ->
+                            val count = boxes.count { it.type == cls }
+                            FilterChip(selected = selected == cls, onClick = { selected = cls }, label = { Text("${cls.title} ($count)", maxLines = 1, softWrap = false) }, modifier = Modifier.weight(1f))
+                        }
+                        Button(onClick = { fullScreen = false }, shape = RoundedCornerShape(8.dp)) { Text("Done") }
+                    }
                 }
             }
         }
