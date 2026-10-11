@@ -71,7 +71,7 @@ class AiModelManager(context: Context) {
         if (embedded.isNotEmpty()) {
             runCatching {
                 FileOutputStream(sidecar).use { output ->
-                    output.write(embedded.joinToString("\\n", postfix = "\\n").toByteArray(Charsets.UTF_8))
+                    output.write(embedded.joinToString("\n", postfix = "\n").toByteArray(Charsets.UTF_8))
                     output.fd.sync()
                 }
             }
@@ -82,7 +82,8 @@ class AiModelManager(context: Context) {
 
     private fun readLabels(file: File): List<String> = runCatching {
         file.takeIf { it.isFile }?.readLines(Charsets.UTF_8)
-            ?.map { it.trim().removePrefix("\\uFEFF") }
+            ?.flatMap { it.replace("\\n", "\n").lineSequence().toList() }
+            ?.map { it.trim().removePrefix("\uFEFF") }
             ?.filter { it.isNotEmpty() && !it.startsWith("#") }
             .orEmpty()
     }.getOrDefault(emptyList())
@@ -110,7 +111,7 @@ class AiModelManager(context: Context) {
         }
         for (name in labelFiles) {
             val labels = extractor.getAssociatedFile(name)?.bufferedReader(Charsets.UTF_8)?.use { reader ->
-                reader.readLines().map { it.trim().removePrefix("\\uFEFF") }
+                reader.readText().replace("\\n", "\n").lineSequence().map { it.trim().removePrefix("\uFEFF") }.toList()
                     .filter { it.isNotEmpty() && !it.startsWith("#") }
             }.orEmpty()
             if (labels.isNotEmpty()) return@runCatching labels
