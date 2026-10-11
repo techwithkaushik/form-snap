@@ -93,7 +93,7 @@ class YoloV8TfliteDetector(
             val shape = output.shape()
             val a = shape.getOrNull(shape.lastIndex - 1) ?: 0
             val b = shape.lastOrNull() ?: 0
-            val count = when { a in 5..512 && b > a -> a - 4; b in 5..512 -> b - 4; else -> 0 }
+            val count = when { b in 6..7 && a in 1..1000 -> -1; a in 5..512 && b > a -> a - 4; b in 5..512 -> b - 4; else -> 0 }
             "Model: ${modelFile?.name ?: modelAssetName}; " +
                 "input=${input.shape().contentToString()} ${input.dataType()}; " +
                 "output=${shape.contentToString()} ${output.dataType()}; " +
