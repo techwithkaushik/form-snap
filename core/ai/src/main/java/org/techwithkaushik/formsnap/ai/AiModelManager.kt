@@ -77,18 +77,6 @@ class AiModelManager(context: Context) {
         }
 
         val inferredCount = inferRawYoloClassCount(file)
-        // This public YOLOv8 Nano Float32 model is the COCO-80 detector. Some
-        // copies omit usable TFLite metadata, so provide its canonical class map
-        // only when both the known filename and 80-class tensor contract match.
-        val knownLabels = if (
-            file.name.equals("yolov8n_float32.tflite", ignoreCase = true) &&
-            inferredCount == COCO_LABELS.size
-        ) COCO_LABELS else emptyList()
-        if (knownLabels.isNotEmpty()) {
-            writeLabels(sidecar, knownLabels)
-            return knownLabels
-        }
-
         // Do not fabricate semantic labels for unknown models.
         val generic = inferredCount?.let { count -> (0 until count).map { "Class $it" } }.orEmpty()
         if (generic.isNotEmpty() && explicit.isNotEmpty()) writeLabels(sidecar, generic)
@@ -471,16 +459,5 @@ class AiModelManager(context: Context) {
     companion object {
         private const val PREFS = "formsnap.ai.models"
         private const val KEY_ACTIVE = "active_model"
-        private val COCO_LABELS = listOf(
-            "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
-            "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow",
-            "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
-            "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard", "surfboard",
-            "tennis racket", "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
-            "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch",
-            "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse", "remote", "keyboard",
-            "cell phone", "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase",
-            "scissors", "teddy bear", "hair drier", "toothbrush",
-        )
     }
 }
