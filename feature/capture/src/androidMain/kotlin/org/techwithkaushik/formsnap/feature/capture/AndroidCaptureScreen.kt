@@ -21,10 +21,11 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 fun AndroidCaptureScreen(
     modifier: Modifier = Modifier,
     initialMode: CaptureMode = CaptureMode.WHOLE_FORM,
-    onImageCaptured: (CapturedImage) -> Unit,
-    onImportImage: (CapturedImage) -> Unit = onImageCaptured,
+    onImageCaptured: (CapturedImage, List<LiveDetection>) -> Unit,
+    onImportImage: (CapturedImage) -> Unit = { image -> onImageCaptured(image, emptyList()) },
     onError: (String) -> Unit = {},
-    onSelectionCaptured: (List<LiveDetection>) -> Unit = {},
+    autoSaveEnabled: Boolean = true,
+    onAutoSaveEnabledChange: (Boolean) -> Unit = {},
 ) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
@@ -68,12 +69,12 @@ fun AndroidCaptureScreen(
         confidencePrefs.edit().putFloat("confidence_threshold", confidenceThreshold).apply()
     }
 
-    // The first confident live annotation triggers a full-resolution still capture.
-    // The still is re-inferred and every passing class is cropped and auto-saved.
-    LaunchedEffect(liveDetections, confidenceThreshold) {
-        if (!autoCaptureTriggered && liveDetections.any { it.confidence >= confidenceThreshold }) {
+    // Auto mode takes one full-resolution still on the first confident detection.
+    // Manual mode waits for the user to select boxes and press the shutter.
+    LaunchedEffect(liveDetections, confidenceThreshold, autoSaveEnabled) {
+        if (autoSaveEnabled && !autoCaptureTriggered && liveDetections.any { it.confidence >= confidenceThreshold }) {
             kotlinx.coroutines.delay(250)
-            if (!autoCaptureTriggered && liveDetections.any { it.confidence >= confidenceThreshold }) {
+            if (autoSaveEnabled && !autoCaptureTriggered && liveDetections.any { it.confidence >= confidenceThreshold }) {
                 autoCaptureTriggered = true
                 pendingSelection = emptyList()
                 camera.capture(session)
@@ -87,9 +88,9 @@ fun AndroidCaptureScreen(
                 CaptureEvent.CameraPermissionRequired ->
                     permissionLauncher.launch(Manifest.permission.CAMERA)
                 is CaptureEvent.ImageCaptured -> {
-                    onSelectionCaptured(pendingSelection)
+                    val selected = pendingSelection
                     pendingSelection = emptyList()
-                    onImageCaptured(event.image)
+                    onImageCaptured(event.image, selected)
                 }
                 is CaptureEvent.ImportSelected -> onImportImage(event.image)
                 is CaptureEvent.Error -> onError(event.message)
@@ -119,12 +120,16 @@ fun AndroidCaptureScreen(
         },
         controller = presenter,
         onCapture = { selected ->
-            pendingSelection = selected
-            if (!permissionGranted || !camera.hasCameraPermission()) {
-                permissionLauncher.launch(Manifest.permission.CAMERA)
+            if (!autoSaveEnabled && selected.isEmpty()) {
+                onError("Manual mode: tap one or more detection boxes, then press the shutter.")
             } else {
-                presenter.onPermissionResult(true)
-                camera.capture(session)
+                pendingSelection = selected
+                if (!permissionGranted || !camera.hasCameraPermission()) {
+                    permissionLauncher.launch(Manifest.permission.CAMERA)
+                } else {
+                    presenter.onPermissionResult(true)
+                    camera.capture(session)
+                }
             }
         },
         onImport = {
@@ -151,6 +156,9 @@ fun AndroidCaptureScreen(
         liveDiagnostics = liveDiagnostics,
         confidenceThreshold = confidenceThreshold,
         onConfidenceThresholdChange = { confidenceThreshold = it },
+        autoSaveEnabled = autoSaveEnabled,
+        onAutoSaveEnabledChange = onAutoSaveEnabledChange,
+        onError = onError,
     )
     }
 }

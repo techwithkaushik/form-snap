@@ -17,6 +17,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -41,6 +42,9 @@ fun CaptureScreen(
     liveDiagnostics: String = "AI: starting camera…",
     confidenceThreshold: Float = 0.35f,
     onConfidenceThresholdChange: (Float) -> Unit = {},
+    autoSaveEnabled: Boolean = true,
+    onAutoSaveEnabledChange: (Boolean) -> Unit = {},
+    onError: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val state by controller.state.collectAsState()
@@ -91,6 +95,18 @@ fun CaptureScreen(
             ) {
                 Column(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Auto crop & save", color = Color.White, style = MaterialTheme.typography.labelLarge)
+                            Text(
+                                if (autoSaveEnabled) "First confident detection captures and saves automatically"
+                                else "Tap detection boxes to select crops, then press the shutter",
+                                color = Color.LightGray,
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                        }
+                        Switch(checked = autoSaveEnabled, onCheckedChange = onAutoSaveEnabledChange)
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Live confidence", color = Color.White, style = MaterialTheme.typography.labelMedium)
                         androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
                         Text("${(confidenceThreshold * 100).toInt()}%", color = Color.White, style = MaterialTheme.typography.labelLarge)
@@ -102,6 +118,9 @@ fun CaptureScreen(
                         steps = 17,
                     )
                     Text("Lower = more boxes/noise • Higher = fewer, stricter detections", color = Color.LightGray, style = MaterialTheme.typography.labelSmall)
+                    if (!autoSaveEnabled) {
+                        Text("Selected objects: ${appliedDetections.count { it.locked }}", color = Color.White, style = MaterialTheme.typography.labelMedium)
+                    }
                 }
             }
             Row(

@@ -32,11 +32,10 @@ import java.util.Locale
 private enum class CaptureMode { WHOLE_FORM }
 
 private data class OutputSettings(
-    val widthMm: Double = 40.0,
-    val heightMm: Double = 50.0,
-    val dpi: Double = 300.0,
     val maxKb: Int = 50,
     val fileType: OutputImageType = OutputImageType.JPEG,
+    val mergeEnabled: Boolean = false,
+    val mergeOrientation: MergeOrientation = MergeOrientation.VERTICAL,
 )
 
 class MainActivity : ComponentActivity() {
@@ -51,6 +50,8 @@ class MainActivity : ComponentActivity() {
     private fun FormSnapApp() {
         val ioScope = rememberCoroutineScope()
         var settings by remember { mutableStateOf(OutputSettings()) }
+        val capturePrefs = remember { getSharedPreferences("formsnap.live.detection", MODE_PRIVATE) }
+        var autoSaveEnabled by remember { mutableStateOf(capturePrefs.getBoolean("auto_save_enabled", true)) }
         var settingsOpen by remember { mutableStateOf(false) }
         var aiSettingsOpen by remember { mutableStateOf(false) }
         var saveMessage by remember { mutableStateOf<String?>(null) }
@@ -58,10 +59,13 @@ class MainActivity : ComponentActivity() {
         var pendingImport by remember { mutableStateOf(false) }
         var showCameraX by remember { mutableStateOf(false) }
         var cameraXMode by remember { mutableStateOf(CameraCaptureMode.WHOLE_FORM) }
-        var lockedSelections by remember { mutableStateOf<List<org.techwithkaushik.formsnap.feature.capture.LiveDetection>>(emptyList()) }
         val autoSaveStore = remember { AutoSaveStore(this@MainActivity) }
 
-        fun startAutoProcess(input: File) {
+        fun startAutoProcess(
+            input: File,
+            selectedDetections: List<org.techwithkaushik.formsnap.feature.capture.LiveDetection> = emptyList(),
+            autoSave: Boolean = true,
+        ) {
             ioScope.launch {
                 saveMessage = "TFLite detecting objects…"
                 try {
@@ -69,18 +73,18 @@ class MainActivity : ComponentActivity() {
                         UniversalAutoSaveService.processAndSave(
                             context = this@MainActivity,
                             input = input,
-                            outputWidthMm = settings.widthMm,
-                            outputHeightMm = settings.heightMm,
-                            dpi = settings.dpi.toInt(),
                             maxKb = settings.maxKb,
                             imageType = settings.fileType,
+                            selectedDetections = selectedDetections,
+                            autoSaveEnabled = autoSave,
+                            mergeEnabled = settings.mergeEnabled,
+                            mergeOrientation = settings.mergeOrientation,
                         )
                     }
-                    saveMessage = "Auto-saved ${saved.size} object(s): " + saved.joinToString { "${it.className} ${(it.confidence * 100).toInt()}% (${it.byteCount / 1024} KB)" }
+                    saveMessage = "Saved ${saved.size} output(s): " + saved.joinToString { "${it.className} (${it.byteCount / 1024} KB)" }
                 } catch (t: Throwable) {
                     saveMessage = "Detection/save failed: " + (t.message ?: "unknown error")
                 } finally {
-                    lockedSelections = emptyList()
                     input.delete()
                     org.techwithkaushik.formSnap.foundation.ProcessingPaths.cleanup(this@MainActivity)
                 }
@@ -105,7 +109,7 @@ class MainActivity : ComponentActivity() {
                     if (imported == null) {
                         saveMessage = "Could not open this image. Try a different file."
                     } else {
-                        startAutoProcess(imported)
+                        startAutoProcess(imported, autoSave = true)
                     }
                     pendingImport = false
                 }
@@ -192,13 +196,17 @@ class MainActivity : ComponentActivity() {
             BackHandler { showCameraX = false }
             AndroidCaptureScreen(
                 initialMode = cameraXMode,
-                onSelectionCaptured = { lockedSelections = it },
-                onImageCaptured = { image ->
+                autoSaveEnabled = autoSaveEnabled,
+                onAutoSaveEnabledChange = { enabled ->
+                    autoSaveEnabled = enabled
+                    capturePrefs.edit().putBoolean("auto_save_enabled", enabled).apply()
+                },
+                onImageCaptured = { image, selectedDetections ->
                     showCameraX = false
                     val uri = Uri.parse(image.uri)
                     val file = if (uri.scheme == "file") File(uri.path ?: "") else null
                     if (file?.isFile == true && file.length() > 0L) {
-                        startAutoProcess(file)
+                        startAutoProcess(file, selectedDetections, autoSaveEnabled)
                     } else {
                         saveMessage = "Camera image could not be opened. Please capture again."
                     }
@@ -208,7 +216,7 @@ class MainActivity : ComponentActivity() {
                     ioScope.launch {
                         val imported = withContext(Dispatchers.IO) { uriToFile(Uri.parse(image.uri), "import") }
                         if (imported == null) saveMessage = "Could not open this image. Try a different file."
-                        else startAutoProcess(imported)
+                        else startAutoProcess(imported, autoSave = true)
                     }
                 },
                 onError = { saveMessage = it },
@@ -365,11 +373,12 @@ class MainActivity : ComponentActivity() {
                     Card(shape = RoundedCornerShape(18.dp)) {
                         Column(Modifier.padding(16.dp)) {
                             Text("Output settings", fontWeight = FontWeight.Bold)
-                            Text("All classes: ${fmt(settings.widthMm)} × ${fmt(settings.heightMm)} mm")
+                            Text("Crop size: detected object box")
+                            Text("Maximum file size: ${settings.maxKb} KB per output")
                             Text("File type: ${settings.fileType.name}")
-                            Text("${settings.dpi.toInt()} DPI • ≤${settings.maxKb} KB each")
+                            Text(if (settings.mergeEnabled) "Merge: ${settings.mergeOrientation.name.lowercase()} (same ${if (settings.mergeOrientation == MergeOrientation.VERTICAL) "width" else "height"})" else "Merge: Off")
                             Spacer(Modifier.height(8.dp))
-                            OutlinedButton(onClick = onSettings) { Text("Change size / DPI") }
+                            OutlinedButton(onClick = onSettings) { Text("Save options") }
                         }
                     }
                 }
@@ -399,56 +408,55 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun OutputSettingsDialog(
-        initial: OutputSettings,
-        onDismiss: () -> Unit,
-        onSave: (OutputSettings) -> Unit,
-    ) {
-        var width by remember { mutableStateOf(initial.widthMm.toString()) }
-        var height by remember { mutableStateOf(initial.heightMm.toString()) }
-        var dpi by remember { mutableStateOf(initial.dpi.toInt().toString()) }
+    private fun OutputSettingsDialog(initial: OutputSettings, onDismiss: () -> Unit, onSave: (OutputSettings) -> Unit) {
         var kb by remember { mutableStateOf(initial.maxKb.toString()) }
         var fileType by remember { mutableStateOf(initial.fileType) }
+        var mergeEnabled by remember { mutableStateOf(initial.mergeEnabled) }
+        var mergeOrientation by remember { mutableStateOf(initial.mergeOrientation) }
         var invalid by remember { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = onDismiss,
-            title = { Text("Universal output settings") },
+            title = { Text("Object save settings") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("All detected classes use these output dimensions.")
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(value = width, onValueChange = { width = it }, modifier = Modifier.weight(1f), label = { Text("Width (mm)") }, singleLine = true)
-                        OutlinedTextField(value = height, onValueChange = { height = it }, modifier = Modifier.weight(1f), label = { Text("Height (mm)") }, singleLine = true)
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(value = dpi, onValueChange = { dpi = it }, modifier = Modifier.weight(1f), label = { Text("DPI") }, singleLine = true)
-                        OutlinedTextField(value = kb, onValueChange = { kb = it }, modifier = Modifier.weight(1f), label = { Text("Max KB") }, singleLine = true)
-                    }
+                    Text("Crop dimensions and aspect ratio follow the detected object box. Only the maximum file size is limited.")
+                    OutlinedTextField(value = kb, onValueChange = { kb = it }, label = { Text("Maximum KB per output") }, singleLine = true)
                     Text("File type", fontWeight = FontWeight.Bold)
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         OutputImageType.entries.forEach { type ->
                             FilterChip(selected = fileType == type, onClick = { fileType = type }, label = { Text(type.name) })
                         }
                     }
-                    if (invalid) Text("Enter positive dimensions, DPI 72–1200 and Max KB 5–2048.", color = MaterialTheme.colorScheme.error)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Merge detected objects", modifier = Modifier.weight(1f))
+                        Switch(checked = mergeEnabled, onCheckedChange = { mergeEnabled = it })
+                    }
+                    if (mergeEnabled) {
+                        Text("Merge direction", fontWeight = FontWeight.Bold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            FilterChip(selected = mergeOrientation == MergeOrientation.VERTICAL, onClick = { mergeOrientation = MergeOrientation.VERTICAL }, label = { Text("Vertical · same width") })
+                            FilterChip(selected = mergeOrientation == MergeOrientation.HORIZONTAL, onClick = { mergeOrientation = MergeOrientation.HORIZONTAL }, label = { Text("Horizontal · same height") })
+                        }
+                        Text(
+                            if (mergeOrientation == MergeOrientation.VERTICAL) "Stack top-to-bottom; scale every crop to the same width."
+                            else "Place left-to-right; scale every crop to the same height.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    if (invalid) Text("Maximum size must be between 5 and 2048 KB.", color = MaterialTheme.colorScheme.error)
                 }
             },
             confirmButton = {
                 Button(onClick = {
-                    val w = width.toDoubleOrNull()
-                    val h = height.toDoubleOrNull()
-                    val d = dpi.toDoubleOrNull()
-                    val k = kb.toIntOrNull()
-                    if (w != null && w > 0.0 && h != null && h > 0.0 && d != null && d in 72.0..1200.0 && k != null && k in 5..2048) {
-                        onSave(OutputSettings(w, h, d, k, fileType))
-                    } else invalid = true
+                    val limit = kb.toIntOrNull()
+                    if (limit != null && limit in 5..2048) onSave(OutputSettings(limit, fileType, mergeEnabled, mergeOrientation))
+                    else invalid = true
                 }) { Text("Save") }
             },
             dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
         )
     }
 
-    private fun fmt(value: Double): String = String.format(Locale.US, "%.1f", value)
 }
 
 @Composable
