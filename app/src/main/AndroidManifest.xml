@@ -7,7 +7,7 @@
         android:icon="@drawable/ic_launcher"
         android:roundIcon="@drawable/ic_launcher"
         android:supportsRtl="true"
-        android:theme="@style/Theme.FormSnap">
+        android:theme="@style/Theme.ObjectSnap">
         <activity
             android:name="org.techwithkaushik.formSnap.MainActivity"
             android:exported="true"
