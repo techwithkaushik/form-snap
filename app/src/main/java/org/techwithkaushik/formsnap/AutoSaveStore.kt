@@ -29,9 +29,18 @@ class AutoSaveStore(private val context: Context) {
     fun setFolder(uri: Uri) {
         val flags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
         context.contentResolver.takePersistableUriPermission(uri, flags)
-        val appFolder = ensureDirectory(uri, APP_FOLDER)
+
+        // Save Settings may point either at the storage root (e.g. SD card)
+        // or directly at AI ObjectSnap. Normalize the persisted URI to the
+        // app folder so choosing AI ObjectSnap never creates AI ObjectSnap/AI ObjectSnap.
+        val selectedIsAppFolder = runCatching {
+            val id = DocumentsContract.getTreeDocumentId(uri)
+            id.substringAfterLast(':').substringAfterLast('/')
+                .equals(APP_FOLDER, ignoreCase = true)
+        }.getOrDefault(false)
+        val appFolder = if (selectedIsAppFolder) uri else ensureDirectory(uri, APP_FOLDER)
         ensureDirectory(appFolder, SAVED_FOLDER)
-        check(prefs.edit().putString(KEY_TREE_URI, uri.toString()).remove(KEY_DIRECT_PATH).commit()) {
+        check(prefs.edit().putString(KEY_TREE_URI, appFolder.toString()).remove(KEY_DIRECT_PATH).commit()) {
             "Unable to remember the output folder."
         }
     }
@@ -48,27 +57,25 @@ class AutoSaveStore(private val context: Context) {
             check(savedFolder.isDirectory || savedFolder.mkdirs()) { "Unable to create savedImage folder." }
             return
         }
-        val tree = prefs.getString(KEY_TREE_URI, null)?.let(Uri::parse)
+        val appFolder = prefs.getString(KEY_TREE_URI, null)?.let(Uri::parse)
             ?: throw IOException("Open Save Settings and choose the SD card or shared-storage folder first.")
-        val appFolder = ensureDirectory(tree, APP_FOLDER)
         ensureDirectory(appFolder, SAVED_FOLDER)
     }
 
     fun saveDetection(modelName: String, annotationName: String, bytes: ByteArray, extension: String, mimeType: String): String {
         val directPath = prefs.getString(KEY_DIRECT_PATH, null)
         if (directPath != null) {
-            val target = File(File(File(directPath, SAVED_FOLDER), safeSegment(modelName.removeSuffix(".tflite"))), safeSegment(annotationName))
+            val target = File(File(File(directPath, SAVED_FOLDER), safeSegment(modelName.replace(Regex("(?i)\\.tflite$"), ""))), safeSegment(annotationName))
             check(target.isDirectory || target.mkdirs()) { "Unable to create output folder " + target.path }
             val fileName = nextImageName(target, extension)
             val output = File(target, fileName)
             FileOutputStream(output).use { stream -> stream.write(bytes); stream.flush(); stream.fd.sync() }
-            return "$APP_FOLDER/$SAVED_FOLDER/${safeSegment(modelName.removeSuffix(".tflite"))}/${safeSegment(annotationName)}/$fileName"
+            return "$APP_FOLDER/$SAVED_FOLDER/${safeSegment(modelName.replace(Regex("(?i)\\.tflite$"), ""))}/${safeSegment(annotationName)}/$fileName"
         }
-        val tree = prefs.getString(KEY_TREE_URI, null)?.let(Uri::parse)
+        val appFolder = prefs.getString(KEY_TREE_URI, null)?.let(Uri::parse)
             ?: throw IOException("Open Save Settings and choose the SD card or shared-storage folder first.")
-        val appFolder = ensureDirectory(tree, APP_FOLDER)
         val savedRoot = ensureDirectory(appFolder, SAVED_FOLDER)
-        val modelFolder = ensureDirectory(savedRoot, safeSegment(modelName.removeSuffix(".tflite")))
+        val modelFolder = ensureDirectory(savedRoot, safeSegment(modelName.replace(Regex("(?i)\\.tflite$"), "")))
         val annotationFolder = ensureDirectory(modelFolder, safeSegment(annotationName))
         val fileName = nextImageName(annotationFolder, extension)
         val uri = DocumentsContract.createDocument(context.contentResolver, annotationFolder, mimeType, fileName)
@@ -77,7 +84,7 @@ class AutoSaveStore(private val context: Context) {
             output.write(bytes)
             output.flush()
         } ?: throw IOException("Unable to write $fileName")
-        return "$APP_FOLDER/$SAVED_FOLDER/${safeSegment(modelName.removeSuffix(".tflite"))}/${safeSegment(annotationName)}/$fileName"
+        return "$APP_FOLDER/$SAVED_FOLDER/${safeSegment(modelName.replace(Regex("(?i)\\.tflite$"), ""))}/${safeSegment(annotationName)}/$fileName"
     }
 
     private fun nextImageName(parent: File, extension: String): String {
