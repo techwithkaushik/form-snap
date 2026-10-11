@@ -96,7 +96,7 @@ fun CaptureScreen(
                 Column(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text("Auto crop & save", color = Color.White, style = MaterialTheme.typography.labelLarge)
+                            Text("Auto crop & save", color = Color(0xFF25D9E8), style = MaterialTheme.typography.labelLarge)
                             Text(
                                 if (autoSaveEnabled) "First confident detection captures and saves automatically"
                                 else "Tap detection boxes to select crops, then press the shutter",
@@ -106,18 +106,6 @@ fun CaptureScreen(
                         }
                         Switch(checked = autoSaveEnabled, onCheckedChange = onAutoSaveEnabledChange)
                     }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Live confidence", color = Color.White, style = MaterialTheme.typography.labelMedium)
-                        androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
-                        Text("${(confidenceThreshold * 100).toInt()}%", color = Color.White, style = MaterialTheme.typography.labelLarge)
-                    }
-                    Slider(
-                        value = confidenceThreshold,
-                        onValueChange = onConfidenceThresholdChange,
-                        valueRange = 0.05f..0.95f,
-                        steps = 17,
-                    )
-                    Text("Lower = more boxes/noise • Higher = fewer, stricter detections", color = Color.LightGray, style = MaterialTheme.typography.labelSmall)
                     if (!autoSaveEnabled) {
                         Text("Selected objects: ${appliedDetections.count { it.locked }}", color = Color.White, style = MaterialTheme.typography.labelMedium)
                     }
@@ -128,14 +116,6 @@ fun CaptureScreen(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Surface(
-                    shape = CircleShape,
-                    color = Color.Black.copy(alpha = 0.48f),
-                    onClick = onToggleLens,
-                ) {
-                    Text("↔", color = Color.White, modifier = Modifier.padding(14.dp))
-                }
-
                 Surface(
                     shape = CircleShape,
                     color = Color.White,
@@ -156,21 +136,9 @@ fun CaptureScreen(
                 Surface(
                     shape = CircleShape,
                     color = Color.Black.copy(alpha = 0.48f),
-                    onClick = onToggleFlash,
-                ) {
-                    Text(
-                        if (state.flashEnabled) "⚡" else "◌",
-                        color = Color.White,
-                        modifier = Modifier.padding(14.dp),
-                    )
-                }
-
-                Surface(
-                    shape = CircleShape,
-                    color = Color.Black.copy(alpha = 0.48f),
                     onClick = onImport,
                 ) {
-                    Text("▣", color = Color.White, modifier = Modifier.padding(14.dp))
+                    Text("Import", color = Color.White, modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp))
                 }
             }
 
