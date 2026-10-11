@@ -255,7 +255,12 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
         )
     }
 
-    BackHandler { /* Keep Dataset Builder open on system Back; use Finish to leave safely. */ }
+    BackHandler(enabled = fullScreen || confirmRemove) {
+        when {
+            confirmRemove -> confirmRemove = false
+            fullScreen -> fullScreen = false
+        }
+    }
     Scaffold(
         topBar = {
             if (!fullScreen) TopAppBar(
