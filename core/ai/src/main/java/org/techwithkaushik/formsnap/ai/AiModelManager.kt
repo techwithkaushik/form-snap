@@ -227,7 +227,43 @@ class AiModelManager(context: Context) {
         return useful > 0 && odd <= maxOf(2, useful / 3)
     }
 
-    private fun readEmbeddedLabels(file: File): List<String> = runCatching {
+    private fun readEmbeddedLabels(file: File): List<String> {
+        // Ultralytics TFLite exports may append a ZIP archive containing
+        // metadata.json after the FlatBuffer. MetadataExtractor does not
+        // reliably expose that archive as an associated file on every export,
+        // but ZipFile can read its central directory without hardcoding labels
+        // or depending on the model filename.
+        val zippedLabels = runCatching {
+            java.util.zip.ZipFile(file).use { archive ->
+                val entries = archive.entries().asSequence()
+                    .filter { !it.isDirectory }
+                    .filter { entry ->
+                        val name = entry.name.substringAfterLast('/').lowercase()
+                        name == "metadata.json" ||
+                            name.contains("label") || name.contains("class") ||
+                            name.contains("categor") || name.contains("object_name") ||
+                            (name.endsWith(".json") && (name.contains("name") || name.contains("object")))
+                    }
+                    .sortedBy { entry ->
+                        when (entry.name.substringAfterLast('/').lowercase()) {
+                            "labels.txt" -> 0
+                            "label.txt" -> 1
+                            "labelmap.txt", "label_map.txt", "labels.csv" -> 2
+                            "metadata.json" -> 3
+                            else -> 4
+                        }
+                    }
+                for (entry in entries) {
+                    val text = archive.getInputStream(entry).bufferedReader(Charsets.UTF_8).use { it.readText() }
+                    val labels = parseLabelContent(text)
+                    if (labels.isNotEmpty()) return@use labels
+                }
+                emptyList()
+            }
+        }.getOrDefault(emptyList())
+        if (zippedLabels.isNotEmpty()) return zippedLabels
+
+        return runCatching {
         val buffer = FileInputStream(file).use { stream ->
             stream.channel.use { channel ->
                 channel.map(java.nio.channels.FileChannel.MapMode.READ_ONLY, 0, channel.size())
@@ -258,7 +294,8 @@ class AiModelManager(context: Context) {
             if (labels.isNotEmpty()) return@runCatching labels
         }
         emptyList()
-    }.getOrDefault(emptyList())
+        }.getOrDefault(emptyList())
+    }
 
     fun importLabels(uri: Uri, modelName: String) {
         val model = File(modelsDir, modelName)
