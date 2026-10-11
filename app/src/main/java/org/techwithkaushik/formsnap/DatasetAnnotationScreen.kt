@@ -272,11 +272,18 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
         bottomBar = {
             if (!fullScreen) Surface(shadowElevation = 8.dp) {
                 Column(Modifier.fillMaxWidth().padding(8.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         LabelClass.values().forEach { cls ->
                             val count = boxes.count { it.type == cls }
-                            FilterChip(selected == cls, { selected = cls }, label = { Text("${cls.id}  ${cls.title}  $count", maxLines = 1) }, modifier = Modifier.weight(1f))
+                            FilterChip(
+                                selected = selected == cls,
+                                onClick = { selected = cls },
+                                label = { Text("${cls.title}  $count", maxLines = 1, softWrap = false) },
+                                modifier = Modifier.weight(1f),
+                            )
                         }
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(
                             onClick = {
                                 if (boxes.isNotEmpty()) {
@@ -302,7 +309,6 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                             enabled = boxes.isNotEmpty() && !busy,
                         ) { Text("Clear") }
                     }
-                    Text("ANNOTATION TIP  •  Box को object के किनारे तक tight रखें। Printed label, खाली जगह और form-border शामिल न करें।", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
                     OutlinedTextField(value = formGroupId, onValueChange = { formGroupId = it }, label = { Text("Form Group ID") }, supportingText = { Text("एक original form की सभी photos में same ID रखें।") }, singleLine = true, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth(), enabled = !busy)
                     val photoBoxes = boxes.filter { it.type == LabelClass.PHOTO }
                     val signBoxes = boxes.filter { it.type == LabelClass.SIGNATURE }
@@ -310,9 +316,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                     val tinySigns = signBoxes.filter { (it.r - it.l) * (it.b - it.t) < 0.0005f || it.r - it.l < 0.01f || it.b - it.t < 0.01f }
                     if (oversized.isNotEmpty() || tinySigns.isNotEmpty()) Text("Label review: " + (if (oversized.isNotEmpty()) "${oversized.size} unusually large box(es); " else "") + (if (tinySigns.isNotEmpty()) "${tinySigns.size} very small signature box(es)." else "check boxes against the actual object."), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                     Text("This image  •  Photo ${photoBoxes.size}  •  Signature ${signBoxes.size}", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-                    Text("Photo और Signature independent हैं। जो object मौजूद नहीं है, उसका box न बनाएँ। Negative images भी save कर सकते हैं।", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("Progress  •  $saved / ${libraryImages.size} images saved", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-                    Text("YOUR DATASET  ·  Tap a thumbnail to edit", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                    Text("$saved/${libraryImages.size} saved", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 4.dp)) {
                         items(libraryImages, key = { it.absolutePath }) { item ->
                             val itemIndex = libraryImages.indexOf(item)
@@ -343,7 +347,6 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                             }
                         }
                     }
-                    Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = { if (index > 0) { index--; activeBox = null; status = "पिछले form के saved boxes जाँचें" } }, enabled = index > 0 && !busy, modifier = Modifier.weight(1f)) { Text("Previous") }
                         Button(onClick = { saveAndNext() }, enabled = image != null && !busy, modifier = Modifier.weight(1f)) { Text(if (index < libraryImages.lastIndex) "Save & Next" else "Save Form") }
@@ -411,9 +414,6 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
             if (fullScreen) {
                 Surface(modifier = Modifier.align(Alignment.TopEnd).padding(12.dp), color = Color(0xDD101216), shape = MaterialTheme.shapes.large) {
                     TextButton(onClick = { fullScreen = false }) { Text("Done", color = Color.White) }
-                }
-                Surface(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp), color = Color(0xDD101216), shape = MaterialTheme.shapes.large) {
-                    Text("Drag to mark " + selected.title + " • " + (index + 1) + "/" + libraryImages.size, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = selected.color, style = MaterialTheme.typography.bodyMedium)
                 }
             }
         }
