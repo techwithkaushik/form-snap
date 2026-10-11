@@ -136,14 +136,19 @@ class MainActivity : ComponentActivity() {
                 pendingCameraMode = null
                 saveMessage = "Output folder was not selected."
             } else {
-                autoSaveStore.setFolder(uri)
-                autoSaveStore.ensureAppFolders()
-                storageSetupOpen = false
-                saveMessage = "AI ObjectSnap/savedImage folder is ready."
-                pendingCameraMode?.let { selected ->
-                    cameraXMode = CameraCaptureMode.WHOLE_FORM
-                    showCameraX = true
-                    pendingCameraMode = null
+                try {
+                    autoSaveStore.setFolder(uri)
+                    autoSaveStore.ensureAppFolders()
+                    storageSetupOpen = false
+                    saveMessage = "AI ObjectSnap/savedImage folder is ready."
+                    if (pendingCameraMode != null) {
+                        cameraXMode = CameraCaptureMode.WHOLE_FORM
+                        showCameraX = true
+                        pendingCameraMode = null
+                    }
+                } catch (error: Exception) {
+                    storageSetupOpen = true
+                    saveMessage = "Storage setup failed. Choose a writable SD card folder."
                 }
             }
         }
