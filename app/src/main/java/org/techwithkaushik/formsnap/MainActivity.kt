@@ -423,70 +423,100 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun OutputSettingsDialog(initial: OutputSettings, initialAutoSave: Boolean, currentFolder: String, onChooseFolder: () -> Unit, onDismiss: () -> Unit, onSave: (OutputSettings, Boolean) -> Unit) {
-        var kb by remember { mutableStateOf(initial.maxKb.toString()) }
+    private fun OutputSettingsDialog(
+        initial: OutputSettings,
+        initialAutoSave: Boolean,
+        currentFolder: String,
+        onChooseFolder: () -> Unit,
+        onDismiss: () -> Unit,
+        onSave: (OutputSettings, Boolean) -> Unit,
+    ) {
+        var kb by remember { mutableIntStateOf(initial.maxKb) }
         var autoSave by remember { mutableStateOf(initialAutoSave) }
         var fileType by remember { mutableStateOf(initial.fileType) }
         var mergeEnabled by remember { mutableStateOf(initial.mergeEnabled) }
         var mergeOrientation by remember { mutableStateOf(initial.mergeOrientation) }
-        var invalid by remember { mutableStateOf(false) }
-        AlertDialog(
-            onDismissRequest = onDismiss,
-            title = { Text("Object save settings") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Auto crop & save", fontWeight = FontWeight.SemiBold)
-                            Text("Automatically capture when the model detects an object.", style = MaterialTheme.typography.bodySmall)
-                        }
-                        Switch(checked = autoSave, onCheckedChange = { autoSave = it })
-                    }
-                    HorizontalDivider()
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Save location", fontWeight = FontWeight.SemiBold)
-                            Text(currentFolder, style = MaterialTheme.typography.bodySmall, maxLines = 2)
-                        }
-                        TextButton(onClick = onChooseFolder) { Text("Change") }
-                    }
-                    HorizontalDivider()
-                    Text("Crop dimensions and aspect ratio follow the detected object box. Only the maximum file size is limited.")
-                    OutlinedTextField(value = kb, onValueChange = { kb = it.filter(Char::isDigit).take(4) }, label = { Text("Maximum file size (KB)") }, singleLine = true)
-                    Text("File type", fontWeight = FontWeight.Bold)
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        OutputImageType.entries.forEach { type ->
-                            FilterChip(selected = fileType == type, onClick = { fileType = type }, label = { Text(type.name) })
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("Save Settings", fontWeight = FontWeight.SemiBold) },
+                    navigationIcon = { TextButton(onClick = onDismiss) { Text("‹", style = MaterialTheme.typography.headlineMedium) } },
+                    actions = { TextButton(onClick = { onSave(OutputSettings(kb, fileType, mergeEnabled, mergeOrientation), autoSave) }) { Text("Save") } },
+                )
+            },
+        ) { padding ->
+            LazyColumn(
+                Modifier.fillMaxSize().padding(padding),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                item {
+                    Card {
+                        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Auto crop & save", fontWeight = FontWeight.SemiBold)
+                                Text("Automatically capture and save when the model detects an object.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(checked = autoSave, onCheckedChange = { autoSave = it })
                         }
                     }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Merge detected objects", modifier = Modifier.weight(1f))
-                        Switch(checked = mergeEnabled, onCheckedChange = { mergeEnabled = it })
-                    }
-                    if (mergeEnabled) {
-                        Text("Merge direction", fontWeight = FontWeight.Bold)
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            FilterChip(selected = mergeOrientation == MergeOrientation.VERTICAL, onClick = { mergeOrientation = MergeOrientation.VERTICAL }, label = { Text("Vertical · same width") })
-                            FilterChip(selected = mergeOrientation == MergeOrientation.HORIZONTAL, onClick = { mergeOrientation = MergeOrientation.HORIZONTAL }, label = { Text("Horizontal · same height") })
-                        }
-                        Text(
-                            if (mergeOrientation == MergeOrientation.VERTICAL) "Stack top-to-bottom; scale every crop to the same width."
-                            else "Place left-to-right; scale every crop to the same height.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                    if (invalid) Text("Maximum size must be between 5 and 2048 KB.", color = MaterialTheme.colorScheme.error)
                 }
-            },
-            confirmButton = {
-                Button(onClick = {
-                    val limit = kb.toIntOrNull()
-                    if (limit != null && limit in 5..2048) onSave(OutputSettings(limit, fileType, mergeEnabled, mergeOrientation), autoSave)
-                    else invalid = true
-                }) { Text("Save") }
-            },
-            dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-        )
+                item {
+                    Card {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Save location", fontWeight = FontWeight.SemiBold)
+                            Text(currentFolder, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("AI ObjectSnap/savedImage/modelName/annotationName/image1.jpg", style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = onChooseFolder) { Text("Change location") }
+                        }
+                    }
+                }
+                item {
+                    Card {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("Merge detected objects", fontWeight = FontWeight.SemiBold)
+                                    Text("Combine multiple detected objects into one image.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Switch(checked = mergeEnabled, onCheckedChange = { mergeEnabled = it })
+                            }
+                            if (mergeEnabled) {
+                                Text("Merge direction", fontWeight = FontWeight.SemiBold)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    FilterChip(selected = mergeOrientation == MergeOrientation.VERTICAL, onClick = { mergeOrientation = MergeOrientation.VERTICAL }, label = { Text("↕ Vertical") }, modifier = Modifier.weight(1f))
+                                    FilterChip(selected = mergeOrientation == MergeOrientation.HORIZONTAL, onClick = { mergeOrientation = MergeOrientation.HORIZONTAL }, label = { Text("↔ Horizontal") }, modifier = Modifier.weight(1f))
+                                }
+                                Text(if (mergeOrientation == MergeOrientation.VERTICAL) "Stack top-to-bottom; every crop uses the same width." else "Place left-to-right; every crop uses the same height.", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+                item {
+                    Card {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text("Output file type", fontWeight = FontWeight.SemiBold)
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                OutputImageType.entries.forEach { type ->
+                                    FilterChip(selected = fileType == type, onClick = { fileType = type }, label = { Text(type.name) }, modifier = Modifier.weight(1f))
+                                }
+                            }
+                            HorizontalDivider()
+                            Text("Max file size (KB)", fontWeight = FontWeight.SemiBold)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                OutlinedButton(onClick = { kb = (kb - 25).coerceAtLeast(5) }) { Text("−") }
+                                Text(kb.toString(), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                                OutlinedButton(onClick = { kb = (kb + 25).coerceAtMost(2048) }) { Text("+") }
+                            }
+                            Text("Images follow detected object dimensions and are compressed/resized only as needed to meet this size.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+                item {
+                    Button(onClick = { onSave(OutputSettings(kb, fileType, mergeEnabled, mergeOrientation), autoSave) }, modifier = Modifier.fillMaxWidth()) { Text("Save settings") }
+                }
+            }
+        }
     }
 
 }
