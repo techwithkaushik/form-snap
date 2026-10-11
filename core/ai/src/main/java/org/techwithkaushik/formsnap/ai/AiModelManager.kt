@@ -125,7 +125,7 @@ class AiModelManager(context: Context) {
         // MetadataExtractor may expose a non-text associated payload on some model
         // exports. Never decode arbitrary binary bytes as class names.
         if (raw.isEmpty() || raw.contains('\uFFFD')) return emptyList()
-        val unexpectedControls = raw.count { it.isISOControl() && it !in '\n' && it !in '\r' && it !in '\t' }
+        val unexpectedControls = raw.count { it.isISOControl() && it != '\n' && it != '\r' && it != '\t' }
         if (unexpectedControls > maxOf(1, raw.length / 100)) return emptyList()
 
         val text = raw.removePrefix("\uFEFF").replace("\\n", "\n").trim()
