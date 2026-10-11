@@ -160,7 +160,7 @@ class AiModelManager(context: Context) {
                         // Ultralytics metadata uses a nested object, e.g.
                         // {"names":{"0":"person","1":"bicycle"}} rather than a JSON array.
                         val nestedMap = known.firstNotNullOfOrNull { key ->
-                            obj.optJSONObject(key)?.let(::numericMap)?.takeIf { it.isNotEmpty() }
+                            obj.optJSONObject(key)?.let { nested -> numericMap(nested) }?.takeIf { it.isNotEmpty() }
                         }
                         nestedMap ?: numericMap(obj)
                     }
