@@ -62,7 +62,7 @@ class AutoSaveStore(private val context: Context) {
             val fileName = nextImageName(target, extension)
             val output = File(target, fileName)
             FileOutputStream(output).use { stream -> stream.write(bytes); stream.flush(); stream.fd.sync() }
-            return "$APP_FOLDER/$SAVED_FOLDER/${safeSegment(modelName.removeSuffix(".tflite"))}/${safeSegment(annotationName)}/$fileName
+            return "$APP_FOLDER/$SAVED_FOLDER/${safeSegment(modelName.removeSuffix(".tflite"))}/${safeSegment(annotationName)}/$fileName"
         }
         val tree = prefs.getString(KEY_TREE_URI, null)?.let(Uri::parse)
             ?: throw IOException("Choose an SD card or shared storage folder first.")
