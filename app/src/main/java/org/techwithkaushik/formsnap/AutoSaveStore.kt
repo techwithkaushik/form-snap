@@ -103,7 +103,7 @@ class AutoSaveStore(private val context: Context) {
     fun listSavedImages(): List<SavedImageEntry> {
         val directPath = prefs.getString(KEY_DIRECT_PATH, null)
         if (directPath != null) {
-            val root = File(File(directPath, SAVED_FOLDER))
+            val root = File(directPath, SAVED_FOLDER)
             if (!root.isDirectory) return emptyList()
             return root.listFiles()?.filter { it.isDirectory }?.flatMap { model ->
                 model.listFiles()?.filter { it.isDirectory }?.flatMap { label ->
