@@ -32,8 +32,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import org.techwithkaushik.formSnap.ai.AiModelInfo
-import org.techwithkaushik.formSnap.ai.AiModelManager
+import org.techwithkaushik.formsnap.ai.AiModelInfo
+import org.techwithkaushik.formsnap.ai.AiModelManager
 import java.util.Locale
 
 @Composable
