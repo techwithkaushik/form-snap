@@ -1,21 +1,14 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 package org.techwithkaushik.formSnap
 
-import org.techwithkaushik.formsnap.BuildConfig
-
-import android.content.Context
-import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -25,14 +18,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import org.techwithkaushik.formsnap.feature.capture.AndroidCaptureScreen
 import org.techwithkaushik.formsnap.feature.capture.CaptureMode as CameraCaptureMode
-import androidx.core.content.FileProvider
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -52,13 +41,8 @@ private data class OutputSettings(
 )
 
 class MainActivity : ComponentActivity() {
-    private var cameraUri: Uri? = null
-    private var cameraOutputFile: File? = null
-
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
-        cameraUri = savedInstanceState?.getString(STATE_CAMERA_URI)?.let(Uri::parse)
-        cameraOutputFile = savedInstanceState?.getString(STATE_CAMERA_FILE)?.let(::File)
         // Remove stale intermediate files left by a killed or previously crashed run.
         org.techwithkaushik.formSnap.foundation.ProcessingPaths.cleanupStale(this)
         setContent { FormSnapTheme { FormSnapApp() } }
@@ -70,7 +54,6 @@ class MainActivity : ComponentActivity() {
         var settings by remember { mutableStateOf(OutputSettings()) }
         var settingsOpen by remember { mutableStateOf(false) }
         var aiSettingsOpen by remember { mutableStateOf(false) }
-        var source by remember { mutableStateOf<File?>(null) }
         var mode by remember { mutableStateOf(CaptureMode.WHOLE_FORM) }
         var saveMessage by remember { mutableStateOf<String?>(null) }
         var pendingCameraMode by remember { mutableStateOf<CaptureMode?>(null) }
@@ -126,35 +109,6 @@ class MainActivity : ComponentActivity() {
         BackHandler(enabled = settingsOpen && !aiSettingsOpen) {
             settingsOpen = false
         }
-        BackHandler(enabled = source != null && !settingsOpen) {
-            source?.delete()
-            source = null
-        }
-
-        val openCamera = rememberLauncherForActivityResult(
-            ActivityResultContracts.TakePicture(),
-        ) { ok ->
-            val uri = cameraUri
-            val capturedFile = cameraOutputFile
-            cameraUri = null
-            cameraOutputFile = null
-            if (ok && uri != null && capturedFile?.isFile == true && capturedFile.length() > 0L) {
-                ioScope.launch {
-                    val imported = withContext(Dispatchers.IO) { uriToFile(uri, "camera") }
-                    capturedFile.delete()
-                    if (imported == null) {
-                        saveMessage = "Could not read the captured image. Please capture again."
-                    } else {
-                        startAutoProcess(imported, pendingCameraMode ?: CaptureMode.WHOLE_FORM)
-                    }
-                    pendingCameraMode = null
-                }
-            } else {
-                capturedFile?.delete()
-                if (ok) saveMessage = "Camera did not return a usable image. Please try again."
-            }
-        }
-
         val openDocument = rememberLauncherForActivityResult(
             ActivityResultContracts.OpenDocument(),
         ) { uri ->
@@ -175,6 +129,7 @@ class MainActivity : ComponentActivity() {
             ActivityResultContracts.OpenDocumentTree(),
         ) { uri ->
             if (uri == null) {
+                pendingCameraMode = null
                 saveMessage = "Output folder was not selected."
             } else {
                 autoSaveStore.setFolder(uri)
@@ -191,14 +146,31 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        val pipelineLauncher = rememberLauncherForActivityResult(
-            ActivityResultContracts.StartActivityForResult(),
-        ) {
-            source?.delete()
-            source = null
-            // The pipeline activity has finished; no temporary session should remain.
-            org.techwithkaushik.formSnap.foundation.ProcessingPaths.cleanup(this@MainActivity)
-            mode = CaptureMode.WHOLE_FORM
+        fun proceedToCamera(selected: CaptureMode) {
+            if (autoSaveStore.folderUri() == null) {
+                pendingCameraMode = selected
+                outputFolderLauncher.launch(null)
+            } else {
+                pendingCameraMode = null
+                cameraXMode = when (selected) {
+                    CaptureMode.PHOTO -> CameraCaptureMode.PHOTO
+                    CaptureMode.SIGNATURE -> CameraCaptureMode.SIGNATURE
+                    CaptureMode.WHOLE_FORM -> CameraCaptureMode.WHOLE_FORM
+                }
+                showCameraX = true
+            }
+        }
+
+        val cameraPermissionLauncher = rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestPermission(),
+        ) { granted ->
+            val selected = pendingCameraMode
+            if (granted && selected != null) {
+                proceedToCamera(selected)
+            } else {
+                pendingCameraMode = null
+                saveMessage = "Camera permission is required. Allow camera access to capture an image."
+            }
         }
 
         HomeScreen(
@@ -207,16 +179,17 @@ class MainActivity : ComponentActivity() {
             onAiModel = { aiSettingsOpen = true },
             onCamera = { selected ->
                 mode = selected
-                if (autoSaveStore.folderUri() == null) {
-                    pendingCameraMode = selected
-                    outputFolderLauncher.launch(null)
+                pendingCameraMode = selected
+                if (androidx.core.content.ContextCompat.checkSelfPermission(
+                        this@MainActivity,
+                        android.Manifest.permission.CAMERA,
+                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                ) {
+                    proceedToCamera(selected)
                 } else {
-                    cameraXMode = when (selected) {
-                        CaptureMode.PHOTO -> CameraCaptureMode.PHOTO
-                        CaptureMode.SIGNATURE -> CameraCaptureMode.SIGNATURE
-                        CaptureMode.WHOLE_FORM -> CameraCaptureMode.WHOLE_FORM
-                    }
-                    showCameraX = true
+                    // Request permission immediately on tap, before folder selection
+                    // or mounting the CameraX capture screen.
+                    cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
                 }
             },
             onImport = {
@@ -292,47 +265,6 @@ class MainActivity : ComponentActivity() {
                 Snackbar { Text(message) }
             }
         }
-    }
-
-    private fun launchCamera(launcher: ActivityResultLauncher<Uri>) {
-        try {
-            val dir = File(
-                org.techwithkaushik.formSnap.foundation.ProcessingPaths.root(this),
-                "inputs/captures",
-            ).apply {
-                check(isDirectory || mkdirs()) { "Cannot create the camera output directory." }
-            }
-            val file = File(dir, "capture_" + System.currentTimeMillis() + ".jpg")
-            check(!file.exists() || file.delete()) { "Cannot prepare the camera output file." }
-            val uri = FileProvider.getUriForFile(
-                this,
-                BuildConfig.APPLICATION_ID + ".fileprovider",
-                file,
-            )
-            cameraOutputFile = file
-            cameraUri = uri
-            launcher.launch(uri)
-        } catch (error: Exception) {
-            cameraUri = null
-            cameraOutputFile?.delete()
-            cameraOutputFile = null
-            android.widget.Toast.makeText(
-                this,
-                error.message ?: "Unable to open the camera. Check camera permission and try again.",
-                android.widget.Toast.LENGTH_LONG,
-            ).show()
-        }
-    }
-
-    override fun onSaveInstanceState(outState: android.os.Bundle) {
-        outState.putString(STATE_CAMERA_URI, cameraUri?.toString())
-        outState.putString(STATE_CAMERA_FILE, cameraOutputFile?.absolutePath)
-        super.onSaveInstanceState(outState)
-    }
-
-    companion object {
-        private const val STATE_CAMERA_URI = "formsnap.camera.uri"
-        private const val STATE_CAMERA_FILE = "formsnap.camera.file"
     }
 
     private fun uriToFile(uri: Uri, prefix: String): File? {
@@ -496,97 +428,6 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun EditorScreen(
-        file: File,
-        mode: CaptureMode,
-        onSettings: () -> Unit,
-        onBack: () -> Unit,
-        onCaptureAgain: () -> Unit,
-        onImportAgain: () -> Unit,
-        onExtract: suspend () -> Unit,
-    ) {
-        var processing by remember { mutableStateOf(false) }
-        var status by remember { mutableStateOf("Extracting…") }
-        LaunchedEffect(file.absolutePath, mode) {
-            processing = true
-            status = "Opening OpenCV extraction preview…"
-            try {
-                onExtract()
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (t: Exception) {
-                status = t.message ?: "Extraction failed"
-            } finally {
-                processing = false
-            }
-        }
-
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = { Text("Preview", fontWeight = FontWeight.Bold) },
-                    navigationIcon = { TextButton(onClick = onBack) { Text("Back") } },
-                    actions = { TextButton(onClick = onSettings) { Text("Output") } },
-                )
-            },
-        ) { padding ->
-            LazyColumn(
-                Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                item {
-                    Card(shape = RoundedCornerShape(20.dp)) {
-                        Column {
-                            Text("Input", Modifier.padding(16.dp), fontWeight = FontWeight.Bold)
-                            BitmapImage(file, Modifier.fillMaxWidth().height(300.dp))
-                        }
-                    }
-                }
-                
-                item {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        OutlinedButton(
-                            onClick = onCaptureAgain,
-                            modifier = Modifier.weight(1f),
-                            enabled = !processing,
-                        ) { Text("Capture") }
-                        OutlinedButton(
-                            onClick = onImportAgain,
-                            modifier = Modifier.weight(1f),
-                            enabled = !processing,
-                        ) { Text("Import") }
-                    }
-                }
-                item {
-                    Text(status, Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodySmall)
-                }
-            }
-        }
-    }
-
-    @Composable
-    private fun BitmapImage(file: File, modifier: Modifier = Modifier) {
-        val bitmap = remember(file.absolutePath) { decodeSampled(file, 1200) }
-        if (bitmap != null) {
-            Image(
-                bitmap.asImageBitmap(),
-                contentDescription = null,
-                modifier = modifier,
-                contentScale = ContentScale.Fit,
-            )
-        } else {
-            Box(
-                modifier.background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center,
-            ) { Text("Unable to preview") }
-        }
-    }
-
-    @Composable
     private fun OutputSettingsDialog(
         initial: OutputSettings,
         onDismiss: () -> Unit,
@@ -706,18 +547,6 @@ class MainActivity : ComponentActivity() {
                 }) { Text("Save") }
             },
             dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-        )
-    }
-
-    private fun decodeSampled(file: File, max: Int): Bitmap? {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(file.absolutePath, bounds)
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-        var sample = 1
-        while (bounds.outWidth / sample > max || bounds.outHeight / sample > max) sample *= 2
-        return BitmapFactory.decodeFile(
-            file.absolutePath,
-            BitmapFactory.Options().apply { inSampleSize = sample },
         )
     }
 
