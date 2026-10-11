@@ -1,4 +1,4 @@
-package org.techwithkaushik.formsnap
+package org.techwithkaushik.formSnap
 
 import android.content.Context
 import android.net.Uri
