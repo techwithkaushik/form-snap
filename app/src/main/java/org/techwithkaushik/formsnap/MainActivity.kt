@@ -3,6 +3,10 @@ package org.techwithkaushik.formSnap
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import android.os.Environment
 import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -65,7 +69,46 @@ class MainActivity : ComponentActivity() {
         var cameraXMode by remember { mutableStateOf(CameraCaptureMode.WHOLE_FORM) }
         val autoSaveStore = remember { AutoSaveStore(this@MainActivity) }
 
-        LaunchedEffect(Unit) { if (autoSaveStore.folderUri() == null) storageSetupOpen = true }
+        val storagePermissionLauncher = rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestMultiplePermissions(),
+        ) { grants ->
+            if (grants.values.isNotEmpty() && grants.values.all { it }) {
+                try {
+                    autoSaveStore.setDirectFolder(File(Environment.getExternalStorageDirectory(), "AI ObjectSnap"))
+                    storageSetupOpen = false
+                    saveMessage = "AI ObjectSnap/savedImage folder is ready."
+                } catch (error: Exception) {
+                    storageSetupOpen = true
+                    saveMessage = "Storage permission was granted, but the folder could not be created. Choose the SD card folder."
+                }
+            } else {
+                storageSetupOpen = true
+                saveMessage = "Storage permission denied. Choose a writable SD card folder instead."
+            }
+        }
+
+        LaunchedEffect(Unit) {
+            if (!autoSaveStore.isConfigured()) {
+                if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.Q) {
+                    val hasRead = checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+                    val hasWrite = checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+                    if (hasRead && hasWrite) {
+                        runCatching {
+                            autoSaveStore.setDirectFolder(File(Environment.getExternalStorageDirectory(), "AI ObjectSnap"))
+                        }.onFailure { storageSetupOpen = true }
+                    } else {
+                        storagePermissionLauncher.launch(arrayOf(
+                            Manifest.permission.READ_EXTERNAL_STORAGE,
+                            Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                        ))
+                    }
+                } else {
+                    // Android 11+ restricts direct access to shared-storage roots; use
+                    // the system picker once and persist its URI permission.
+                    storageSetupOpen = true
+                }
+            }
+        }
 
         fun startAutoProcess(
             input: File,
