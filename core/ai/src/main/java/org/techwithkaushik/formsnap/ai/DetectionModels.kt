@@ -38,6 +38,4 @@ data class DetectionConfig(
     val confidenceThreshold: Float = 0.35f,
     val iouThreshold: Float = 0.45f,
     val maxDetections: Int = 8,
-    /** Optional label map imported alongside the model. Empty means generic Class N labels. */
-    val classLabels: List<String> = emptyList(),
 )
