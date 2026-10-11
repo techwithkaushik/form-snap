@@ -142,14 +142,27 @@ class AiModelManager(context: Context) {
                 text.startsWith("{") -> {
                     val obj = org.json.JSONObject(text)
                     val known = listOf("names", "labels", "classes", "class_names", "categories", "annotations")
+                    fun numericMap(map: org.json.JSONObject): List<String> {
+                        val keys = map.keys().asSequence().toList()
+                        if (keys.isEmpty() || !keys.all { it.toIntOrNull() != null }) return emptyList()
+                        val ids = keys.map { it.toInt() }.sorted()
+                        if (ids.first() < 0 || ids.last() > 999) return emptyList()
+                        val byId = ids.associateWith { id -> map.optString(id.toString()).trim() }
+                        // Preserve class IDs even if a nonstandard export omits an index.
+                        return (0..ids.last()).map { id ->
+                            byId[id]?.takeIf { it.isNotBlank() } ?: "Class $id"
+                        }
+                    }
                     val array = known.firstNotNullOfOrNull { key -> obj.optJSONArray(key) }
-                    if (array != null) strings(array) else {
-                        val keys = obj.keys().asSequence().toList()
-                        if (keys.isNotEmpty() && keys.all { it.toIntOrNull() != null }) {
-                            keys.sortedBy { it.toInt() }.mapNotNull { key ->
-                                obj.optString(key).takeIf { it.isNotBlank() }
-                            }
-                        } else emptyList()
+                    if (array != null) {
+                        strings(array)
+                    } else {
+                        // Ultralytics metadata uses a nested object, e.g.
+                        // {"names":{"0":"person","1":"bicycle"}} rather than a JSON array.
+                        val nestedMap = known.firstNotNullOfOrNull { key ->
+                            obj.optJSONObject(key)?.let(::numericMap)?.takeIf { it.isNotEmpty() }
+                        }
+                        nestedMap ?: numericMap(obj)
                     }
                 }
                 else -> emptyList()
