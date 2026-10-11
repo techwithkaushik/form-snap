@@ -82,9 +82,12 @@ object UniversalAutoSaveService {
                     return listOf(UniversalSavedDetection(folder, -1, candidates.minOf { it.confidence }, path, bytes.size))
                 } finally { merged.recycle() }
             }
-            return candidates.map { item ->
+            return candidates.mapNotNull { item ->
                 val crop = Bitmap.createBitmap(source, item.bounds.left, item.bounds.top, item.bounds.width(), item.bounds.height())
                 try {
+                    // Keep the first/best already-saved version when a near-identical
+                    // crop appears again; avoid generating image2, image3, ... duplicates.
+                    if (store.isDuplicate(model.name, item.label, crop)) return@mapNotNull null
                     val bytes = UniversalImageEncoder.encode(crop, maxKb, imageType)
                     val path = store.saveDetection(model.name, item.label, bytes, imageType.extension, imageType.mimeType)
                     UniversalSavedDetection(item.label, item.classId, item.confidence, path, bytes.size)
