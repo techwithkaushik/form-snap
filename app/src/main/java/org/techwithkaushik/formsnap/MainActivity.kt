@@ -243,6 +243,8 @@ class MainActivity : ComponentActivity() {
             OutputSettingsDialog(
                 initial = settings,
                 initialAutoSave = autoSaveEnabled,
+                currentFolder = autoSaveStore.folderUri()?.lastPathSegment ?: "Selected folder",
+                onChooseFolder = { outputFolderLauncher.launch(null) },
                 onDismiss = { settingsOpen = false },
                 onSave = { updated, autoSave ->
                     settings = updated
@@ -422,7 +424,7 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun OutputSettingsDialog(initial: OutputSettings, initialAutoSave: Boolean, onDismiss: () -> Unit, onSave: (OutputSettings, Boolean) -> Unit) {
+    private fun OutputSettingsDialog(initial: OutputSettings, initialAutoSave: Boolean, currentFolder: String, onChooseFolder: () -> Unit, onDismiss: () -> Unit, onSave: (OutputSettings, Boolean) -> Unit) {
         var kb by remember { mutableStateOf(initial.maxKb.toString()) }
         var autoSave by remember { mutableStateOf(initialAutoSave) }
         var fileType by remember { mutableStateOf(initial.fileType) }
@@ -440,6 +442,14 @@ class MainActivity : ComponentActivity() {
                             Text("Automatically capture when the model detects an object.", style = MaterialTheme.typography.bodySmall)
                         }
                         Switch(checked = autoSave, onCheckedChange = { autoSave = it })
+                    }
+                    HorizontalDivider()
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Save location", fontWeight = FontWeight.SemiBold)
+                            Text(currentFolder, style = MaterialTheme.typography.bodySmall, maxLines = 2)
+                        }
+                        TextButton(onClick = onChooseFolder) { Text("Change") }
                     }
                     HorizontalDivider()
                     Text("Crop dimensions and aspect ratio follow the detected object box. Only the maximum file size is limited.")
