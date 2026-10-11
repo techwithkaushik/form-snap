@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.BackHandler
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
@@ -16,6 +17,7 @@ class MainActivity : ComponentActivity() {
                 Surface {
                     var openedProject by remember { mutableStateOf<Pair<String, String>?>(null) }
                     val currentProject = openedProject
+                    BackHandler(enabled = currentProject != null) { openedProject = null }
                     if (currentProject == null) {
                         DatasetHomeEntry(this) { projectId, projectName -> openedProject = projectId to projectName }
                     } else {
