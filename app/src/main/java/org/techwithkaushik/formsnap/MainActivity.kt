@@ -315,7 +315,7 @@ class MainActivity : ComponentActivity() {
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("FormSnap", fontWeight = FontWeight.Bold) },
+                    title = { Text("AI ObjectSnap", fontWeight = FontWeight.Bold) },
                     actions = {
                         TextButton(onClick = onAiModel) { Text("AI Model") }
                         TextButton(onClick = onSettings) { Text("Output") }
@@ -337,12 +337,12 @@ class MainActivity : ComponentActivity() {
                     ) {
                         Column(Modifier.padding(20.dp)) {
                             Text(
-                                "FormSnap",
+                                "AI ObjectSnap",
                                 style = MaterialTheme.typography.headlineMedium,
                                 fontWeight = FontWeight.ExtraBold,
                             )
                             Spacer(Modifier.height(8.dp))
-                            Text("Universal TFLite detector: capture or import an image, detect supported classes, auto-crop and save by model and annotation.")
+                            Text("Detect. Crop. Save. Import a TFLite model, point your camera at objects, and let AI ObjectSnap crop and save each detection automatically.")
                             Spacer(Modifier.height(8.dp))
                             
                         }
@@ -364,8 +364,8 @@ class MainActivity : ComponentActivity() {
                 item {
                     Card(shape = RoundedCornerShape(18.dp)) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("Zero-touch AI mode", fontWeight = FontWeight.Bold)
-                            Text("The active TFLite model detects its own classes. Confident boxes are cropped, resized and auto-saved without a review screen.")
+                            Text("Smart object detection", fontWeight = FontWeight.Bold)
+                            Text("Your selected AI model identifies objects. Detected crops are saved automatically, or tap boxes to choose objects manually.")
                         }
                     }
                 }
@@ -461,27 +461,27 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun FormSnapTheme(content: @Composable () -> Unit) {
-    val scheme = lightColorScheme(
-        primary = Color(0xFF2457A7),
+    val scheme = darkColorScheme(
+        primary = Color(0xFF168BFF),
         onPrimary = Color(0xFFFFFFFF),
-        primaryContainer = Color(0xFFDCE8FF),
-        onPrimaryContainer = Color(0xFF102B55),
-        secondary = Color(0xFF176B68),
+        primaryContainer = Color(0xFF14283A),
+        onPrimaryContainer = Color(0xFFEAF5FF),
+        secondary = Color(0xFF25D9E8),
         onSecondary = Color(0xFFFFFFFF),
-        secondaryContainer = Color(0xFFD2F3EE),
-        onSecondaryContainer = Color(0xFF103B39),
+        secondaryContainer = Color(0xFF12333A),
+        onSecondaryContainer = Color(0xFFDDFBFF),
         tertiary = Color(0xFF6750A4),
         onTertiary = Color(0xFFFFFFFF),
-        tertiaryContainer = Color(0xFFE9DDFF),
+        tertiaryContainer = Color(0xFF28233C),
         onTertiaryContainer = Color(0xFF25134E),
-        background = Color(0xFFF7F8FC),
-        onBackground = Color(0xFF191C22),
-        surface = Color(0xFFFDFBFF),
-        onSurface = Color(0xFF191C22),
-        surfaceVariant = Color(0xFFE8ECF4),
-        onSurfaceVariant = Color(0xFF444A56),
-        outline = Color(0xFF747B88),
-        outlineVariant = Color(0xFFD0D6E1),
+        background = Color(0xFF07111D),
+        onBackground = Color(0xFFEAF1F8),
+        surface = Color(0xFF101C29),
+        onSurface = Color(0xFFEAF1F8),
+        surfaceVariant = Color(0xFF1B2A39),
+        onSurfaceVariant = Color(0xFFB9C9D8),
+        outline = Color(0xFF506579),
+        outlineVariant = Color(0xFF293B4D),
     )
     MaterialTheme(colorScheme = scheme, content = content)
 }
