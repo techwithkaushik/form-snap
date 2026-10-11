@@ -1,5 +1,5 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-package org.techwithkaushik.formsnap
+package org.techwithkaushik.formSnap
 
 import android.content.Context
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -32,8 +32,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import org.techwithkaushik.formsnap.ai.AiModelInfo
-import org.techwithkaushik.formsnap.ai.AiModelManager
+import org.techwithkaushik.formSnap.ai.AiModelInfo
+import org.techwithkaushik.formSnap.ai.AiModelManager
 import java.util.Locale
 
 @Composable
