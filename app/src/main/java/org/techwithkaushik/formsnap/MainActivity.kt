@@ -75,8 +75,6 @@ class MainActivity : ComponentActivity() {
         var saveMessage by remember { mutableStateOf<String?>(null) }
         var pendingCameraMode by remember { mutableStateOf<CaptureMode?>(null) }
         var pendingImport by remember { mutableStateOf(false) }
-        var datasetImages by remember { mutableStateOf<List<File>>(emptyList()) }
-        var showDataset by remember { mutableStateOf(false) }
         var showCameraX by remember { mutableStateOf(false) }
         var cameraXMode by remember { mutableStateOf(CameraCaptureMode.WHOLE_FORM) }
         var lockedSelections by remember { mutableStateOf<List<org.techwithkaushik.formsnap.feature.capture.LiveDetection>>(emptyList()) }
@@ -133,13 +131,6 @@ class MainActivity : ComponentActivity() {
             source = null
         }
 
-        // Back from Dataset Builder should return to the app home, not finish the Activity.
-        // Fullscreen image Back is handled by DatasetAnnotationScreen first.
-        BackHandler(enabled = showDataset) {
-            showDataset = false
-            datasetImages = emptyList()
-        }
-
         val openCamera = rememberLauncherForActivityResult(
             ActivityResultContracts.TakePicture(),
         ) { ok ->
@@ -176,23 +167,6 @@ class MainActivity : ComponentActivity() {
                         startAutoProcess(imported, if (pendingImport) mode else CaptureMode.WHOLE_FORM)
                     }
                     pendingImport = false
-                }
-            }
-        }
-
-        val datasetPicker = rememberLauncherForActivityResult(
-            ActivityResultContracts.OpenMultipleDocuments(),
-        ) { uris ->
-            if (uris.isNotEmpty()) {
-                ioScope.launch {
-                    val importedFiles = withContext(Dispatchers.IO) {
-                        uris.mapIndexedNotNull { index, uri -> uriToFile(uri, "dataset_" + (index + 1)) }
-                    }
-                    if (importedFiles.isEmpty()) saveMessage = "No selected forms could be opened."
-                    else {
-                        datasetImages = importedFiles
-                        showDataset = true
-                    }
                 }
             }
         }
@@ -254,16 +228,7 @@ class MainActivity : ComponentActivity() {
                     openDocument.launch(arrayOf("image/*"))
                 }
             },
-            onDataset = { datasetImages = emptyList(); showDataset = true },
         )
-
-        if (showDataset) {
-            DatasetAnnotationScreen(
-                images = datasetImages,
-                onExit = { showDataset = false; datasetImages = emptyList() },
-                onMessage = { saveMessage = it },
-            )
-        }
 
         if (showCameraX) {
             BackHandler { showCameraX = false }
@@ -425,7 +390,6 @@ class MainActivity : ComponentActivity() {
         onAiModel: () -> Unit,
         onCamera: (CaptureMode) -> Unit,
         onImport: () -> Unit,
-        onDataset: () -> Unit,
     ) {
         Scaffold(
             topBar = {
@@ -475,9 +439,6 @@ class MainActivity : ComponentActivity() {
                             onImport()
                         }
                     }
-                }
-                item {
-                    ActionCard("Dataset Builder", "Annotate forms / export ZIP", "▧", Modifier.fillMaxWidth(), onDataset)
                 }
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
