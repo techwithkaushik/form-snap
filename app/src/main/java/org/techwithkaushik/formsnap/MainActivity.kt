@@ -32,12 +32,11 @@ import java.util.Locale
 private enum class CaptureMode { WHOLE_FORM, PHOTO, SIGNATURE }
 
 private data class OutputSettings(
-    val photoWidthMm: Double = 40.0,
-    val photoHeightMm: Double = 50.0,
-    val signatureWidthMm: Double = 50.0,
-    val signatureHeightMm: Double = 20.0,
+    val widthMm: Double = 40.0,
+    val heightMm: Double = 50.0,
     val dpi: Double = 300.0,
     val maxKb: Int = 50,
+    val fileType: OutputImageType = OutputImageType.JPEG,
 )
 
 class MainActivity : ComponentActivity() {
@@ -63,35 +62,24 @@ class MainActivity : ComponentActivity() {
         var lockedSelections by remember { mutableStateOf<List<org.techwithkaushik.formsnap.feature.capture.LiveDetection>>(emptyList()) }
         val autoSaveStore = remember { AutoSaveStore(this@MainActivity) }
 
-        fun startAutoProcess(input: File, selectedMode: CaptureMode) {
+        fun startAutoProcess(input: File, selectedMode: CaptureMode = CaptureMode.WHOLE_FORM) {
             ioScope.launch {
-                saveMessage = "AI detecting photo and signature…"
+                saveMessage = "TFLite detecting objects…"
                 try {
-                    val result = withContext(Dispatchers.IO) {
-                        AutoExtractionService.process(
+                    val saved = withContext(Dispatchers.IO) {
+                        UniversalAutoSaveService.processAndSave(
                             context = this@MainActivity,
-                            selectedDetections = lockedSelections,
                             input = input,
+                            outputWidthMm = settings.widthMm,
+                            outputHeightMm = settings.heightMm,
                             dpi = settings.dpi.toInt(),
                             maxKb = settings.maxKb,
-                            mode = selectedMode.name,
-                            photoWidthMm = settings.photoWidthMm,
-                            photoHeightMm = settings.photoHeightMm,
-                            signatureWidthMm = settings.signatureWidthMm,
-                            signatureHeightMm = settings.signatureHeightMm,
+                            imageType = settings.fileType,
                         )
                     }
-                    val saved = withContext(Dispatchers.IO) {
-                        autoSaveStore.save(result.photoBytes, result.signatureBytes)
-                    }
-                    val parts = listOfNotNull(saved.first, saved.second)
-                    saveMessage = if (parts.isEmpty()) {
-                        "Photo/signature not detected. Please capture the form more clearly."
-                    } else {
-                        "Auto-saved: " + parts.joinToString(" + ")
-                    }
+                    saveMessage = "Auto-saved ${saved.size} object(s): " + saved.joinToString { "${it.className} ${(it.confidence * 100).toInt()}% (${it.byteCount / 1024} KB)" }
                 } catch (t: Throwable) {
-                    saveMessage = "Auto extraction failed: " + (t.message ?: "unknown error")
+                    saveMessage = "Detection/save failed: " + (t.message ?: "unknown error")
                 } finally {
                     lockedSelections = emptyList()
                     input.delete()
