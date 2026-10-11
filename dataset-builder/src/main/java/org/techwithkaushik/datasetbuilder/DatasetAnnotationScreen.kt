@@ -176,7 +176,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
         if (uri != null) scope.launch {
             busy = true
             try {
-                withContext(Dispatchers.IO) { writeDatasetZip(context, uri) }
+                withContext(Dispatchers.IO) { writeDatasetZip(context, uri, projectId) }
                 onMessage("dataset.zip export हो गया")
             } catch (e: Exception) { onMessage("Export failed: " + (e.message ?: "unknown error")) }
             finally { busy = false }
@@ -390,7 +390,67 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
             }
         }
     ) { padding ->
-        Box(Modifier.fillMaxSize().then(if (fullScreen) Modifier else Modifier.padding(padding)).background(Color(0xFF101216)).padding(if (fullScreen) 0.dp else 4.dp), contentAlignment = Alignment.Center) {
+        if (!fullScreen && builderTab != "Annotate") {
+            when (builderTab) {
+                "Images" -> {
+                    Column(Modifier.fillMaxSize().padding(padding).padding(12.dp)) {
+                        Text("Images · ${libraryImages.size}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(8.dp))
+                        androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+                            columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(3),
+                            contentPadding = PaddingValues(bottom = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            items(libraryImages.size) { i ->
+                                val item = libraryImages[i]
+                                val thumbState = produceState<Bitmap?>(initialValue = null, key1 = item.absolutePath) {
+                                    value = withContext(Dispatchers.IO) { decodeSampledBitmap(item, 240) }
+                                }
+                                val thumb = thumbState.value
+                                DisposableEffect(thumb) { onDispose { thumb?.recycle() } }
+                                ElevatedCard(onClick = { index = i; builderTab = "Annotate" }, shape = RoundedCornerShape(10.dp)) {
+                                    Column(Modifier.padding(5.dp)) {
+                                        if (thumb != null) Image(thumb.asImageBitmap(), item.name, Modifier.fillMaxWidth().height(100.dp).clip(RoundedCornerShape(7.dp)), contentScale = ContentScale.Crop)
+                                        else Box(Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) { Text("Loading…") }
+                                        Text(item.name, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                                        Text(if (item.absolutePath in savedPaths) "Saved" else "Pending", style = MaterialTheme.typography.labelSmall, color = if (item.absolutePath in savedPaths) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                "Classes" -> Column(Modifier.fillMaxSize().padding(padding).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Annotation classes", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    LabelClass.values().forEach { cls ->
+                        val count = libraryImages.sumOf { file -> annotationsByImage[file.absolutePath].orEmpty().count { it.type == cls } }
+                        ElevatedCard(shape = RoundedCornerShape(12.dp)) {
+                            Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.size(12.dp).background(cls.color, RoundedCornerShape(50)))
+                                Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                                    Text(cls.title, fontWeight = FontWeight.SemiBold)
+                                    Text("Class ID: ${cls.id}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Text(count.toString(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                    Text("Class IDs are fixed for YOLO compatibility: Photo = 0, Signature = 1.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                else -> Column(Modifier.fillMaxSize().padding(padding).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Dataset info", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(projectName, style = MaterialTheme.typography.titleMedium)
+                    Text("Images: ${libraryImages.size}")
+                    Text("Saved labels: ${savedPaths.size}")
+                    Text("Pending images: ${(libraryImages.size - savedPaths.size).coerceAtLeast(0)}")
+                    Text("Unsaved edits: ${dirtyPaths.size}")
+                    Text("Workspace: app-private storage, isolated by project.")
+                    Text(status, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Button(onClick = { builderTab = "Annotate" }) { Text("Return to annotation") }
+                }
+            }
+        } else Box(Modifier.fillMaxSize().then(if (fullScreen) Modifier else Modifier.padding(padding)).background(Color(0xFF101216)).padding(if (fullScreen) 0.dp else 4.dp), contentAlignment = Alignment.Center) {
             if (libraryImages.isEmpty()) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("No dataset images yet", color = Color.White)
@@ -460,6 +520,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
             }
         }
     }
+    }
 }
 
 
@@ -484,7 +545,7 @@ private fun decodeSampledBitmap(file: File, maxDimension: Int): Bitmap? {
     return BitmapFactory.decodeFile(file.absolutePath, options)
 }
 
-private fun writeDatasetZip(context: Context, uri: Uri) {
+private fun writeDatasetZip(context: Context, uri: Uri, projectId: String) {
     val root = File(context.filesDir, "dataset-projects/$projectId")
     val images = File(root, "train/images").listFiles()?.filter { it.isFile }?.sortedBy { it.name }.orEmpty()
     require(images.size >= 10) {
