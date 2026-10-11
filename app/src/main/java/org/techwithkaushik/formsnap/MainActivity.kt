@@ -29,7 +29,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.Locale
 
-private enum class CaptureMode { WHOLE_FORM, PHOTO, SIGNATURE }
+private enum class CaptureMode { WHOLE_FORM }
 
 private data class OutputSettings(
     val widthMm: Double = 40.0,
@@ -53,7 +53,6 @@ class MainActivity : ComponentActivity() {
         var settings by remember { mutableStateOf(OutputSettings()) }
         var settingsOpen by remember { mutableStateOf(false) }
         var aiSettingsOpen by remember { mutableStateOf(false) }
-        var mode by remember { mutableStateOf(CaptureMode.WHOLE_FORM) }
         var saveMessage by remember { mutableStateOf<String?>(null) }
         var pendingCameraMode by remember { mutableStateOf<CaptureMode?>(null) }
         var pendingImport by remember { mutableStateOf(false) }
@@ -62,7 +61,7 @@ class MainActivity : ComponentActivity() {
         var lockedSelections by remember { mutableStateOf<List<org.techwithkaushik.formsnap.feature.capture.LiveDetection>>(emptyList()) }
         val autoSaveStore = remember { AutoSaveStore(this@MainActivity) }
 
-        fun startAutoProcess(input: File, selectedMode: CaptureMode = CaptureMode.WHOLE_FORM) {
+        fun startAutoProcess(input: File) {
             ioScope.launch {
                 saveMessage = "TFLite detecting objects…"
                 try {
@@ -106,7 +105,7 @@ class MainActivity : ComponentActivity() {
                     if (imported == null) {
                         saveMessage = "Could not open this image. Try a different file."
                     } else {
-                        startAutoProcess(imported, if (pendingImport) mode else CaptureMode.WHOLE_FORM)
+                        startAutoProcess(imported)
                     }
                     pendingImport = false
                 }
@@ -130,11 +129,7 @@ class MainActivity : ComponentActivity() {
                 autoSaveStore.setFolder(uri)
                 saveMessage = "Output folder selected. Next capture will auto-save."
                 pendingCameraMode?.let { selected ->
-                    cameraXMode = when (selected) {
-                        CaptureMode.PHOTO -> CameraCaptureMode.PHOTO
-                        CaptureMode.SIGNATURE -> CameraCaptureMode.SIGNATURE
-                        CaptureMode.WHOLE_FORM -> CameraCaptureMode.WHOLE_FORM
-                    }
+                    cameraXMode = CameraCaptureMode.WHOLE_FORM
                     showCameraX = true
                     pendingCameraMode = null
                 }
@@ -147,11 +142,7 @@ class MainActivity : ComponentActivity() {
                 outputFolderLauncher.launch(null)
             } else {
                 pendingCameraMode = null
-                cameraXMode = when (selected) {
-                    CaptureMode.PHOTO -> CameraCaptureMode.PHOTO
-                    CaptureMode.SIGNATURE -> CameraCaptureMode.SIGNATURE
-                    CaptureMode.WHOLE_FORM -> CameraCaptureMode.WHOLE_FORM
-                }
+                cameraXMode = CameraCaptureMode.WHOLE_FORM
                 showCameraX = true
             }
         }
@@ -173,7 +164,6 @@ class MainActivity : ComponentActivity() {
             onSettings = { settingsOpen = true },
             onAiModel = { aiSettingsOpen = true },
             onCamera = { selected ->
-                mode = selected
                 pendingCameraMode = selected
                 if (androidx.core.content.ContextCompat.checkSelfPermission(
                         this@MainActivity,
@@ -208,11 +198,7 @@ class MainActivity : ComponentActivity() {
                     val uri = Uri.parse(image.uri)
                     val file = if (uri.scheme == "file") File(uri.path ?: "") else null
                     if (file?.isFile == true && file.length() > 0L) {
-                        startAutoProcess(file, when (image.mode) {
-                            CameraCaptureMode.PHOTO -> CaptureMode.PHOTO
-                            CameraCaptureMode.SIGNATURE -> CaptureMode.SIGNATURE
-                            CameraCaptureMode.WHOLE_FORM -> CaptureMode.WHOLE_FORM
-                        })
+                        startAutoProcess(file)
                     } else {
                         saveMessage = "Camera image could not be opened. Please capture again."
                     }
@@ -222,7 +208,7 @@ class MainActivity : ComponentActivity() {
                     ioScope.launch {
                         val imported = withContext(Dispatchers.IO) { uriToFile(Uri.parse(image.uri), "import") }
                         if (imported == null) saveMessage = "Could not open this image. Try a different file."
-                        else startAutoProcess(imported, CaptureMode.WHOLE_FORM)
+                        else startAutoProcess(imported)
                     }
                 },
                 onError = { saveMessage = it },

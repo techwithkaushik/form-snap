@@ -224,11 +224,7 @@ class YoloV8TfliteDetector(
     }
 
     private fun classLabel(classId: Int): String =
-        when (classId) {
-            0 -> "Photo"
-            1 -> "Signature"
-            else -> "Class $classId"
-        }
+        config.classLabels.getOrNull(classId)?.trim()?.takeIf { it.isNotEmpty() } ?: "Class $classId"
 
     private enum class InputLayout {
         NHWC,

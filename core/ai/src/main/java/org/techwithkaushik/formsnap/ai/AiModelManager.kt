@@ -153,7 +153,7 @@ class AiModelManager(context: Context) {
             Interpreter(modelBuffer, Interpreter.Options().setNumThreads(1))
         } catch (t: Throwable) {
             throw IllegalArgumentException(
-                "Selected file is not a loadable TensorFlow Lite model (.tflite). Choose photo_sign_model.tflite, not a ZIP or dataset file.",
+                "Selected file is not a loadable TensorFlow Lite model (.tflite). Choose a valid object-detection .tflite file, not a ZIP or dataset file.",
                 t,
             )
         }
@@ -231,7 +231,7 @@ class AiModelManager(context: Context) {
             } catch (t: Throwable) {
                 throw IllegalArgumentException(
                     "The model tensors look compatible, but TensorFlow Lite could not run inference. " +
-                        "Re-export the PHOTO/SIGNATURE model for Android TFLite.",
+                        "Re-export the object-detection model for Android TFLite.",
                     t,
                 )
             }

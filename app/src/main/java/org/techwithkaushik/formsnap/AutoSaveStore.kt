@@ -24,30 +24,6 @@ class AutoSaveStore(private val context: Context) {
         prefs.edit().remove(KEY_TREE_URI).apply()
     }
 
-    fun save(
-        photo: ByteArray?,
-        signature: ByteArray?,
-    ): Pair<String?, String?> {
-        val tree = folderUri() ?: throw IOException("Choose an output folder first.")
-        val resolver = context.contentResolver
-        val stamp = System.currentTimeMillis()
-
-        fun write(bytes: ByteArray, name: String): String {
-            val uri = DocumentsContract.createDocument(
-                resolver,
-                tree,
-                "image/jpeg",
-                name,
-            ) ?: throw IOException("Unable to create $name")
-            resolver.openOutputStream(uri)?.use { it.write(bytes) }
-                ?: throw IOException("Unable to open $name for writing")
-            return name
-        }
-
-        val photoName = photo?.let { write(it, "Photo_"+stamp+".jpg") }
-        val signatureName = signature?.let { write(it, "Sign_"+stamp+".jpg") }
-        return photoName to signatureName
-    }
 
     fun saveDetection(modelName: String, annotationName: String, bytes: ByteArray, extension: String, mimeType: String): String {
         val tree = folderUri() ?: throw IOException("Choose an output folder first.")
