@@ -39,11 +39,14 @@ private data class OutputSettings(
 )
 
 class MainActivity : ComponentActivity() {
+    private var useDarkTheme by mutableStateOf(true)
+
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
+        useDarkTheme = getSharedPreferences("objectsnap.ui", MODE_PRIVATE).getBoolean("dark_theme", true)
         // Remove stale intermediate files left by a killed or previously crashed run.
         org.techwithkaushik.formSnap.foundation.ProcessingPaths.cleanupStale(this)
-        setContent { FormSnapTheme { FormSnapApp() } }
+        setContent { FormSnapTheme(darkTheme = useDarkTheme) { FormSnapApp() } }
     }
 
     @Composable
@@ -165,6 +168,11 @@ class MainActivity : ComponentActivity() {
 
         HomeScreen(
             settings = settings,
+            isDarkTheme = useDarkTheme,
+            onToggleTheme = {
+                useDarkTheme = !useDarkTheme
+                getSharedPreferences("objectsnap.ui", MODE_PRIVATE).edit().putBoolean("dark_theme", useDarkTheme).apply()
+            },
             onSettings = { settingsOpen = true },
             onAiModel = { aiSettingsOpen = true },
             onCamera = { selected ->
@@ -307,6 +315,8 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun HomeScreen(
         settings: OutputSettings,
+        isDarkTheme: Boolean,
+        onToggleTheme: () -> Unit,
         onSettings: () -> Unit,
         onAiModel: () -> Unit,
         onCamera: (CaptureMode) -> Unit,
@@ -317,8 +327,9 @@ class MainActivity : ComponentActivity() {
                 TopAppBar(
                     title = { Text("AI ObjectSnap", fontWeight = FontWeight.Bold) },
                     actions = {
+                        TextButton(onClick = onToggleTheme) { Text(if (isDarkTheme) "Light" else "Dark") }
                         TextButton(onClick = onAiModel) { Text("AI Model") }
-                        TextButton(onClick = onSettings) { Text("Output") }
+                        TextButton(onClick = onSettings) { Text("Save") }
                     },
                 )
             },
@@ -372,13 +383,13 @@ class MainActivity : ComponentActivity() {
                 item {
                     Card(shape = RoundedCornerShape(18.dp)) {
                         Column(Modifier.padding(16.dp)) {
-                            Text("Output settings", fontWeight = FontWeight.Bold)
+                            Text("Save settings", fontWeight = FontWeight.Bold)
                             Text("Crop size: detected object box")
                             Text("Maximum file size: ${settings.maxKb} KB per output")
                             Text("File type: ${settings.fileType.name}")
                             Text(if (settings.mergeEnabled) "Merge: ${settings.mergeOrientation.name.lowercase()} (same ${if (settings.mergeOrientation == MergeOrientation.VERTICAL) "width" else "height"})" else "Merge: Off")
                             Spacer(Modifier.height(8.dp))
-                            OutlinedButton(onClick = onSettings) { Text("Save options") }
+                            OutlinedButton(onClick = onSettings) { Text("Configure save options") }
                         }
                     }
                 }
@@ -460,20 +471,20 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun FormSnapTheme(content: @Composable () -> Unit) {
-    val scheme = darkColorScheme(
+private fun FormSnapTheme(darkTheme: Boolean, content: @Composable () -> Unit) {
+    val scheme = if (darkTheme) darkColorScheme(
         primary = Color(0xFF168BFF),
-        onPrimary = Color(0xFFFFFFFF),
+        onPrimary = Color.White,
         primaryContainer = Color(0xFF14283A),
         onPrimaryContainer = Color(0xFFEAF5FF),
         secondary = Color(0xFF25D9E8),
-        onSecondary = Color(0xFFFFFFFF),
+        onSecondary = Color(0xFF05212A),
         secondaryContainer = Color(0xFF12333A),
         onSecondaryContainer = Color(0xFFDDFBFF),
-        tertiary = Color(0xFF6750A4),
-        onTertiary = Color(0xFFFFFFFF),
+        tertiary = Color(0xFF9B8AFF),
+        onTertiary = Color(0xFF1D1637),
         tertiaryContainer = Color(0xFF28233C),
-        onTertiaryContainer = Color(0xFF25134E),
+        onTertiaryContainer = Color(0xFFEAE3FF),
         background = Color(0xFF07111D),
         onBackground = Color(0xFFEAF1F8),
         surface = Color(0xFF101C29),
@@ -482,6 +493,27 @@ private fun FormSnapTheme(content: @Composable () -> Unit) {
         onSurfaceVariant = Color(0xFFB9C9D8),
         outline = Color(0xFF506579),
         outlineVariant = Color(0xFF293B4D),
+    ) else lightColorScheme(
+        primary = Color(0xFF0878D1),
+        onPrimary = Color.White,
+        primaryContainer = Color(0xFFD9F2FF),
+        onPrimaryContainer = Color(0xFF082D49),
+        secondary = Color(0xFF007F8B),
+        onSecondary = Color.White,
+        secondaryContainer = Color(0xFFD0F7F7),
+        onSecondaryContainer = Color(0xFF073B40),
+        tertiary = Color(0xFF6550A4),
+        onTertiary = Color.White,
+        tertiaryContainer = Color(0xFFEAE2FF),
+        onTertiaryContainer = Color(0xFF25134E),
+        background = Color(0xFFF4F8FC),
+        onBackground = Color(0xFF14202B),
+        surface = Color.White,
+        onSurface = Color(0xFF14202B),
+        surfaceVariant = Color(0xFFE7EEF5),
+        onSurfaceVariant = Color(0xFF435363),
+        outline = Color(0xFF72869A),
+        outlineVariant = Color(0xFFD1DCE6),
     )
     MaterialTheme(colorScheme = scheme, content = content)
 }
