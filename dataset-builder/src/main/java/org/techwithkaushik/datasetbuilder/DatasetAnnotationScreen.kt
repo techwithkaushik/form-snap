@@ -63,6 +63,8 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
     var activeBox by remember { mutableStateOf<LabelBox?>(null) }
     var busy by remember { mutableStateOf(false) }
     var fullScreen by remember { mutableStateOf(false) }
+    var builderTab by remember { mutableStateOf("Annotate") }
+    var builderMenu by remember { mutableStateOf(false) }
     var formGroupId by remember(index, libraryImages, groupIds) {
         mutableStateOf(libraryImages.getOrNull(index)?.let { groupIds[it.nameWithoutExtension] ?: it.nameWithoutExtension }.orEmpty())
     }
@@ -263,21 +265,35 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
     }
     Scaffold(
         topBar = {
-            if (!fullScreen) TopAppBar(
-                title = {
-                    Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
-                        Text(projectName, fontWeight = FontWeight.Bold, maxLines = 2, style = MaterialTheme.typography.titleMedium)
-                        Text("${libraryImages.size} images • ${savedPaths.size} saved", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            if (!fullScreen) Column {
+                TopAppBar(
+                    title = {
+                        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                            Text(projectName, fontWeight = FontWeight.Bold, maxLines = 2, style = MaterialTheme.typography.titleMedium)
+                            Text("${libraryImages.size} images • ${savedPaths.size} saved", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        }
+                    },
+                    navigationIcon = { androidx.compose.material3.IconButton(onClick = onExit) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Default.ArrowBack, contentDescription = "Back to datasets") } },
+                    actions = {
+                        androidx.compose.material3.IconButton(onClick = { addImagesLauncher.launch(arrayOf("image/*")) }, enabled = !busy) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Default.AddPhotoAlternate, contentDescription = "Add images") }
+                        androidx.compose.material3.IconButton(onClick = { builderMenu = true }) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Default.MoreVert, contentDescription = "Project actions") }
+                        DropdownMenu(expanded = builderMenu, onDismissRequest = { builderMenu = false }) {
+                            DropdownMenuItem(text = { Text("Export dataset ZIP") }, leadingIcon = { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Default.Archive, null) }, enabled = saved == libraryImages.size && libraryImages.isNotEmpty() && dirtyPaths.isEmpty() && !busy, onClick = { builderMenu = false; zipLauncher.launch("formsnap-dataset.zip") })
+                            DropdownMenuItem(text = { Text("Finish and return") }, leadingIcon = { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Default.CheckCircle, null) }, enabled = !busy, onClick = { builderMenu = false; onExit() })
+                        }
                     }
-                },
-                navigationIcon = { TextButton(onClick = onExit, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) { Text("Exit") } },
-                actions = {
-                    TextButton(onClick = { addImagesLauncher.launch(arrayOf("image/*")) }, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) { Text("+ Add") }
-                    Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(12.dp), modifier = Modifier.padding(start = 2.dp, end = 8.dp)) {
-                        Text((if (libraryImages.isEmpty()) 0 else index + 1).toString() + "/" + libraryImages.size, modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                )
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 7.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("Annotate", "Images", "Classes", "Info").forEach { tab ->
+                        FilterChip(
+                            selected = builderTab == tab,
+                            onClick = { builderTab = tab },
+                            label = { Text(tab, maxLines = 1) },
+                            modifier = Modifier.weight(1f),
+                        )
                     }
                 }
-            )
+            }
         },
         bottomBar = {
             if (!fullScreen) Surface(shadowElevation = 8.dp) {
