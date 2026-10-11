@@ -74,7 +74,7 @@ class MainActivity : ComponentActivity() {
         ) { grants ->
             if (grants.values.isNotEmpty() && grants.values.all { it }) {
                 try {
-                    autoSaveStore.setDirectFolder(File(Environment.getExternalStorageDirectory(), "AI ObjectSnap"))
+                    autoSaveStore.setDirectFolder(File(defaultSharedStorageRoot(), "AI ObjectSnap"))
                     storageSetupOpen = false
                     saveMessage = "AI ObjectSnap/savedImage folder is ready."
                 } catch (error: Exception) {
@@ -314,6 +314,18 @@ class MainActivity : ComponentActivity() {
                 Snackbar { Text(message) }
             }
         }
+    }
+
+    /** Prefer a removable SD-card volume when Android exposes one, otherwise use primary shared storage. */
+    private fun defaultSharedStorageRoot(): File {
+        val roots = getExternalFilesDirs(null).filterNotNull().mapNotNull { appDir ->
+            val path = appDir.absolutePath
+            val marker = path.indexOf("/Android/")
+            if (marker > 0) File(path.substring(0, marker)) else null
+        }.distinctBy { it.absolutePath }
+        return roots.firstOrNull { root ->
+            runCatching { Environment.isExternalStorageRemovable(root) }.getOrDefault(false)
+        } ?: Environment.getExternalStorageDirectory()
     }
 
     private fun uriToFile(uri: Uri, prefix: String): File? {
