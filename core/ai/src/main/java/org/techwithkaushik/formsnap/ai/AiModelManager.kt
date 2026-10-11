@@ -140,6 +140,7 @@ class AiModelManager(context: Context) {
             .filter { it.isNotEmpty() }
             .distinct()
             .take(1000)
+            .toList()
     }
 
     private fun readEmbeddedLabels(file: File): List<String> = runCatching {
