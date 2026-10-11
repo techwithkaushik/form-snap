@@ -59,7 +59,7 @@ fun CaptureScreen(
         cameraPreview()
         Surface(
             modifier = Modifier.align(Alignment.TopStart).padding(start = 10.dp, top = 12.dp, end = 88.dp),
-            color = Color.Black.copy(alpha = 0.82f),
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
             shape = MaterialTheme.shapes.small,
         ) {
             Text(
@@ -89,7 +89,7 @@ fun CaptureScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Surface(
-                color = Color.Black.copy(alpha = 0.78f),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
                 shape = MaterialTheme.shapes.medium,
                 modifier = Modifier.fillMaxWidth(),
             ) {
@@ -100,14 +100,14 @@ fun CaptureScreen(
                             Text(
                                 if (autoSaveEnabled) "First confident detection captures and saves automatically"
                                 else "Tap detection boxes to select crops, then press the shutter",
-                                color = Color.LightGray,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.labelSmall,
                             )
                         }
                         Switch(checked = autoSaveEnabled, onCheckedChange = onAutoSaveEnabledChange)
                     }
                     if (!autoSaveEnabled) {
-                        Text("Selected objects: ${appliedDetections.count { it.locked }}", color = Color.White, style = MaterialTheme.typography.labelMedium)
+                        Text("Selected objects: ${appliedDetections.count { it.locked }}", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelMedium)
                     }
                 }
             }
@@ -135,17 +135,17 @@ fun CaptureScreen(
 
                 Surface(
                     shape = CircleShape,
-                    color = Color.Black.copy(alpha = 0.48f),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
                     onClick = onImport,
                 ) {
-                    Text("Import", color = Color.White, modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp))
+                    Text("Import", color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp))
                 }
             }
 
             if (state.capturing) {
                 Text(
                     "Capturing…",
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onSurface,
                     style = MaterialTheme.typography.labelLarge,
                 )
             }
