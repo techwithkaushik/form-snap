@@ -81,7 +81,7 @@ class YoloV8TfliteDetector(
     /**
      * Returns the actual tensor metadata after loading the model.
      * Useful for diagnosing imported models that do not match FormSnap's
-     * PHOTO(0)/SIGNATURE(1) detector contract.
+     * object-detection contract and class labels.
      */
     fun modelDiagnostics(): String {
         check(!closed) { "Detector is already closed." }
@@ -90,10 +90,15 @@ class YoloV8TfliteDetector(
             val model = requireNotNull(interpreter)
             val input = model.getInputTensor(0)
             val output = model.getOutputTensor(0)
+            val shape = output.shape()
+            val a = shape.getOrNull(shape.lastIndex - 1) ?: 0
+            val b = shape.lastOrNull() ?: 0
+            val count = when { a in 5..512 && b > a -> a - 4; b in 5..512 -> b - 4; else -> 0 }
             "Model: ${modelFile?.name ?: modelAssetName}; " +
                 "input=${input.shape().contentToString()} ${input.dataType()}; " +
-                "output=${output.shape().contentToString()} ${output.dataType()}; " +
-"mode=OBJECT DETECTION; classes=PHOTO(0), SIGNATURE(1)"
+                "output=${shape.contentToString()} ${output.dataType()}; " +
+                "mode=YOLO OBJECT DETECTION; classCount=${count.takeIf { it > 0 } ?: "NMS/unknown"}; " +
+                "labels=${config.classLabels.takeIf { it.isNotEmpty() }?.joinToString() ?: "generic Class N labels"}"
         }.get()
     }
 
@@ -123,36 +128,36 @@ class YoloV8TfliteDetector(
         if (shape.size < 3) return "tensor=${shape.contentToString()} values=${values.size}"
         val a = shape[shape.size - 2]
         val b = shape.last()
-        val channelsFirst = a == 6 && b > a
+        val channelsFirst = a in 5..512 && b > a
         val channels = if (channelsFirst) a else b
         val candidates = if (channelsFirst) b else a
-        if (channels != 6 || candidates <= 0 || values.size < channels * candidates) {
+        if (channels < 5 || candidates <= 0 || values.size < channels * candidates) {
             val finite = values.filter { it.isFinite() }
             return "tensor=${shape.contentToString()} min=${finite.minOrNull()} max=${finite.maxOrNull()}"
         }
-        var best0 = Float.NEGATIVE_INFINITY
-        var best1 = Float.NEGATIVE_INFINITY
+        var best = Float.NEGATIVE_INFINITY
         var above005 = 0
         var above012 = 0
-        var minClass = Float.POSITIVE_INFINITY
-        var maxClass = Float.NEGATIVE_INFINITY
         for (i in 0 until candidates) {
-            val s0 = if (channelsFirst) values[4 * candidates + i] else values[i * channels + 4]
-            val s1 = if (channelsFirst) values[5 * candidates + i] else values[i * channels + 5]
-            if (s0.isFinite()) { best0 = maxOf(best0, s0); minClass = minOf(minClass, s0); maxClass = maxOf(maxClass, s0) }
-            if (s1.isFinite()) { best1 = maxOf(best1, s1); minClass = minOf(minClass, s1); maxClass = maxOf(maxClass, s1) }
-            val score = maxOf(s0, s1)
-            if (score.isFinite() && score >= 0.05f) above005++
-            if (score.isFinite() && score >= 0.12f) above012++
+            var score = Float.NEGATIVE_INFINITY
+            for (channel in 4 until channels) {
+                val value = if (channelsFirst) values[channel * candidates + i] else values[i * channels + channel]
+                if (value.isFinite()) score = maxOf(score, value)
+            }
+            if (score.isFinite()) {
+                best = maxOf(best, score)
+                if (score >= 0.05f) above005++
+                if (score >= 0.12f) above012++
+            }
         }
-        return "tensor=${shape.contentToString()} classRange=${"%.3f".format(java.util.Locale.US, minClass)}..${"%.3f".format(java.util.Locale.US, maxClass)} bestP=${"%.3f".format(java.util.Locale.US, best0)} bestS=${"%.3f".format(java.util.Locale.US, best1)} >=.05:$above005 >=.12:$above012"
+        return "tensor=${shape.contentToString()} classes=${channels - 4} bestScore=${"%.3f".format(java.util.Locale.US, best)} >=.05:$above005 >=.12:$above012"
     }
 
     private fun ensureInterpreter() {
         if (interpreter != null) return
 
         check(modelAvailable()) {
-            "No AI model is available. Open AI Model in FormSnap and import your trained PHOTO/SIGNATURE .tflite detector."
+            "No AI model is available. Open AI Model in FormSnap and import a compatible TFLite object detector."
         }
 
         val modelBuffer = if (modelFile != null) {
