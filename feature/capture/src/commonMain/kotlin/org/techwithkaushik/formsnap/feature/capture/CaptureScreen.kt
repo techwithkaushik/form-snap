@@ -84,6 +84,20 @@ fun CaptureScreen(
             detections = appliedDetections,
         )
 
+        Surface(
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = 12.dp),
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+            onClick = onToggleFlash,
+        ) {
+            Text(
+                text = if (state.flashEnabled) "⚡ ON" else "⚡",
+                color = if (state.flashEnabled) Color(0xFFFFC247) else MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            )
+        }
+
         Column(
             modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
