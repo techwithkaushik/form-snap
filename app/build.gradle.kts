@@ -14,6 +14,12 @@ android {
         targetSdk = libs.versions.androidTargetSdk.get().toInt()
         versionCode = 3
         versionName = "0.2.0"
+
+        // FormSnap's supported delivery target is 32-bit ARM (armeabi-v7a).
+        // Avoid packaging native binaries for devices this APK is not intended for.
+        ndk {
+            abiFilters += "armeabi-v7a"
+        }
     }
 
     buildFeatures {
@@ -24,9 +30,16 @@ android {
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
         jniLibs {
+            // Compress OpenCV/TFLite native libraries in the downloadable APK.
+            // Android extracts these libraries at install time on supported devices.
+            useLegacyPackaging = true
             excludes += "lib/arm64-v8a/**"
             excludes += "lib/x86/**"
             excludes += "lib/x86_64/**"
+            excludes += "lib/armeabi/**"
+            excludes += "lib/mips/**"
+            excludes += "lib/mips64/**"
+            excludes += "lib/riscv64/**"
         }
     }
 

@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - feature/foundation-pipeline
+      - feature/universal-tflite-no-dataset-builder
   pull_request:
     branches:
       - feature/foundation-pipeline
@@ -20,7 +21,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: feature/foundation-pipeline
+          # Build the PR head, not the target branch, so CI validates proposed changes.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 1
           submodules: false
 
@@ -71,7 +73,9 @@ jobs:
           MODEL_DIR="core/ai/src/main/assets"
           MODEL="$MODEL_DIR/formsnap_bootstrap_yolov8n_float32.tflite"
           mkdir -p "$MODEL_DIR"
-          curl --fail --location --retry 5 --retry-all-errors             "https://raw.githubusercontent.com/naz23/yolo-tensorflow-lite/main/yolov8n_float32.tflite"             -o "$MODEL"
+          curl --fail --location --retry 5 --retry-all-errors \
+            "https://raw.githubusercontent.com/naz23/yolo-tensorflow-lite/main/yolov8n_float32.tflite" \
+            -o "$MODEL"
           test -s "$MODEL"
           test "$(stat -c%s "$MODEL")" -gt 1000000
           ls -lh "$MODEL"
@@ -107,13 +111,16 @@ jobs:
             gradle :app:assembleRelease --no-daemon --build-cache --stacktrace
           fi
 
-      - name: Verify APK
+      - name: Verify APK and report download size
         shell: bash
         run: |
           set -euo pipefail
           APK="app/build/outputs/apk/release/app-release.apk"
           test -f "$APK"
           ls -lh "$APK"
+          echo "APK_SIZE_BYTES=$(stat -c%s "$APK")"
+          echo "Native library entries (compression method and size):"
+          unzip -lv "$APK" | grep -E 'lib/armeabi-v7a/.*\.so$' || true
           APKSIGNER="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)/apksigner"
           "$APKSIGNER" verify --verbose "$APK"
 
