@@ -266,7 +266,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
             if (!fullScreen) TopAppBar(
                 title = {
                     Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
-                        Text(projectName, fontWeight = FontWeight.Bold, maxLines = 1, style = MaterialTheme.typography.titleMedium)
+                        Text(projectName, fontWeight = FontWeight.Bold, maxLines = 2, style = MaterialTheme.typography.titleMedium)
                         Text("${libraryImages.size} images • ${savedPaths.size} saved", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                     }
                 },
@@ -426,13 +426,19 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                 }
             }
             if (fullScreen) {
-                Surface(modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(12.dp), color = Color(0xDD101216), shape = RoundedCornerShape(8.dp)) {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        LabelClass.values().forEach { cls ->
-                            val count = boxes.count { it.type == cls }
-                            FilterChip(selected = selected == cls, onClick = { selected = cls }, label = { Text("${cls.title} ($count)", maxLines = 1, softWrap = false) }, modifier = Modifier.weight(1f))
+                Surface(modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(10.dp), color = Color(0xEE101216), shape = RoundedCornerShape(14.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(image?.name ?: "Image", color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.weight(1f))
+                            Text("${if (libraryImages.isEmpty()) 0 else index + 1}/${libraryImages.size}", color = Color.LightGray, style = MaterialTheme.typography.labelMedium)
+                            Button(onClick = { fullScreen = false }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 5.dp), shape = RoundedCornerShape(10.dp)) { Text("Done") }
                         }
-                        Button(onClick = { fullScreen = false }, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp), shape = RoundedCornerShape(8.dp)) { Text("Done") }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            LabelClass.values().forEach { cls ->
+                                val count = boxes.count { it.type == cls }
+                                FilterChip(selected = selected == cls, onClick = { selected = cls }, label = { Text("${cls.title} (ID: ${cls.id}) · $count", maxLines = 1, softWrap = false) }, modifier = Modifier.weight(1f))
+                            }
+                        }
                     }
                 }
             }
