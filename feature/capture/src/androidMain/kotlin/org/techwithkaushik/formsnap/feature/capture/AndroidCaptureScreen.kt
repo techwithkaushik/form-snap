@@ -5,16 +5,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -37,7 +32,6 @@ fun AndroidCaptureScreen(
     var liveDiagnostics by remember { mutableStateOf("AI: waiting for camera frames…") }
     var pendingSelection by remember { mutableStateOf<List<LiveDetection>>(emptyList()) }
     var permissionGranted by remember { mutableStateOf(camera.hasCameraPermission()) }
-    var showLearningManager by remember { mutableStateOf(false) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -137,18 +131,5 @@ fun AndroidCaptureScreen(
         liveDetections = liveDetections,
         liveDiagnostics = liveDiagnostics,
     )
-    androidx.compose.material3.Surface(
-        modifier = Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(top = 16.dp, end = 12.dp),
-        color = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.65f),
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
-        onClick = { showLearningManager = true },
-    ) {
-        androidx.compose.material3.Text(
-            "AI learning",
-            color = androidx.compose.ui.graphics.Color.White,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-        )
-    }
-    if (showLearningManager) AiLearningManagerDialog { showLearningManager = false }
     }
 }
