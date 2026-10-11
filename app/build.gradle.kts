@@ -79,7 +79,6 @@ dependencies {
     testImplementation(libs.junit)
 
     implementation(libs.androidx.activity.compose)
-    implementation(libs.ucrop.n.edit)
     implementation(libs.androidx.core)
     implementation(libs.androidx.compose.runtime)
     implementation(libs.androidx.compose.foundation)
