@@ -17,10 +17,9 @@ dependencyResolutionManagement {
 
 rootProject.name = "FormSnap"
 
-include(":core:ai", ":feature:capture", ":opencv", ":app", ":dataset-builder")
+include(":core:ai", ":feature:capture", ":opencv", ":app")
 
 project(":core:ai").projectDir = file("core/ai")
 project(":feature:capture").projectDir = file("feature/capture")
 project(":opencv").projectDir = file("opencv")
 project(":app").projectDir = file("app")
-project(":dataset-builder").projectDir = file("dataset-builder")
