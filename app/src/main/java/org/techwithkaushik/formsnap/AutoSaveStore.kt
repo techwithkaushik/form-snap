@@ -7,6 +7,18 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 
+
+data class SavedImageEntry(
+    val modelName: String,
+    val labelName: String,
+    val fileName: String,
+    val relativePath: String,
+    val uri: String,
+    val byteCount: Long,
+    val width: Int = 0,
+    val height: Int = 0,
+)
+
 class AutoSaveStore(private val context: Context) {
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -86,6 +98,121 @@ class AutoSaveStore(private val context: Context) {
         } ?: throw IOException("Unable to write $fileName")
         return "$APP_FOLDER/$SAVED_FOLDER/${safeSegment(modelName.replace(Regex("(?i)\\.tflite$"), ""))}/${safeSegment(annotationName)}/$fileName"
     }
+
+    /** List saved crops grouped by their model and annotation folders. */
+    fun listSavedImages(): List<SavedImageEntry> {
+        val directPath = prefs.getString(KEY_DIRECT_PATH, null)
+        if (directPath != null) {
+            val root = File(File(directPath, SAVED_FOLDER))
+            if (!root.isDirectory) return emptyList()
+            return root.listFiles()?.filter { it.isDirectory }?.flatMap { model ->
+                model.listFiles()?.filter { it.isDirectory }?.flatMap { label ->
+                    label.listFiles()?.filter { it.isFile && it.extension.lowercase() in setOf("jpg", "jpeg", "png", "webp") }
+                        ?.map { file ->
+                            val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                            android.graphics.BitmapFactory.decodeFile(file.absolutePath, bounds)
+                            SavedImageEntry(model.name, label.name, file.name,
+                                APP_FOLDER + "/" + SAVED_FOLDER + "/" + model.name + "/" + label.name + "/" + file.name,
+                                Uri.fromFile(file).toString(), file.length(), bounds.outWidth, bounds.outHeight)
+                        }.orEmpty()
+                }.orEmpty()
+            }.orEmpty().sortedByDescending { it.fileName }
+        }
+        val appFolder = prefs.getString(KEY_TREE_URI, null)?.let(Uri::parse) ?: return emptyList()
+        val savedRoot = findDirectory(appFolder, SAVED_FOLDER) ?: return emptyList()
+        return listDirectories(savedRoot).flatMap { modelPair ->
+            listDirectories(modelPair.second).flatMap { labelPair ->
+                listDocuments(labelPair.second).mapNotNull { doc ->
+                    val name = doc.first
+                    if (name.substringAfterLast('.', "").lowercase() !in setOf("jpg", "jpeg", "png", "webp")) return@mapNotNull null
+                    val uri = doc.second
+                    val bounds = runCatching {
+                        val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        context.contentResolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, options) }
+                        options
+                    }.getOrNull()
+                    val size = runCatching { context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: 0L }.getOrDefault(0L)
+                    SavedImageEntry(modelPair.first, labelPair.first, name,
+                        APP_FOLDER + "/" + SAVED_FOLDER + "/" + modelPair.first + "/" + labelPair.first + "/" + name,
+                        uri.toString(), size, bounds?.outWidth ?: 0, bounds?.outHeight ?: 0)
+                }
+            }
+        }.sortedByDescending { it.fileName }
+    }
+
+    fun deleteImage(entry: SavedImageEntry) {
+        val uri = Uri.parse(entry.uri)
+        if (uri.scheme == "file") {
+            val file = File(uri.path ?: throw IOException("Invalid saved image path."))
+            check(file.isFile && file.delete()) { "Unable to delete " + entry.fileName + "." }
+        } else {
+            check(DocumentsContract.deleteDocument(context.contentResolver, uri)) {
+                "Unable to delete " + entry.fileName + "."
+            }
+        }
+    }
+
+    /** Perceptual hash prevents near-identical repeat captures within the same label folder. */
+    fun isDuplicate(modelName: String, labelName: String, bitmap: android.graphics.Bitmap): Boolean {
+        val currentHash = differenceHash(bitmap)
+        val currentModel = safeSegment(modelName.replace(Regex("(?i)\\.tflite$"), ""))
+        val currentLabel = safeSegment(labelName)
+        return listSavedImages().asSequence()
+            .filter { it.modelName == currentModel && it.labelName == currentLabel }
+            .any { entry ->
+                runCatching {
+                    val saved = if (Uri.parse(entry.uri).scheme == "file") {
+                        android.graphics.BitmapFactory.decodeFile(Uri.parse(entry.uri).path)
+                    } else {
+                        context.contentResolver.openInputStream(Uri.parse(entry.uri))?.use {
+                            android.graphics.BitmapFactory.decodeStream(it)
+                        }
+                    } ?: return@runCatching false
+                    try { java.lang.Long.bitCount(currentHash xor differenceHash(saved)) <= 5 }
+                    finally { saved.recycle() }
+                }.getOrDefault(false)
+            }
+    }
+
+    private fun differenceHash(bitmap: android.graphics.Bitmap): Long {
+        val small = android.graphics.Bitmap.createScaledBitmap(bitmap, 9, 8, true)
+        try {
+            var hash = 0L
+            var bit = 0
+            for (y in 0 until 8) for (x in 0 until 8) {
+                val left = small.getPixel(x, y)
+                val right = small.getPixel(x + 1, y)
+                val leftGray = (android.graphics.Color.red(left) * 299 + android.graphics.Color.green(left) * 587 + android.graphics.Color.blue(left) * 114) / 1000
+                val rightGray = (android.graphics.Color.red(right) * 299 + android.graphics.Color.green(right) * 587 + android.graphics.Color.blue(right) * 114) / 1000
+                if (leftGray > rightGray) hash = hash or (1L shl bit)
+                bit++
+            }
+            return hash
+        } finally { if (small !== bitmap) small.recycle() }
+    }
+
+    private fun listDirectories(parent: Uri): List<Pair<String, Uri>> = listDocuments(parent, directoriesOnly = true)
+    private fun listDocuments(parent: Uri, directoriesOnly: Boolean = false): List<Pair<String, Uri>> {
+        val resolver = context.contentResolver
+        val parentId = runCatching { DocumentsContract.getDocumentId(parent) }.getOrElse { DocumentsContract.getTreeDocumentId(parent) }
+        val children = DocumentsContract.buildChildDocumentsUriUsingTree(parent, parentId)
+        val result = mutableListOf<Pair<String, Uri>>()
+        resolver.query(children, arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE), null, null, null)?.use { cursor ->
+            val idCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+            val nameCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+            val mimeCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
+            while (cursor.moveToNext()) {
+                val isDir = cursor.getString(mimeCol) == DocumentsContract.Document.MIME_TYPE_DIR
+                if (!directoriesOnly || isDir) {
+                    result += cursor.getString(nameCol) to DocumentsContract.buildDocumentUriUsingTree(parent, cursor.getString(idCol))
+                }
+            }
+        }
+        return result
+    }
+
+    private fun findDirectory(parent: Uri, name: String): Uri? =
+        listDirectories(parent).firstOrNull { it.first == name }?.second
 
     private fun nextImageName(parent: File, extension: String): String {
         val max = parent.listFiles()?.mapNotNull { file ->
