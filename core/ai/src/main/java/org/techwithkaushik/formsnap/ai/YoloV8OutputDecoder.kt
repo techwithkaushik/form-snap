@@ -205,7 +205,9 @@ internal class YoloV8OutputDecoder(
         return result
     }
 
-    private fun classLabel(classId: Int): String = config.classLabels.getOrNull(classId)?.trim()?.takeIf { it.isNotEmpty() } ?: "Label missing ($classId)"
+    private fun classLabel(classId: Int): String =
+        config.classLabels.getOrNull(classId)?.trim()?.takeIf { it.isNotEmpty() }
+            ?: "Class $classId"
 
     private fun mapBox(
         raw: RectF,
