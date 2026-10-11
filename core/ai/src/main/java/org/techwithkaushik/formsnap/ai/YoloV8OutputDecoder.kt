@@ -9,7 +9,6 @@ internal class YoloV8OutputDecoder(
     private val config: DetectionConfig,
 ) {
     private companion object {
-        const val CROSS_CLASS_DUPLICATE_IOU = 0.80f
         const val MAX_CANDIDATES_PER_CLASS = 100
     }
 
@@ -52,28 +51,11 @@ internal class YoloV8OutputDecoder(
             )
         }
 
-        // A form has at most one target PHOTO and one target SIGNATURE in the
-        // capture workflow. Keep the best candidate for each class independently:
-        // PHOTO-only and SIGNATURE-only images must still return their one detection.
-        // This also prevents low-confidence duplicates from filling the preview.
-        val bestByClass = nonMaximumSuppression(detections)
-            .groupBy { it.classId }
-            .mapNotNull { (_, classDetections) ->
-                classDetections.maxByOrNull { it.confidence }
-            }
-
-        // The same physical region can occasionally be assigned both class IDs.
-        // If the best boxes overlap almost completely, keep only the stronger one;
-        // distinct photo and signature regions remain independent.
-        val photo = bestByClass.firstOrNull { it.classId == 0 }
-        val signature = bestByClass.firstOrNull { it.classId == 1 }
-        if (photo != null && signature != null &&
-            iou(photo.boundingBox, signature.boundingBox) >= CROSS_CLASS_DUPLICATE_IOU
-        ) {
-            val winner = if (photo.confidence >= signature.confidence) photo else signature
-            return bestByClass.filter { it.classId !in 0..1 } + winner
-        }
-        return bestByClass.sortedByDescending { it.confidence }
+        // Universal detector: keep multiple instances per class. Class-aware NMS
+        // removes overlapping duplicates while preserving distinct objects.
+        return nonMaximumSuppression(detections)
+            .sortedByDescending { it.confidence }
+            .take(config.maxDetections.coerceAtLeast(1))
     }
 
     private fun rawClassScoreStats(values: FloatArray, shape: IntArray): Triple<Float, Int, Int> {
@@ -83,16 +65,18 @@ internal class YoloV8OutputDecoder(
         val channelsFirst = a == 6 && b > a
         val channels = if (channelsFirst) a else b
         val candidates = if (channelsFirst) b else a
-        if (channels != 6 || candidates <= 0 || values.size < channels * candidates) {
+        if (channels < 5 || candidates <= 0 || values.size < channels * candidates) {
             return Triple(Float.NaN, 0, 0)
         }
         var best = 0f
         var above005 = 0
         var above012 = 0
         for (candidate in 0 until candidates) {
-            val score0 = if (channelsFirst) values[4 * candidates + candidate] else values[candidate * channels + 4]
-            val score1 = if (channelsFirst) values[5 * candidates + candidate] else values[candidate * channels + 5]
-            val score = max(score0, score1)
+            var score = 0f
+            for (channel in 4 until channels) {
+                val value = if (channelsFirst) values[channel * candidates + candidate] else values[candidate * channels + channel]
+                if (value.isFinite()) score = max(score, value)
+            }
             if (score.isFinite()) {
                 best = max(best, score)
                 if (score >= 0.05f) above005++
@@ -175,7 +159,7 @@ internal class YoloV8OutputDecoder(
 
         if (channels < 6 || candidates <= 0) return emptyList()
         val classCount = channels - 4
-        if (classCount != 2) return emptyList()
+        if (classCount < 1) return emptyList()
 
         fun at(candidate: Int, channel: Int): Float =
             if (channelsFirst) {
@@ -201,7 +185,7 @@ internal class YoloV8OutputDecoder(
                 }
             }
 
-            if (bestClass !in 0..1 || bestScore < config.confidenceThreshold) continue
+            if (bestClass !in 0 until classCount || bestScore < config.confidenceThreshold) continue
 
             val box = mapBox(
                 RectF(
@@ -225,7 +209,7 @@ internal class YoloV8OutputDecoder(
     }
 
     private fun classLabel(classId: Int): String =
-        DetectedClass.fromId(classId)?.label ?: "Object $classId"
+        config.classLabels.getOrNull(classId)?.trim()?.takeIf { it.isNotEmpty() } ?: "Class $classId"
 
     private fun mapBox(
         raw: RectF,
