@@ -521,9 +521,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
             }
         }
     }
-    }
 }
-
 
 /**
  * Decode large form images at a bounded resolution. Uniform downsampling preserves
