@@ -121,7 +121,11 @@ fun AndroidCaptureScreen(
                     onImageCaptured(event.image, selected)
                 }
                 is CaptureEvent.ImportSelected -> onImportImage(event.image)
-                is CaptureEvent.Error -> onError(event.message)
+                is CaptureEvent.Error -> {
+                    // A failed automatic shutter must not permanently disarm live capture.
+                    autoCaptureTriggered = false
+                    onError(event.message)
+                }
             }
         }
     }
