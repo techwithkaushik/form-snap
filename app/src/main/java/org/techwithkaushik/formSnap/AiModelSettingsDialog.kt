@@ -1,5 +1,5 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-package org.techwithkaushik.formSnap
+package org.techwithkaushik.formsnap
 
 import android.content.Context
 import androidx.activity.compose.rememberLauncherForActivityResult
