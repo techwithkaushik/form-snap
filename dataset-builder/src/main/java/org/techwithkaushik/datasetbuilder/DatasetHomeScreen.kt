@@ -29,23 +29,9 @@ import java.util.UUID
 private val brand = Color(0xFF145DDE)
 private data class Project(val id: String, val name: String, val description: String, val labels: List<String>, val updated: Long)
 
-class MainActivity : ComponentActivity() {
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        setContent {
-            MaterialTheme(colorScheme = lightColorScheme(primary = brand, background = Color(0xFFF5F7FC))) {
-                ProjectHome(this, onOpen = {
-                    setContent {
-                        MaterialTheme(colorScheme = lightColorScheme(primary = brand)) {
-                            DatasetAnnotationScreen(emptyList(), { recreate() }) {
-                                Toast.makeText(this, it, Toast.LENGTH_LONG).show()
-                            }
-                        }
-                    }
-                })
-            }
-        }
-    }
+@Composable
+internal fun DatasetHomeEntry(context: Context, onOpen: (String) -> Unit) {
+    ProjectHome(context) { project -> onOpen(project.id) }
 }
 
 @Composable
