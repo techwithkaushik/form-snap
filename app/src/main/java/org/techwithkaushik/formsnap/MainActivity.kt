@@ -242,9 +242,12 @@ class MainActivity : ComponentActivity() {
         if (settingsOpen) {
             OutputSettingsDialog(
                 initial = settings,
+                initialAutoSave = autoSaveEnabled,
                 onDismiss = { settingsOpen = false },
-                onSave = {
-                    settings = it
+                onSave = { updated, autoSave ->
+                    settings = updated
+                    autoSaveEnabled = autoSave
+                    capturePrefs.edit().putBoolean("auto_save_enabled", autoSave).apply()
                     settingsOpen = false
                 },
             )
@@ -419,8 +422,9 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun OutputSettingsDialog(initial: OutputSettings, onDismiss: () -> Unit, onSave: (OutputSettings) -> Unit) {
+    private fun OutputSettingsDialog(initial: OutputSettings, initialAutoSave: Boolean, onDismiss: () -> Unit, onSave: (OutputSettings, Boolean) -> Unit) {
         var kb by remember { mutableStateOf(initial.maxKb.toString()) }
+        var autoSave by remember { mutableStateOf(initialAutoSave) }
         var fileType by remember { mutableStateOf(initial.fileType) }
         var mergeEnabled by remember { mutableStateOf(initial.mergeEnabled) }
         var mergeOrientation by remember { mutableStateOf(initial.mergeOrientation) }
@@ -430,8 +434,16 @@ class MainActivity : ComponentActivity() {
             title = { Text("Object save settings") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Auto crop & save", fontWeight = FontWeight.SemiBold)
+                            Text("Automatically capture when the model detects an object.", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Switch(checked = autoSave, onCheckedChange = { autoSave = it })
+                    }
+                    HorizontalDivider()
                     Text("Crop dimensions and aspect ratio follow the detected object box. Only the maximum file size is limited.")
-                    OutlinedTextField(value = kb, onValueChange = { kb = it }, label = { Text("Maximum KB per output") }, singleLine = true)
+                    OutlinedTextField(value = kb, onValueChange = { kb = it.filter(Char::isDigit).take(4) }, label = { Text("Maximum file size (KB)") }, singleLine = true)
                     Text("File type", fontWeight = FontWeight.Bold)
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         OutputImageType.entries.forEach { type ->
@@ -460,7 +472,7 @@ class MainActivity : ComponentActivity() {
             confirmButton = {
                 Button(onClick = {
                     val limit = kb.toIntOrNull()
-                    if (limit != null && limit in 5..2048) onSave(OutputSettings(limit, fileType, mergeEnabled, mergeOrientation))
+                    if (limit != null && limit in 5..2048) onSave(OutputSettings(limit, fileType, mergeEnabled, mergeOrientation), autoSave)
                     else invalid = true
                 }) { Text("Save") }
             },
