@@ -85,7 +85,7 @@ fun AiModelSettingsDialog(
                     Text("Import TFLite model (.tflite)")
                 }
                 Text(
-                    "Imported model classes are shown by annotation name when the model contains labels or you import its matching labels.txt file.",
+                    "Embedded class names are loaded automatically. If the model has no labels, Live Detection shows generic Class 0, Class 1, etc.; import the matching labels file to show real class names.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 6.dp),
@@ -154,7 +154,7 @@ private fun ModelCard(
             HorizontalDivider()
             Text("Classes / annotations", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             Text(
-                model.classDetails.ifBlank { "Class names unavailable. Import the labels.txt file belonging to this model." },
+                model.classDetails.ifBlank { "Semantic class names are not embedded. Live Detection will use generic class IDs until the matching labels file is imported." },
                 style = MaterialTheme.typography.bodySmall,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
