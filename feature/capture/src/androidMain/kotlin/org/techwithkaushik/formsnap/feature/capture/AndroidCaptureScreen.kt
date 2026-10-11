@@ -96,9 +96,6 @@ fun AndroidCaptureScreen(
             )
         },
         controller = presenter,
-        onRequestCameraPermission = {
-            permissionLauncher.launch(Manifest.permission.CAMERA)
-        },
         onCapture = { selected ->
             pendingSelection = selected
             if (!permissionGranted || !camera.hasCameraPermission()) {
@@ -128,9 +125,6 @@ fun AndroidCaptureScreen(
             presenter.setFlashEnabled(enabled)
             camera.updateFlash(enabled)
         },
-        onImageCaptured = onImageCaptured,
-        onImportImage = onImportImage,
-        onError = onError,
         liveDetections = liveDetections,
         liveDiagnostics = liveDiagnostics,
     )
