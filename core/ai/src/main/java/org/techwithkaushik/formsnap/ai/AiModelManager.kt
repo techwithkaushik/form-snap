@@ -122,6 +122,12 @@ class AiModelManager(context: Context) {
      * exports such as "0 person", "0: person", CSV, JSON arrays, and JSON name maps.
      */
     private fun parseLabelContent(raw: String): List<String> {
+        // MetadataExtractor may expose a non-text associated payload on some model
+        // exports. Never decode arbitrary binary bytes as class names.
+        if (raw.isEmpty() || raw.contains('\uFFFD')) return emptyList()
+        val unexpectedControls = raw.count { it.isISOControl() && it !in '\n' && it !in '\r' && it !in '\t' }
+        if (unexpectedControls > maxOf(1, raw.length / 100)) return emptyList()
+
         val text = raw.removePrefix("\uFEFF").replace("\\n", "\n").trim()
         if (text.isEmpty()) return emptyList()
 
@@ -168,11 +174,16 @@ class AiModelManager(context: Context) {
                 else -> emptyList()
             }
         }.getOrDefault(emptyList())
-        if (jsonLabels.isNotEmpty()) return jsonLabels.map { it.trim() }.filter { it.isNotEmpty() }
+        if (jsonLabels.isNotEmpty()) {
+            val cleaned = jsonLabels.map { it.trim() }
+            return cleaned.takeIf { labels -> labels.isNotEmpty() && labels.all(::isPlausibleLabel) }.orEmpty()
+        }
 
         val namePattern = Regex("""(?i)\bname\s*:\s*["']([^"']+)["']""")
         val metadataNames = namePattern.findAll(text).map { it.groupValues[1].trim() }.filter { it.isNotEmpty() }.toList()
-        if (metadataNames.isNotEmpty() && text.contains("item", ignoreCase = true)) return metadataNames
+        if (metadataNames.isNotEmpty() && text.contains("item", ignoreCase = true) &&
+            metadataNames.all(::isPlausibleLabel)
+        ) return metadataNames
 
         return text.lineSequence()
             .map { it.trim().removePrefix("\uFEFF") }
@@ -183,11 +194,25 @@ class AiModelManager(context: Context) {
                     .replace(Regex("""^\s*["']|["']\s*$"""), "")
                     .trim()
             }
-            .filter { it.isNotEmpty() }
+            .filter(::isPlausibleLabel)
             // Do not deduplicate: label order and duplicate names are both valid
             // in a model's class map, and indices must remain stable.
             .take(1000)
             .toList()
+    }
+
+    /**
+     * Reject decoded FlatBuffer/binary metadata and other corrupt payloads while
+     * allowing normal labels such as "PHOTO", "SIGNATURE", "traffic light", and
+     * Unicode class names.
+     */
+    private fun isPlausibleLabel(label: String): Boolean {
+        val value = label.trim()
+        if (value.isEmpty() || value.length > 160 || value.contains('\uFFFD')) return false
+        if (value.any { it.isISOControl() }) return false
+        val useful = value.count { it.isLetterOrDigit() }
+        val odd = value.count { !it.isLetterOrDigit() && !it.isWhitespace() && it !in "._-/()&+'#" }
+        return useful > 0 && odd <= maxOf(2, useful / 3)
     }
 
     private fun readEmbeddedLabels(file: File): List<String> = runCatching {
