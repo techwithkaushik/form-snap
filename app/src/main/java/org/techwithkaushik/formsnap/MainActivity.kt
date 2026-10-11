@@ -1,5 +1,5 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-package org.techwithkaushik.formSnap
+package org.techwithkaushik.formsnap
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -49,7 +49,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         useDarkTheme = getSharedPreferences("objectsnap.ui", MODE_PRIVATE).getBoolean("dark_theme", true)
         // Remove stale intermediate files left by a killed or previously crashed run.
-        org.techwithkaushik.formSnap.foundation.ProcessingPaths.cleanupStale(this)
+        org.techwithkaushik.formsnap.foundation.ProcessingPaths.cleanupStale(this)
         setContent { FormSnapTheme(darkTheme = useDarkTheme) { FormSnapApp() } }
     }
 
@@ -94,7 +94,7 @@ class MainActivity : ComponentActivity() {
                     val hasWrite = checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
                     if (hasRead && hasWrite) {
                         runCatching {
-                            autoSaveStore.setDirectFolder(File(Environment.getExternalStorageDirectory(), "AI ObjectSnap"))
+                            autoSaveStore.setDirectFolder(File(defaultSharedStorageRoot(), "AI ObjectSnap"))
                         }.onFailure { storageSetupOpen = true }
                     } else {
                         storagePermissionLauncher.launch(arrayOf(
@@ -135,7 +135,7 @@ class MainActivity : ComponentActivity() {
                     saveMessage = "Detection/save failed: " + (t.message ?: "unknown error")
                 } finally {
                     input.delete()
-                    org.techwithkaushik.formSnap.foundation.ProcessingPaths.cleanup(this@MainActivity)
+                    org.techwithkaushik.formsnap.foundation.ProcessingPaths.cleanup(this@MainActivity)
                 }
             }
         }
@@ -332,7 +332,7 @@ class MainActivity : ComponentActivity() {
         var temporary: File? = null
         return try {
             val dir = File(
-                org.techwithkaushik.formSnap.foundation.ProcessingPaths.root(this),
+                org.techwithkaushik.formsnap.foundation.ProcessingPaths.root(this),
                 "inputs",
             ).apply { check(isDirectory || mkdirs()) { "Cannot create the input cache." } }
             val mime = contentResolver.getType(uri)?.lowercase(Locale.ROOT)
