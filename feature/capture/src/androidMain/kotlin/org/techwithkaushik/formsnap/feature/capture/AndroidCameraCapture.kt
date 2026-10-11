@@ -120,22 +120,31 @@ class AndroidCameraCapture(
         val file = session.nextCaptureFile("jpg")
         val options = ImageCapture.OutputFileOptions.Builder(file).build()
 
-        capture.takePicture(
-            options,
-            ContextCompat.getMainExecutor(appContext),
-            object : ImageCapture.OnImageSavedCallback {
-                override fun onError(exception: ImageCaptureException) {
-                    file.delete()
-                    presenter.onCaptureFailure(
-                        exception.message ?: "Failed to capture image.",
-                    )
-                }
+        // Give the live analyzer time to settle immediately before the still is
+        // taken. The auto-capture path also requires a stable detection window;
+        // this short delay applies to manual shutter taps too.
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            if (imageCapture !== capture) {
+                presenter.onCaptureFailure("Camera changed before capture. Please try again.")
+                return@postDelayed
+            }
+            capture.takePicture(
+                options,
+                ContextCompat.getMainExecutor(appContext),
+                object : ImageCapture.OnImageSavedCallback {
+                    override fun onError(exception: ImageCaptureException) {
+                        file.delete()
+                        presenter.onCaptureFailure(
+                            exception.message ?: "Failed to capture image.",
+                        )
+                    }
 
-                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                    presenter.onCaptured(Uri.fromFile(file).toString(), file.name)
-                }
-            },
-        )
+                    override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                        presenter.onCaptured(Uri.fromFile(file).toString(), file.name)
+                    }
+                },
+            )
+        }, 1_000L)
     }
 
     fun shutdown() {
@@ -403,8 +412,8 @@ class AndroidCameraCapture(
                 .build()
                 .also { it.setSurfaceProvider(previewView.surfaceProvider) }
             val capture = ImageCapture.Builder()
-                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-                .setJpegQuality(92)
+                .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+                .setJpegQuality(100)
                 .setTargetRotation(rotation)
                 .build()
             val analysis = ImageAnalysis.Builder()
