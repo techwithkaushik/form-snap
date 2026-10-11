@@ -275,7 +275,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
             )
         },
         bottomBar = {
-            Surface(shadowElevation = 8.dp) {
+            if (!fullScreen) Surface(shadowElevation = 8.dp) {
                 Column(Modifier.fillMaxWidth().padding(8.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         LabelClass.values().forEach { cls ->
