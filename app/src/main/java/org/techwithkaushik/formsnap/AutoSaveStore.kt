@@ -55,8 +55,13 @@ class AutoSaveStore(private val context: Context) {
     }
 
     private fun safeSegment(value: String): String = value.trim()
-        .replace(Regex("[\\\\/:*?\\"<>|\\u0000-\\u001F]"), "_")
-        .replace(Regex("\\s+"), "_").trim('.', '_').take(80).ifBlank { "Unknown" }
+        .map { character ->
+            if (character.isLetterOrDigit() || character == '-' || character == '_' || character == '.') character else '_'
+        }
+        .joinToString("")
+        .trim('.', '_')
+        .take(80)
+        .ifBlank { "Unknown" }
 
     companion object {
         private const val PREFS = "formsnap_auto_save"
