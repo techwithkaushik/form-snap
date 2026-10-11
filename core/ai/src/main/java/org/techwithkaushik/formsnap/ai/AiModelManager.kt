@@ -53,9 +53,69 @@ class AiModelManager(context: Context) {
         } finally { interpreter.close() }
     }
 
-    fun classLabels(file: File): List<String> = runCatching {
-        File(modelsDir, file.nameWithoutExtension + ".labels.txt")
-            .takeIf { it.isFile }?.readLines(Charsets.UTF_8)?.map { it.trim() }?.filter { it.isNotEmpty() }.orEmpty()
+    /**
+     * Resolve class names in this order:
+     * 1) labels imported explicitly by the user,
+     * 2) labels packed inside the TFLite metadata,
+     * 3) no fabricated class names.
+     *
+     * The same resolved list is consumed by both Model Details and the live
+     * detector, so annotation labels cannot silently diverge between screens.
+     */
+    fun classLabels(file: File): List<String> {
+        val sidecar = File(modelsDir, file.nameWithoutExtension + ".labels.txt")
+        val explicit = readLabels(sidecar)
+        if (explicit.isNotEmpty()) return explicit
+
+        val embedded = readEmbeddedLabels(file)
+        if (embedded.isNotEmpty()) {
+            runCatching {
+                FileOutputStream(sidecar).use { output ->
+                    output.write(embedded.joinToString("\\n", postfix = "\\n").toByteArray(Charsets.UTF_8))
+                    output.fd.sync()
+                }
+            }
+            return embedded
+        }
+        return emptyList()
+    }
+
+    private fun readLabels(file: File): List<String> = runCatching {
+        file.takeIf { it.isFile }?.readLines(Charsets.UTF_8)
+            ?.map { it.trim().removePrefix("\\uFEFF") }
+            ?.filter { it.isNotEmpty() && !it.startsWith("#") }
+            .orEmpty()
+    }.getOrDefault(emptyList())
+
+    private fun readEmbeddedLabels(file: File): List<String> = runCatching {
+        val buffer = FileInputStream(file).use { stream ->
+            stream.channel.use { channel ->
+                channel.map(java.nio.channels.FileChannel.MapMode.READ_ONLY, 0, channel.size())
+            }
+        }
+        val extractor = org.tensorflow.lite.support.metadata.MetadataExtractor(buffer)
+        val names = extractor.associatedFileNames
+        val labelFiles = names.filter { name ->
+            val lower = name.substringAfterLast('/').lowercase()
+            lower == "labels.txt" || lower == "label.txt" ||
+                lower == "labels.csv" || lower == "labelmap.txt" ||
+                lower.endsWith("_labels.txt") || lower.endsWith("_label.txt")
+        }.sortedBy { name ->
+            when (name.substringAfterLast('/').lowercase()) {
+                "labels.txt" -> 0
+                "label.txt" -> 1
+                "labelmap.txt" -> 2
+                else -> 3
+            }
+        }
+        for (name in labelFiles) {
+            val labels = extractor.getAssociatedFile(name)?.bufferedReader(Charsets.UTF_8)?.use { reader ->
+                reader.readLines().map { it.trim().removePrefix("\\uFEFF") }
+                    .filter { it.isNotEmpty() && !it.startsWith("#") }
+            }.orEmpty()
+            if (labels.isNotEmpty()) return@runCatching labels
+        }
+        emptyList()
     }.getOrDefault(emptyList())
 
     fun importLabels(uri: Uri, modelName: String) {
