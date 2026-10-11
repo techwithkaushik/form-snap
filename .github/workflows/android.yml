@@ -5,9 +5,11 @@ on:
   push:
     branches:
       - feature/foundation-pipeline
+      - feature/dataset-builder-professional-ui
   pull_request:
     branches:
       - feature/foundation-pipeline
+      - feature/dataset-builder-professional-ui
 
 permissions:
   contents: read
@@ -20,7 +22,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: feature/foundation-pipeline
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 1
           submodules: false
 
