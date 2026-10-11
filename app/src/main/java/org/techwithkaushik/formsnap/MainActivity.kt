@@ -1,5 +1,5 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-package org.techwithkaushik.formsnap
+package org.techwithkaushik.formSnap
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -24,8 +24,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import org.techwithkaushik.formsnap.feature.capture.AndroidCaptureScreen
-import org.techwithkaushik.formsnap.feature.capture.CaptureMode as CameraCaptureMode
+import org.techwithkaushik.formSnap.feature.capture.AndroidCaptureScreen
+import org.techwithkaushik.formSnap.feature.capture.CaptureMode as CameraCaptureMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -49,7 +49,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         useDarkTheme = getSharedPreferences("objectsnap.ui", MODE_PRIVATE).getBoolean("dark_theme", true)
         // Remove stale intermediate files left by a killed or previously crashed run.
-        org.techwithkaushik.formsnap.foundation.ProcessingPaths.cleanupStale(this)
+        org.techwithkaushik.formSnap.foundation.ProcessingPaths.cleanupStale(this)
         setContent { FormSnapTheme(darkTheme = useDarkTheme) { FormSnapApp() } }
     }
 
@@ -112,7 +112,7 @@ class MainActivity : ComponentActivity() {
 
         fun startAutoProcess(
             input: File,
-            selectedDetections: List<org.techwithkaushik.formsnap.feature.capture.LiveDetection> = emptyList(),
+            selectedDetections: List<org.techwithkaushik.formSnap.feature.capture.LiveDetection> = emptyList(),
             autoSave: Boolean = true,
         ) {
             ioScope.launch {
@@ -135,7 +135,7 @@ class MainActivity : ComponentActivity() {
                     saveMessage = "Detection/save failed: " + (t.message ?: "unknown error")
                 } finally {
                     input.delete()
-                    org.techwithkaushik.formsnap.foundation.ProcessingPaths.cleanup(this@MainActivity)
+                    org.techwithkaushik.formSnap.foundation.ProcessingPaths.cleanup(this@MainActivity)
                 }
             }
         }
@@ -332,7 +332,7 @@ class MainActivity : ComponentActivity() {
         var temporary: File? = null
         return try {
             val dir = File(
-                org.techwithkaushik.formsnap.foundation.ProcessingPaths.root(this),
+                org.techwithkaushik.formSnap.foundation.ProcessingPaths.root(this),
                 "inputs",
             ).apply { check(isDirectory || mkdirs()) { "Cannot create the input cache." } }
             val mime = contentResolver.getType(uri)?.lowercase(Locale.ROOT)
