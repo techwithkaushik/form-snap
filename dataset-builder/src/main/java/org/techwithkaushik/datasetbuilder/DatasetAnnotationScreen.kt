@@ -52,7 +52,7 @@ private enum class LabelClass(val id: Int, val title: String, val color: Color) 
 private data class LabelBox(val type: LabelClass, val l: Float, val t: Float, val r: Float, val b: Float)
 
 @Composable
-internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onMessage: (String) -> Unit) {
+internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onMessage: (String) -> Unit, projectId: String = "default", projectName: String = "Dataset Builder") {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var libraryImages by remember { mutableStateOf<List<File>>(emptyList()) }
@@ -85,7 +85,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
         busy = true
         try {
             val loaded = withContext(Dispatchers.IO) {
-                val root = File(context.filesDir, "dataset-yolo")
+                val root = File(context.filesDir, "dataset-projects/$projectId")
                 val imageDir = File(root, "train/images").apply { mkdirs() }
                 val labelDir = File(root, "train/labels").apply { mkdirs() }
                 images.forEachIndexed { i, source ->
@@ -146,7 +146,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
             busy = true
             try {
                 withContext(Dispatchers.IO) {
-                    val dir = File(context.filesDir, "dataset-yolo/train/images").apply { mkdirs() }
+                    val dir = File(context.filesDir, "dataset-projects/$projectId/train/images").apply { mkdirs() }
                     uris.forEachIndexed { i, uri ->
                         val mime = context.contentResolver.getType(uri)?.lowercase(Locale.ROOT).orEmpty()
                         val ext = when (mime) { "image/png" -> "png"; "image/webp" -> "webp"; else -> "jpg" }
@@ -157,7 +157,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                         check(out.length() > 0L) { "Selected image is empty" }
                     }
                 }
-                val dir = File(context.filesDir, "dataset-yolo/train/images")
+                val dir = File(context.filesDir, "dataset-projects/$projectId/train/images")
                 val previousPaths = libraryImages.map { it.absolutePath }.toSet()
                 val refreshed = dir.listFiles()?.filter { it.isFile && it.extension.lowercase(Locale.ROOT) in listOf("jpg", "jpeg", "png", "webp") }?.sortedBy { it.name.lowercase(Locale.ROOT) }.orEmpty()
                 libraryImages = refreshed
@@ -194,7 +194,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
             try {
                 val base = current.nameWithoutExtension
                 withContext(Dispatchers.IO) {
-                    val root = File(context.filesDir, "dataset-yolo")
+                    val root = File(context.filesDir, "dataset-projects/$projectId")
                     val labelDir = File(root, "train/labels").apply { mkdirs() }
                     val text = currentBoxes.joinToString("\n") { b ->
                         String.format(Locale.US, "%d %.6f %.6f %.6f %.6f", b.type.id,
@@ -234,8 +234,8 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                         try {
                             withContext(Dispatchers.IO) {
                                 target.delete()
-                                File(context.filesDir, "dataset-yolo/train/labels/${target.nameWithoutExtension}.txt").delete()
-                                val groupsFile = File(context.filesDir, "dataset-yolo/train/groups.txt")
+                                File(context.filesDir, "dataset-projects/$projectId/train/labels/${target.nameWithoutExtension}.txt").delete()
+                                val groupsFile = File(context.filesDir, "dataset-projects/$projectId/train/groups.txt")
                                 if (groupsFile.isFile) groupsFile.writeText(groupsFile.readLines().filterNot { it.substringBefore("\t") == target.nameWithoutExtension }.joinToString("\n", postfix = "\n"))
                             }
                             annotationsByImage = annotationsByImage - target.absolutePath
@@ -266,7 +266,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
             if (!fullScreen) TopAppBar(
                 title = {
                     Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
-                        Text("Dataset Builder", fontWeight = FontWeight.Bold, maxLines = 1, style = MaterialTheme.typography.titleMedium)
+                        Text(projectName, fontWeight = FontWeight.Bold, maxLines = 1, style = MaterialTheme.typography.titleMedium)
                         Text("${libraryImages.size} images • ${savedPaths.size} saved", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                     }
                 },
@@ -463,7 +463,7 @@ private fun decodeSampledBitmap(file: File, maxDimension: Int): Bitmap? {
 }
 
 private fun writeDatasetZip(context: Context, uri: Uri) {
-    val root = File(context.filesDir, "dataset-yolo")
+    val root = File(context.filesDir, "dataset-projects/$projectId")
     val images = File(root, "train/images").listFiles()?.filter { it.isFile }?.sortedBy { it.name }.orEmpty()
     require(images.size >= 10) {
         "At least 10 annotated forms are required for train/validation/test export; current count: ${images.size}"
