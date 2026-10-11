@@ -189,6 +189,9 @@ class AiModelManager(context: Context) {
             val lower = name.substringAfterLast('/').lowercase()
             lower.contains("label") || lower.contains("class") ||
                 lower.contains("categor") || lower.contains("object_name") ||
+                // Ultralytics exports store their class map in an associated
+                // metadata.json file as {"names":{"0":"person", ...}}.
+                lower == "metadata.json" ||
                 lower.endsWith(".json") && (lower.contains("name") || lower.contains("object"))
         }.sortedBy { name ->
             when (name.substringAfterLast('/').lowercase()) {
