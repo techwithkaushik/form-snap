@@ -483,6 +483,4 @@ class AiModelManager(context: Context) {
             "scissors", "teddy bear", "hair drier", "toothbrush",
         )
     }
-
-    }
 }
