@@ -81,12 +81,66 @@ class AiModelManager(context: Context) {
     }
 
     private fun readLabels(file: File): List<String> = runCatching {
-        file.takeIf { it.isFile }?.readLines(Charsets.UTF_8)
-            ?.flatMap { it.replace("\\n", "\n").lineSequence().toList() }
-            ?.map { it.trim().removePrefix("\uFEFF") }
-            ?.filter { it.isNotEmpty() && !it.startsWith("#") }
-            .orEmpty()
+        file.takeIf { it.isFile }?.readText(Charsets.UTF_8)?.let(::parseLabelContent).orEmpty()
     }.getOrDefault(emptyList())
+
+    /**
+     * Label sidecars are not always plain one-name-per-line files. Support common
+     * exports such as "0 person", "0: person", CSV, JSON arrays, and JSON name maps.
+     */
+    private fun parseLabelContent(raw: String): List<String> {
+        val text = raw.removePrefix("\uFEFF").replace("\\n", "\n").trim()
+        if (text.isEmpty()) return emptyList()
+
+        val jsonLabels = runCatching {
+            fun strings(value: org.json.JSONArray): List<String> = buildList {
+                for (i in 0 until value.length()) {
+                    when (val item = value.opt(i)) {
+                        is String -> add(item)
+                        is org.json.JSONObject -> {
+                            val name = item.optString("name").ifBlank { item.optString("display_name") }
+                            if (name.isNotBlank()) add(name)
+                        }
+                    }
+                }
+            }
+            when {
+                text.startsWith("[") -> strings(org.json.JSONArray(text))
+                text.startsWith("{") -> {
+                    val obj = org.json.JSONObject(text)
+                    val known = listOf("names", "labels", "classes", "class_names", "categories", "annotations")
+                    val array = known.firstNotNullOfOrNull { key -> obj.optJSONArray(key) }
+                    if (array != null) strings(array) else {
+                        val keys = obj.keys().asSequence().toList()
+                        if (keys.isNotEmpty() && keys.all { it.toIntOrNull() != null }) {
+                            keys.sortedBy { it.toInt() }.mapNotNull { key ->
+                                obj.optString(key).takeIf { it.isNotBlank() }
+                            }
+                        } else emptyList()
+                    }
+                }
+                else -> emptyList()
+            }
+        }.getOrDefault(emptyList())
+        if (jsonLabels.isNotEmpty()) return jsonLabels.map { it.trim() }.filter { it.isNotEmpty() }
+
+        val namePattern = Regex("""(?i)\bname\s*:\s*["']([^"']+)["']""")
+        val metadataNames = namePattern.findAll(text).map { it.groupValues[1].trim() }.filter { it.isNotEmpty() }.toList()
+        if (metadataNames.isNotEmpty() && text.contains("item", ignoreCase = true)) return metadataNames
+
+        return text.lineSequence()
+            .map { it.trim().removePrefix("\uFEFF") }
+            .filter { it.isNotEmpty() && !it.startsWith("#") && !it.startsWith("//") }
+            .map { line ->
+                line.replace(Regex("""^\s*\d+\s*[,;:\t]+\s*"""), "")
+                    .replace(Regex("""^\s*\d+\s+"""), "")
+                    .replace(Regex("""^\s*["']|["']\s*$"""), "")
+                    .trim()
+            }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .take(1000)
+    }
 
     private fun readEmbeddedLabels(file: File): List<String> = runCatching {
         val buffer = FileInputStream(file).use { stream ->
@@ -98,21 +152,20 @@ class AiModelManager(context: Context) {
         val names = extractor.associatedFileNames
         val labelFiles = names.filter { name ->
             val lower = name.substringAfterLast('/').lowercase()
-            lower == "labels.txt" || lower == "label.txt" ||
-                lower == "labels.csv" || lower == "labelmap.txt" ||
-                lower.endsWith("_labels.txt") || lower.endsWith("_label.txt")
+            lower.contains("label") || lower.contains("class") ||
+                lower.contains("categor") || lower.contains("object_name") ||
+                lower.endsWith(".json") && (lower.contains("name") || lower.contains("object"))
         }.sortedBy { name ->
             when (name.substringAfterLast('/').lowercase()) {
                 "labels.txt" -> 0
                 "label.txt" -> 1
-                "labelmap.txt" -> 2
+                "labelmap.txt", "label_map.txt", "labels.csv" -> 2
                 else -> 3
             }
         }
         for (name in labelFiles) {
             val labels = extractor.getAssociatedFile(name)?.bufferedReader(Charsets.UTF_8)?.use { reader ->
-                reader.readText().replace("\\n", "\n").lineSequence().map { it.trim().removePrefix("\uFEFF") }.toList()
-                    .filter { it.isNotEmpty() && !it.startsWith("#") }
+                parseLabelContent(reader.readText())
             }.orEmpty()
             if (labels.isNotEmpty()) return@runCatching labels
         }
@@ -122,8 +175,8 @@ class AiModelManager(context: Context) {
     fun importLabels(uri: Uri, modelName: String) {
         val model = File(modelsDir, modelName)
         require(model.isFile && model.extension.equals("tflite", true)) { "Select an imported TFLite model first." }
-        val labels = appContext.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readLines() }
-            ?.map { it.trim() }?.filter { it.isNotEmpty() } ?: throw IllegalArgumentException("Unable to read labels file.")
+        val labels = appContext.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { parseLabelContent(it.readText()) }
+            ?: throw IllegalArgumentException("Unable to read labels file.")
         require(labels.isNotEmpty() && labels.size <= 1000) { "Labels file must contain 1–1000 class names." }
         FileOutputStream(File(modelsDir, model.nameWithoutExtension + ".labels.txt")).use { output ->
             output.write(labels.joinToString("\n", postfix = "\n").toByteArray(Charsets.UTF_8))
