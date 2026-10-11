@@ -14,9 +14,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 Surface {
-                    var openedProject by remember { mutableStateOf<String?>(null) }
+                    var openedProject by remember { mutableStateOf<Pair<String, String>?>(null) }
                     if (openedProject == null) {
-                        DatasetHomeEntry(this) { projectId -> openedProject = projectId }
+                        DatasetHomeEntry(this) { projectId, projectName -> openedProject = projectId to projectName }
                     } else {
                         DatasetAnnotationScreen(
                             images = emptyList(),
