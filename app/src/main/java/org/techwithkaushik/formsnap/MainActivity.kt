@@ -60,6 +60,9 @@ class MainActivity : ComponentActivity() {
         val capturePrefs = remember { getSharedPreferences("formsnap.live.detection", MODE_PRIVATE) }
         var autoSaveEnabled by remember { mutableStateOf(capturePrefs.getBoolean("auto_save_enabled", true)) }
         var settingsOpen by remember { mutableStateOf(false) }
+        var savedImagesOpen by remember { mutableStateOf(false) }
+        var captureProcessing by remember { mutableStateOf(false) }
+        var savedImagesRefresh by remember { mutableIntStateOf(0) }
         var aiSettingsOpen by remember { mutableStateOf(false) }
         var saveMessage by remember { mutableStateOf<String?>(null) }
         var pendingCameraMode by remember { mutableStateOf<CaptureMode?>(null) }
@@ -131,6 +134,8 @@ class MainActivity : ComponentActivity() {
                 } finally {
                     input.delete()
                     org.techwithkaushik.formSnap.foundation.ProcessingPaths.cleanup(this@MainActivity)
+                    captureProcessing = false
+                    savedImagesRefresh++
                 }
             }
         }
@@ -143,6 +148,9 @@ class MainActivity : ComponentActivity() {
         }
         BackHandler(enabled = settingsOpen && !aiSettingsOpen) {
             settingsOpen = false
+        }
+        BackHandler(enabled = savedImagesOpen && !showCameraX && !settingsOpen && !aiSettingsOpen) {
+            savedImagesOpen = false
         }
         val openDocument = rememberLauncherForActivityResult(
             ActivityResultContracts.OpenDocument(),
@@ -189,7 +197,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        if (!aiSettingsOpen && !settingsOpen && !showCameraX) HomeScreen(
+        if (!aiSettingsOpen && !settingsOpen && !showCameraX && !savedImagesOpen) HomeScreen(
             settings = settings,
             isDarkTheme = useDarkTheme,
             onToggleTheme = {
@@ -197,6 +205,7 @@ class MainActivity : ComponentActivity() {
                 getSharedPreferences("objectsnap.ui", MODE_PRIVATE).edit().putBoolean("dark_theme", useDarkTheme).apply()
             },
             onSettings = { settingsOpen = true },
+            onSavedImages = { savedImagesOpen = true; savedImagesRefresh++ },
             onAiModel = { aiSettingsOpen = true },
             onCamera = {
                 pendingCameraMode = null
@@ -213,18 +222,20 @@ class MainActivity : ComponentActivity() {
             BackHandler { showCameraX = false }
             AndroidCaptureScreen(
                 initialMode = cameraXMode,
+                captureProcessing = captureProcessing,
                 autoSaveEnabled = autoSaveEnabled,
                 onAutoSaveEnabledChange = { enabled ->
                     autoSaveEnabled = enabled
                     capturePrefs.edit().putBoolean("auto_save_enabled", enabled).apply()
                 },
                 onImageCaptured = { image, selectedDetections ->
-                    showCameraX = false
+                    captureProcessing = true
                     val uri = Uri.parse(image.uri)
                     val file = if (uri.scheme == "file") File(uri.path ?: "") else null
                     if (file?.isFile == true && file.length() > 0L) {
                         startAutoProcess(file, selectedDetections, autoSaveEnabled)
                     } else {
+                        captureProcessing = false
                         saveMessage = "Camera image could not be opened. Please capture again."
                     }
                 },
@@ -245,6 +256,15 @@ class MainActivity : ComponentActivity() {
                 context = this@MainActivity,
                 onDismiss = { aiSettingsOpen = false },
                 onMessage = { saveMessage = it },
+            )
+        }
+
+        if (savedImagesOpen && !aiSettingsOpen && !settingsOpen && !showCameraX) {
+            SavedImagesScreen(
+                store = autoSaveStore,
+                refreshKey = savedImagesRefresh,
+                onBack = { savedImagesOpen = false },
+                onMessage = { saveMessage = it; savedImagesRefresh++ },
             )
         }
 
@@ -344,6 +364,7 @@ class MainActivity : ComponentActivity() {
         isDarkTheme: Boolean,
         onToggleTheme: () -> Unit,
         onSettings: () -> Unit,
+        onSavedImages: () -> Unit,
         onAiModel: () -> Unit,
         onCamera: (CaptureMode) -> Unit,
         onImport: () -> Unit,
@@ -355,6 +376,7 @@ class MainActivity : ComponentActivity() {
                     actions = {
                         TextButton(onClick = onToggleTheme) { Text(if (isDarkTheme) "Light" else "Dark") }
                         TextButton(onClick = onAiModel) { Text("AI Model") }
+                        TextButton(onClick = onSavedImages) { Text("Saved") }
                         TextButton(onClick = onSettings) { Text("Save") }
                     },
                 )
