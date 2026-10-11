@@ -15,7 +15,8 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 Surface {
                     var openedProject by remember { mutableStateOf<Pair<String, String>?>(null) }
-                    if (openedProject == null) {
+                    val currentProject = openedProject
+                    if (currentProject == null) {
                         DatasetHomeEntry(this) { projectId, projectName -> openedProject = projectId to projectName }
                     } else {
                         DatasetAnnotationScreen(
@@ -24,8 +25,8 @@ class MainActivity : ComponentActivity() {
                             onMessage = { message ->
                                 Toast.makeText(this, message, Toast.LENGTH_LONG).show()
                             },
-                            projectId = openedProject.first,
-                            projectName = openedProject.second,
+                            projectId = currentProject.first,
+                            projectName = currentProject.second,
                         )
                     }
                 }
