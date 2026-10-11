@@ -59,7 +59,7 @@ internal class YoloV8OutputDecoder(
         if (shape.size < 3) return Triple(Float.NaN, 0, 0)
         val a = shape[shape.size - 2]
         val b = shape.last()
-        val channelsFirst = a == 6 && b > a
+        val channelsFirst = a in 5..512 && b > a
         val channels = if (channelsFirst) a else b
         val candidates = if (channelsFirst) b else a
         if (channels < 5 || candidates <= 0 || values.size < channels * candidates) {
