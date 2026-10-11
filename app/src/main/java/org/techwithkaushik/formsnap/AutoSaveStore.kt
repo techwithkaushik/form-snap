@@ -157,21 +157,34 @@ class AutoSaveStore(private val context: Context) {
         val currentHash = differenceHash(bitmap)
         val currentModel = safeSegment(modelName.replace(Regex("(?i)\\.tflite$"), ""))
         val currentLabel = safeSegment(labelName)
-        return listSavedImages().asSequence()
+        val currentSharpness = sharpnessScore(bitmap)
+        val duplicate = listSavedImages().asSequence()
             .filter { it.modelName == currentModel && it.labelName == currentLabel }
-            .any { entry ->
+            .mapNotNull { entry ->
                 runCatching {
-                    val saved = if (Uri.parse(entry.uri).scheme == "file") {
-                        android.graphics.BitmapFactory.decodeFile(Uri.parse(entry.uri).path)
+                    val uri = Uri.parse(entry.uri)
+                    val saved = if (uri.scheme == "file") {
+                        android.graphics.BitmapFactory.decodeFile(uri.path)
                     } else {
-                        context.contentResolver.openInputStream(Uri.parse(entry.uri))?.use {
+                        context.contentResolver.openInputStream(uri)?.use {
                             android.graphics.BitmapFactory.decodeStream(it)
                         }
-                    } ?: return@runCatching false
-                    try { java.lang.Long.bitCount(currentHash xor differenceHash(saved)) <= 5 }
-                    finally { saved.recycle() }
-                }.getOrDefault(false)
-            }
+                    } ?: return@runCatching null
+                    try {
+                        if (java.lang.Long.bitCount(currentHash xor differenceHash(saved)) <= 5) entry to sharpnessScore(saved)
+                        else null
+                    } finally { saved.recycle() }
+                }.getOrNull()
+            }.firstOrNull()
+        if (duplicate == null) return false
+
+        // Keep only the better version: replace an existing near-duplicate when
+        // the new crop is measurably sharper; otherwise leave the old file untouched.
+        if (currentSharpness > duplicate.second * 1.08f) {
+            runCatching { deleteImage(duplicate.first) }.getOrElse { return true }
+            return false
+        }
+        return true
     }
 
     private fun differenceHash(bitmap: android.graphics.Bitmap): Long {
@@ -188,6 +201,30 @@ class AutoSaveStore(private val context: Context) {
                 bit++
             }
             return hash
+        } finally { if (small !== bitmap) small.recycle() }
+    }
+
+    private fun sharpnessScore(bitmap: android.graphics.Bitmap): Float {
+        val small = android.graphics.Bitmap.createScaledBitmap(bitmap, 64, 64, true)
+        try {
+            val gray = IntArray(64 * 64)
+            for (y in 0 until 64) for (x in 0 until 64) {
+                val pixel = small.getPixel(x, y)
+                gray[y * 64 + x] = (android.graphics.Color.red(pixel) * 299 +
+                    android.graphics.Color.green(pixel) * 587 + android.graphics.Color.blue(pixel) * 114) / 1000
+            }
+            var sum = 0.0
+            var sumSquares = 0.0
+            var count = 0
+            for (y in 1 until 63) for (x in 1 until 63) {
+                val i = y * 64 + x
+                val laplacian = 4 * gray[i] - gray[i - 1] - gray[i + 1] - gray[i - 64] - gray[i + 64]
+                sum += laplacian
+                sumSquares += laplacian.toDouble() * laplacian
+                count++
+            }
+            val mean = sum / count
+            return ((sumSquares / count) - mean * mean).toFloat()
         } finally { if (small !== bitmap) small.recycle() }
     }
 
