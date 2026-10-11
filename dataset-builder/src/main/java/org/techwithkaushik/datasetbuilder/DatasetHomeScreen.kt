@@ -103,6 +103,9 @@ private fun ProjectHome(context: Context, onOpen: (Project) -> Unit) {
                     }
                 } else LazyColumn(contentPadding = PaddingValues(start = 14.dp, top = 10.dp, end = 14.dp, bottom = 100.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
                     items(visible, key = { it.id }) { p ->
+                        val projectRoot = java.io.File(context.filesDir, "dataset-projects/${p.id}")
+                        val imageCount = remember(p.id) { java.io.File(projectRoot, "train/images").listFiles()?.count { it.isFile && it.extension.lowercase() in listOf("jpg", "jpeg", "png", "webp") } ?: 0 }
+                        val savedCount = remember(p.id, imageCount) { java.io.File(projectRoot, "train/labels").listFiles()?.count { it.isFile && it.extension.equals("txt", true) } ?: 0 }
                         ElevatedCard(onClick = { onOpen(p) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
                             Row(Modifier.padding(13.dp), verticalAlignment = Alignment.Top) {
                                 Surface(color = brand.copy(alpha = .10f), shape = RoundedCornerShape(14.dp), modifier = Modifier.size(56.dp)) {
@@ -114,8 +117,9 @@ private fun ProjectHome(context: Context, onOpen: (Project) -> Unit) {
                                     Text(p.description.ifBlank { "No description added" }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                     Spacer(Modifier.height(8.dp))
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        AssistChip(onClick = {}, label = { Text(p.labels.size.toString() + " Annotations") }, leadingIcon = { Icon(Icons.Default.Label, null) })
-                                        AssistChip(onClick = {}, label = { Text("Open dataset") }, leadingIcon = { Icon(Icons.Default.Image, null) })
+                                        AssistChip(onClick = {}, label = { Text(p.labels.size.toString() + " Classes") }, leadingIcon = { Icon(Icons.Default.Label, null) })
+                                        AssistChip(onClick = {}, label = { Text(imageCount.toString() + " Images") }, leadingIcon = { Icon(Icons.Default.Image, null) })
+                                        AssistChip(onClick = {}, label = { Text(savedCount.toString() + " Saved") }, leadingIcon = { Icon(Icons.Default.CheckCircle, null) })
                                     }
                                     Text("Updated " + DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(p.updated)), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
