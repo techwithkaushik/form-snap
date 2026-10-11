@@ -133,6 +133,13 @@ class MainActivity : ComponentActivity() {
             source = null
         }
 
+        // Back from Dataset Builder should return to the app home, not finish the Activity.
+        // Fullscreen image Back is handled by DatasetAnnotationScreen first.
+        BackHandler(enabled = showDataset) {
+            showDataset = false
+            datasetImages = emptyList()
+        }
+
         val openCamera = rememberLauncherForActivityResult(
             ActivityResultContracts.TakePicture(),
         ) { ok ->
