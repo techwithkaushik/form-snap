@@ -65,7 +65,7 @@ class AiModelManager(context: Context) {
             ?.map { it.trim() }?.filter { it.isNotEmpty() } ?: throw IllegalArgumentException("Unable to read labels file.")
         require(labels.isNotEmpty() && labels.size <= 1000) { "Labels file must contain 1–1000 class names." }
         FileOutputStream(File(modelsDir, model.nameWithoutExtension + ".labels.txt")).use { output ->
-            output.write(labels.joinToString("\\n", postfix = "\\n").toByteArray(Charsets.UTF_8))
+            output.write(labels.joinToString("\n", postfix = "\n").toByteArray(Charsets.UTF_8))
             output.fd.sync()
         }
     }
