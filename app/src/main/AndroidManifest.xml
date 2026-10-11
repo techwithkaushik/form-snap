@@ -13,7 +13,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.ObjectSnap">
         <activity
-            android:name="org.techwithkaushik.formSnap.MainActivity"
+            android:name="org.techwithkaushik.formsnap.MainActivity"
             android:exported="true"
             android:screenOrientation="portrait">
             <intent-filter>
