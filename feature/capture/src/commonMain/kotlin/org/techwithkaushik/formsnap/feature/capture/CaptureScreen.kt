@@ -64,7 +64,7 @@ fun CaptureScreen(
         ) {
             Text(
                 text = liveDiagnostics,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
             )
@@ -96,7 +96,7 @@ fun CaptureScreen(
                 Column(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text("Auto crop & save", color = Color(0xFF25D9E8), style = MaterialTheme.typography.labelLarge)
+                            Text("Auto crop & save", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
                             Text(
                                 if (autoSaveEnabled) "First confident detection captures and saves automatically"
                                 else "Tap detection boxes to select crops, then press the shutter",
