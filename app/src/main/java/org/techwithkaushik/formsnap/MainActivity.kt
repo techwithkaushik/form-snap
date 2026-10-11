@@ -379,7 +379,7 @@ class MainActivity : ComponentActivity() {
                                 fontWeight = FontWeight.ExtraBold,
                             )
                             Spacer(Modifier.height(8.dp))
-                            Text("Detect. Crop. Save. Import a TFLite model, point your camera at objects, and let AI ObjectSnap crop and save each detection automatically.")
+                            Text("Detect. Label. Crop. Save. Import a TFLite object-detection model, point the camera at any objects, and AI ObjectSnap will label and crop detections automatically.")
                             Spacer(Modifier.height(8.dp))
                             
                         }
@@ -390,10 +390,10 @@ class MainActivity : ComponentActivity() {
                 }
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        ActionCard("Capture", "Form", "▣", Modifier.weight(1f)) {
+                        ActionCard("Capture", "Live camera", "▣", Modifier.weight(1f)) {
                             onCamera(CaptureMode.WHOLE_FORM)
                         }
-                        ActionCard("Import", "Form image", "▤", Modifier.weight(1f)) {
+                        ActionCard("Import", "Image", "▤", Modifier.weight(1f)) {
                             onImport()
                         }
                     }
@@ -477,7 +477,7 @@ class MainActivity : ComponentActivity() {
                         Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text("Auto crop & save", fontWeight = FontWeight.SemiBold)
-                                Text("Automatically capture and save when the model detects an object.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("Automatically crop and save any object class detected by the active model.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Switch(checked = autoSave, onCheckedChange = { autoSave = it })
                         }
