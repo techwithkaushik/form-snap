@@ -38,4 +38,5 @@ data class DetectionConfig(
     val confidenceThreshold: Float = 0.35f,
     val iouThreshold: Float = 0.45f,
     val maxDetections: Int = 8,
+    val classLabels: List<String> = emptyList(),
 )

@@ -132,6 +132,9 @@ private fun ModelRow(
             formatBytes(model.sizeBytes) + if (model.active) " • ACTIVE" else "",
             style = MaterialTheme.typography.bodySmall,
         )
+        if (model.inputDetails.isNotBlank()) Text("Input tensor: " + model.inputDetails, style = MaterialTheme.typography.bodySmall)
+        if (model.outputDetails.isNotBlank()) Text("Output tensor: " + model.outputDetails, style = MaterialTheme.typography.bodySmall)
+        if (model.classDetails.isNotBlank()) Text("Classes / annotations: " + model.classDetails, style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             if (!model.active) {
                 TextButton(onClick = onActivate) { Text("Activate") }

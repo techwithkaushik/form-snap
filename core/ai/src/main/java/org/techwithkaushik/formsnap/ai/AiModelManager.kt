@@ -13,6 +13,9 @@ data class AiModelInfo(
     val name: String,
     val sizeBytes: Long,
     val active: Boolean,
+    val inputDetails: String = "",
+    val outputDetails: String = "",
+    val classDetails: String = "",
 )
 
 class AiModelManager(context: Context) {
@@ -23,8 +26,36 @@ class AiModelManager(context: Context) {
     fun models(): List<AiModelInfo> =
         modelsDir.listFiles { file -> file.isFile && file.extension.equals("tflite", true) }
             ?.sortedBy { it.name.lowercase() }
-            ?.map { AiModelInfo(it, it.name, it.length(), it.name == activeModelName()) }
+            ?.map { file -> val metadata = runCatching { inspectModel(file) }.getOrNull(); AiModelInfo(file, file.name, file.length(), file.name == activeModelName(), metadata?.first.orEmpty(), metadata?.second.orEmpty(), metadata?.third.orEmpty()) }
             ?: emptyList()
+
+    private fun inspectModel(file: File): Triple<String, String, String> {
+        val buffer = FileInputStream(file).use { input ->
+            input.channel.use { channel -> channel.map(java.nio.channels.FileChannel.MapMode.READ_ONLY, 0, channel.size()) }
+        }
+        val interpreter = Interpreter(buffer, Interpreter.Options().setNumThreads(1))
+        try {
+            val input = (0 until interpreter.inputTensorCount).joinToString { index ->
+                val tensor = interpreter.getInputTensor(index)
+                "#$index ${tensor.shape().contentToString()} ${tensor.dataType()}"
+            }
+            val output = (0 until interpreter.outputTensorCount).joinToString { index ->
+                val tensor = interpreter.getOutputTensor(index)
+                "#$index ${tensor.shape().contentToString()} ${tensor.dataType()}"
+            }
+            val shape = interpreter.getOutputTensor(0).shape()
+            val a = if (shape.size >= 2) shape[shape.lastIndex - 1] else 0
+            val b = if (shape.isNotEmpty()) shape.last() else 0
+            val count = when { a in 5..512 && b > a -> a - 4; b in 5..512 -> b - 4; b in 6..7 -> -1; else -> 0 }
+            val classes = if (count > 0) (0 until count).joinToString { "Class $it" } else if (count == -1) "NMS class IDs; label map required" else "Unable to infer classes"
+            return Triple(input, output, classes)
+        } finally { interpreter.close() }
+    }
+
+    fun classLabels(file: File): List<String> = runCatching {
+        File(modelsDir, file.nameWithoutExtension + ".labels.txt")
+            .takeIf { it.isFile }?.readLines(Charsets.UTF_8)?.map { it.trim() }?.filter { it.isNotEmpty() }.orEmpty()
+    }.getOrDefault(emptyList())
 
     fun activeModelFile(): File? =
         activeModelName()?.let { File(modelsDir, it).takeIf { file -> file.isFile && file.length() > 0L } }

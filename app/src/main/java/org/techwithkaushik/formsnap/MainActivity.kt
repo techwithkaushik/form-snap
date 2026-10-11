@@ -32,12 +32,11 @@ import java.util.Locale
 private enum class CaptureMode { WHOLE_FORM, PHOTO, SIGNATURE }
 
 private data class OutputSettings(
-    val photoWidthMm: Double = 40.0,
-    val photoHeightMm: Double = 50.0,
-    val signatureWidthMm: Double = 50.0,
-    val signatureHeightMm: Double = 20.0,
+    val widthMm: Double = 40.0,
+    val heightMm: Double = 50.0,
     val dpi: Double = 300.0,
     val maxKb: Int = 50,
+    val fileType: OutputImageType = OutputImageType.JPEG,
 )
 
 class MainActivity : ComponentActivity() {
@@ -63,35 +62,24 @@ class MainActivity : ComponentActivity() {
         var lockedSelections by remember { mutableStateOf<List<org.techwithkaushik.formsnap.feature.capture.LiveDetection>>(emptyList()) }
         val autoSaveStore = remember { AutoSaveStore(this@MainActivity) }
 
-        fun startAutoProcess(input: File, selectedMode: CaptureMode) {
+        fun startAutoProcess(input: File, selectedMode: CaptureMode = CaptureMode.WHOLE_FORM) {
             ioScope.launch {
-                saveMessage = "AI detecting photo and signature…"
+                saveMessage = "TFLite detecting objects…"
                 try {
-                    val result = withContext(Dispatchers.IO) {
-                        AutoExtractionService.process(
+                    val saved = withContext(Dispatchers.IO) {
+                        UniversalAutoSaveService.processAndSave(
                             context = this@MainActivity,
-                            selectedDetections = lockedSelections,
                             input = input,
+                            outputWidthMm = settings.widthMm,
+                            outputHeightMm = settings.heightMm,
                             dpi = settings.dpi.toInt(),
                             maxKb = settings.maxKb,
-                            mode = selectedMode.name,
-                            photoWidthMm = settings.photoWidthMm,
-                            photoHeightMm = settings.photoHeightMm,
-                            signatureWidthMm = settings.signatureWidthMm,
-                            signatureHeightMm = settings.signatureHeightMm,
+                            imageType = settings.fileType,
                         )
                     }
-                    val saved = withContext(Dispatchers.IO) {
-                        autoSaveStore.save(result.photoBytes, result.signatureBytes)
-                    }
-                    val parts = listOfNotNull(saved.first, saved.second)
-                    saveMessage = if (parts.isEmpty()) {
-                        "Photo/signature not detected. Please capture the form more clearly."
-                    } else {
-                        "Auto-saved: " + parts.joinToString(" + ")
-                    }
+                    saveMessage = "Auto-saved ${saved.size} object(s): " + saved.joinToString { "${it.className} ${(it.confidence * 100).toInt()}% (${it.byteCount / 1024} KB)" }
                 } catch (t: Throwable) {
-                    saveMessage = "Auto extraction failed: " + (t.message ?: "unknown error")
+                    saveMessage = "Detection/save failed: " + (t.message ?: "unknown error")
                 } finally {
                     lockedSelections = emptyList()
                     input.delete()
@@ -353,7 +341,7 @@ class MainActivity : ComponentActivity() {
                                 fontWeight = FontWeight.ExtraBold,
                             )
                             Spacer(Modifier.height(8.dp))
-                            Text("Capture or import a form. AI will detect, crop and auto-save photo and signature without a review screen.")
+                            Text("Universal TFLite detector: capture or import an image, detect supported classes, auto-crop and save by model and annotation.")
                             Spacer(Modifier.height(8.dp))
                             
                         }
@@ -373,20 +361,10 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        ActionCard("Photo", "Close capture", "◉", Modifier.weight(1f)) {
-                            onCamera(CaptureMode.PHOTO)
-                        }
-                        ActionCard("Signature", "Close capture", "✎", Modifier.weight(1f)) {
-                            onCamera(CaptureMode.SIGNATURE)
-                        }
-                    }
-                }
-                item {
                     Card(shape = RoundedCornerShape(18.dp)) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("Zero-touch AI mode", fontWeight = FontWeight.Bold)
-                            Text("YOLO detects Photo and Signature locally. Handwriting is ignored; final crops come from the original full-resolution image and are auto-saved.")
+                            Text("The active TFLite model detects its own classes. Confident boxes are cropped, resized and auto-saved without a review screen.")
                         }
                     }
                 }
@@ -394,8 +372,8 @@ class MainActivity : ComponentActivity() {
                     Card(shape = RoundedCornerShape(18.dp)) {
                         Column(Modifier.padding(16.dp)) {
                             Text("Output settings", fontWeight = FontWeight.Bold)
-                            Text("Photo: ${fmt(settings.photoWidthMm)} × ${fmt(settings.photoHeightMm)} mm")
-                            Text("Signature: ${fmt(settings.signatureWidthMm)} × ${fmt(settings.signatureHeightMm)} mm")
+                            Text("All classes: ${fmt(settings.widthMm)} × ${fmt(settings.heightMm)} mm")
+                            Text("File type: ${settings.fileType.name}")
                             Text("${settings.dpi.toInt()} DPI • ≤${settings.maxKb} KB each")
                             Spacer(Modifier.height(8.dp))
                             OutlinedButton(onClick = onSettings) { Text("Change size / DPI") }
@@ -433,117 +411,44 @@ class MainActivity : ComponentActivity() {
         onDismiss: () -> Unit,
         onSave: (OutputSettings) -> Unit,
     ) {
-        var pw by remember { mutableStateOf(initial.photoWidthMm.toString()) }
-        var ph by remember { mutableStateOf(initial.photoHeightMm.toString()) }
-        var sw by remember { mutableStateOf(initial.signatureWidthMm.toString()) }
-        var sh by remember { mutableStateOf(initial.signatureHeightMm.toString()) }
+        var width by remember { mutableStateOf(initial.widthMm.toString()) }
+        var height by remember { mutableStateOf(initial.heightMm.toString()) }
         var dpi by remember { mutableStateOf(initial.dpi.toInt().toString()) }
         var kb by remember { mutableStateOf(initial.maxKb.toString()) }
+        var fileType by remember { mutableStateOf(initial.fileType) }
         var invalid by remember { mutableStateOf(false) }
-
         AlertDialog(
             onDismissRequest = onDismiss,
-            title = { Text("Output size") },
+            title = { Text("Universal output settings") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Card(shape = RoundedCornerShape(14.dp)) {
-                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("Photo size", fontWeight = FontWeight.Bold)
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedTextField(
-                                    value = pw,
-                                    onValueChange = { pw = it },
-                                    modifier = Modifier.weight(1f),
-                                    label = { Text("Width (mm)") },
-                                    singleLine = true,
-                                )
-                                OutlinedTextField(
-                                    value = ph,
-                                    onValueChange = { ph = it },
-                                    modifier = Modifier.weight(1f),
-                                    label = { Text("Height (mm)") },
-                                    singleLine = true,
-                                )
-                            }
-                        }
-                    }
-                    Card(shape = RoundedCornerShape(14.dp)) {
-                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("Signature size", fontWeight = FontWeight.Bold)
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedTextField(
-                                    value = sw,
-                                    onValueChange = { sw = it },
-                                    modifier = Modifier.weight(1f),
-                                    label = { Text("Width (mm)") },
-                                    singleLine = true,
-                                )
-                                OutlinedTextField(
-                                    value = sh,
-                                    onValueChange = { sh = it },
-                                    modifier = Modifier.weight(1f),
-                                    label = { Text("Height (mm)") },
-                                    singleLine = true,
-                                )
-                            }
-                        }
+                    Text("All detected classes use these output dimensions.")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(value = width, onValueChange = { width = it }, modifier = Modifier.weight(1f), label = { Text("Width (mm)") }, singleLine = true)
+                        OutlinedTextField(value = height, onValueChange = { height = it }, modifier = Modifier.weight(1f), label = { Text("Height (mm)") }, singleLine = true)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
-                            value = dpi,
-                            onValueChange = { dpi = it },
-                            modifier = Modifier.weight(1f),
-                            label = { Text("DPI") },
-                            singleLine = true,
-                        )
-                        OutlinedTextField(
-                            value = kb,
-                            onValueChange = { kb = it },
-                            modifier = Modifier.weight(1f),
-                            label = { Text("Max KB") },
-                            singleLine = true,
-                        )
+                        OutlinedTextField(value = dpi, onValueChange = { dpi = it }, modifier = Modifier.weight(1f), label = { Text("DPI") }, singleLine = true)
+                        OutlinedTextField(value = kb, onValueChange = { kb = it }, modifier = Modifier.weight(1f), label = { Text("Max KB") }, singleLine = true)
                     }
-                    Text(
-                        "Photo and signature dimensions are independent. DPI and Max KB apply to both outputs.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    if (invalid) {
-                        Text(
-                            "Enter valid positive sizes, DPI ≥72 and Max KB between 5 and 200.",
-                            color = MaterialTheme.colorScheme.error,
-                        )
+                    Text("File type", fontWeight = FontWeight.Bold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        OutputImageType.entries.forEach { type ->
+                            FilterChip(selected = fileType == type, onClick = { fileType = type }, label = { Text(type.name) })
+                        }
                     }
+                    if (invalid) Text("Enter positive dimensions, DPI 72–1200 and Max KB 5–2048.", color = MaterialTheme.colorScheme.error)
                 }
             },
             confirmButton = {
                 Button(onClick = {
-                    val photoW = pw.toDoubleOrNull()
-                    val photoH = ph.toDoubleOrNull()
-                    val signW = sw.toDoubleOrNull()
-                    val signH = sh.toDoubleOrNull()
-                    val dpiValue = dpi.toDoubleOrNull()
-                    val kbValue = kb.toIntOrNull()
-                    if (photoW != null && photoW > 0.0 &&
-                        photoH != null && photoH > 0.0 &&
-                        signW != null && signW > 0.0 &&
-                        signH != null && signH > 0.0 &&
-                        dpiValue != null && dpiValue >= 72.0 &&
-                        kbValue != null && kbValue in 5..200
-                    ) {
-                        onSave(
-                            OutputSettings(
-                                photoWidthMm = photoW,
-                                photoHeightMm = photoH,
-                                signatureWidthMm = signW,
-                                signatureHeightMm = signH,
-                                dpi = dpiValue,
-                                maxKb = kbValue,
-                            ),
-                        )
-                    } else {
-                        invalid = true
-                    }
+                    val w = width.toDoubleOrNull()
+                    val h = height.toDoubleOrNull()
+                    val d = dpi.toDoubleOrNull()
+                    val k = kb.toIntOrNull()
+                    if (w != null && w > 0.0 && h != null && h > 0.0 && d != null && d in 72.0..1200.0 && k != null && k in 5..2048) {
+                        onSave(OutputSettings(w, h, d, k, fileType))
+                    } else invalid = true
                 }) { Text("Save") }
             },
             dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },

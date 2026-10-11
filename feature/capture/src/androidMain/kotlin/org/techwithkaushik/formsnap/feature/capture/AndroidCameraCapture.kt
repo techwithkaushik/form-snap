@@ -435,7 +435,8 @@ class AndroidCameraCapture(
                                 inputSize = 320,
                                 confidenceThreshold = 0.05f,
                                 iouThreshold = 0.45f,
-                                maxDetections = 4,
+                                maxDetections = 20,
+                                classLabels = AiModelManager(appContext).classLabels(importedModel),
                             ),
                         )
                     }.getOrElse { error ->
