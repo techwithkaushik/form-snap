@@ -57,12 +57,15 @@ class MainActivity : ComponentActivity() {
         var autoSaveEnabled by remember { mutableStateOf(capturePrefs.getBoolean("auto_save_enabled", true)) }
         var settingsOpen by remember { mutableStateOf(false) }
         var aiSettingsOpen by remember { mutableStateOf(false) }
+        var storageSetupOpen by remember { mutableStateOf(false) }
         var saveMessage by remember { mutableStateOf<String?>(null) }
         var pendingCameraMode by remember { mutableStateOf<CaptureMode?>(null) }
         var pendingImport by remember { mutableStateOf(false) }
         var showCameraX by remember { mutableStateOf(false) }
         var cameraXMode by remember { mutableStateOf(CameraCaptureMode.WHOLE_FORM) }
         val autoSaveStore = remember { AutoSaveStore(this@MainActivity) }
+
+        LaunchedEffect(Unit) { if (autoSaveStore.folderUri() == null) storageSetupOpen = true }
 
         fun startAutoProcess(
             input: File,
@@ -134,7 +137,9 @@ class MainActivity : ComponentActivity() {
                 saveMessage = "Output folder was not selected."
             } else {
                 autoSaveStore.setFolder(uri)
-                saveMessage = "Output folder selected. Next capture will auto-save."
+                autoSaveStore.ensureAppFolders()
+                storageSetupOpen = false
+                saveMessage = "AI ObjectSnap/savedImage folder is ready."
                 pendingCameraMode?.let { selected ->
                     cameraXMode = CameraCaptureMode.WHOLE_FORM
                     showCameraX = true
@@ -154,19 +159,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        val cameraPermissionLauncher = rememberLauncherForActivityResult(
-            ActivityResultContracts.RequestPermission(),
-        ) { granted ->
-            val selected = pendingCameraMode
-            if (granted && selected != null) {
-                proceedToCamera(selected)
-            } else {
-                pendingCameraMode = null
-                saveMessage = "Camera permission is required. Allow camera access to capture an image."
-            }
-        }
-
-        HomeScreen(
+        if (!aiSettingsOpen && !settingsOpen && !showCameraX) HomeScreen(
             settings = settings,
             isDarkTheme = useDarkTheme,
             onToggleTheme = {
@@ -177,16 +170,12 @@ class MainActivity : ComponentActivity() {
             onAiModel = { aiSettingsOpen = true },
             onCamera = { selected ->
                 pendingCameraMode = selected
-                if (androidx.core.content.ContextCompat.checkSelfPermission(
-                        this@MainActivity,
-                        android.Manifest.permission.CAMERA,
-                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                ) {
-                    proceedToCamera(selected)
+                if (autoSaveStore.folderUri() == null) {
+                    storageSetupOpen = true
                 } else {
-                    // Request permission immediately on tap, before folder selection
-                    // or mounting the CameraX capture screen.
-                    cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+                    pendingCameraMode = null
+                    cameraXMode = CameraCaptureMode.WHOLE_FORM
+                    showCameraX = true
                 }
             },
             onImport = {
@@ -231,7 +220,7 @@ class MainActivity : ComponentActivity() {
             )
         }
 
-        if (aiSettingsOpen) {
+        if (aiSettingsOpen && !showCameraX) {
             AiModelSettingsDialog(
                 context = this@MainActivity,
                 onDismiss = { aiSettingsOpen = false },
@@ -239,7 +228,7 @@ class MainActivity : ComponentActivity() {
             )
         }
 
-        if (settingsOpen) {
+        if (settingsOpen && !aiSettingsOpen && !showCameraX) {
             OutputSettingsDialog(
                 initial = settings,
                 initialAutoSave = autoSaveEnabled,
@@ -252,6 +241,16 @@ class MainActivity : ComponentActivity() {
                     capturePrefs.edit().putBoolean("auto_save_enabled", autoSave).apply()
                     settingsOpen = false
                 },
+            )
+        }
+
+        if (storageSetupOpen && !showCameraX && !aiSettingsOpen && !settingsOpen) {
+            AlertDialog(
+                onDismissRequest = { storageSetupOpen = false },
+                title = { Text("Choose save location") },
+                text = { Text("Choose the SD card or shared-storage root. AI ObjectSnap will create AI ObjectSnap/savedImage/modelName/annotationName/image1.jpg folders there. If broad storage permission is unavailable, use this folder picker.") },
+                confirmButton = { Button(onClick = { outputFolderLauncher.launch(null) }) { Text("Choose SD card folder") } },
+                dismissButton = { TextButton(onClick = { storageSetupOpen = false }) { Text("Not now") } },
             )
         }
 
