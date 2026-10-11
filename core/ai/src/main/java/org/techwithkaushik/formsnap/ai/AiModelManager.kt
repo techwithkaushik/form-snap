@@ -65,25 +65,34 @@ class AiModelManager(context: Context) {
     fun classLabels(file: File): List<String> {
         val sidecar = File(modelsDir, file.nameWithoutExtension + ".labels.txt")
         val explicit = readLabels(sidecar)
-        if (explicit.isNotEmpty()) return explicit
+        // Older builds accidentally persisted inferred placeholders (Class 0,
+        // Class 1, ...) as if they were real labels. Do not let that stale cache
+        // mask the model's embedded metadata or a known model vocabulary.
+        if (explicit.isNotEmpty() && !isGenericClassMap(explicit)) return explicit
 
         val embedded = readEmbeddedLabels(file)
         if (embedded.isNotEmpty()) {
-            runCatching {
-                FileOutputStream(sidecar).use { output ->
-                    output.write(embedded.joinToString("\n", postfix = "\n").toByteArray(Charsets.UTF_8))
-                    output.fd.sync()
-                }
-            }
+            writeLabels(sidecar, embedded)
             return embedded
         }
-        // A .tflite file may contain the detector tensors but no semantic class
-        // names. For raw YOLO outputs, the class count is encoded in the channel
-        // dimension, so provide stable generic names instead of showing "Label
-        // missing" in Live Detection. These names are deliberately not guessed
-        // semantic labels; importing the matching labels file replaces them.
+
         val inferredCount = inferRawYoloClassCount(file)
-        return inferredCount?.let { count -> (0 until count).map { "Class $it" } }.orEmpty()
+        // This public YOLOv8 Nano Float32 model is the COCO-80 detector. Some
+        // copies omit usable TFLite metadata, so provide its canonical class map
+        // only when both the known filename and 80-class tensor contract match.
+        val knownLabels = if (
+            file.name.equals("yolov8n_float32.tflite", ignoreCase = true) &&
+            inferredCount == COCO_LABELS.size
+        ) COCO_LABELS else emptyList()
+        if (knownLabels.isNotEmpty()) {
+            writeLabels(sidecar, knownLabels)
+            return knownLabels
+        }
+
+        // Do not fabricate semantic labels for unknown models.
+        val generic = inferredCount?.let { count -> (0 until count).map { "Class $it" } }.orEmpty()
+        if (generic.isNotEmpty() && explicit.isNotEmpty()) writeLabels(sidecar, generic)
+        return generic
     }
 
     private fun inferRawYoloClassCount(file: File): Int? = runCatching {
@@ -112,6 +121,34 @@ class AiModelManager(context: Context) {
             interpreter.close()
         }
     }.getOrNull()
+
+    private fun isGenericClassMap(labels: List<String>): Boolean =
+        labels.isNotEmpty() && labels.withIndex().all { (index, label) ->
+            label.trim().equals("Class $index", ignoreCase = true)
+        }
+
+    private fun writeLabels(file: File, labels: List<String>) {
+        runCatching {
+            FileOutputStream(file).use { output ->
+                output.write(labels.joinToString("\n", postfix = "\n").toByteArray(Charsets.UTF_8))
+                output.fd.sync()
+            }
+        }
+    }
+
+    private companion object {
+        val COCO_LABELS = listOf(
+            "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
+            "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow",
+            "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
+            "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard", "surfboard",
+            "tennis racket", "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
+            "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch",
+            "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse", "remote", "keyboard",
+            "cell phone", "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase",
+            "scissors", "teddy bear", "hair drier", "toothbrush",
+        )
+    }
 
     private fun readLabels(file: File): List<String> = runCatching {
         file.takeIf { it.isFile }?.readText(Charsets.UTF_8)?.let(::parseLabelContent).orEmpty()
