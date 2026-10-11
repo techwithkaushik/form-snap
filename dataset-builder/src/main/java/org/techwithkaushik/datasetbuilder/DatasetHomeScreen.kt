@@ -31,8 +31,8 @@ private val brand = Color(0xFF145DDE)
 private data class Project(val id: String, val name: String, val description: String, val labels: List<String>, val updated: Long)
 
 @Composable
-internal fun DatasetHomeEntry(context: Context, onOpen: (String) -> Unit) {
-    ProjectHome(context) { project -> onOpen(project.id) }
+internal fun DatasetHomeEntry(context: Context, onOpen: (String, String) -> Unit) {
+    ProjectHome(context) { project -> onOpen(project.id, project.name) }
 }
 
 @Composable
