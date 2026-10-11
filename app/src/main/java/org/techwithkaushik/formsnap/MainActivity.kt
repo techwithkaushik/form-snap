@@ -128,7 +128,11 @@ class MainActivity : ComponentActivity() {
                             mergeOrientation = settings.mergeOrientation,
                         )
                     }
-                    saveMessage = "Saved ${saved.size} output(s): " + saved.joinToString { "${it.className} (${it.byteCount / 1024} KB)" }
+                    saveMessage = if (saved.isEmpty()) {
+                        "Duplicate capture detected. Kept the previously saved image."
+                    } else {
+                        "Saved ${saved.size} output(s): " + saved.joinToString { "${it.className} (${it.byteCount / 1024} KB)" }
+                    }
                 } catch (t: Throwable) {
                     saveMessage = "Detection/save failed: " + (t.message ?: "unknown error")
                 } finally {
