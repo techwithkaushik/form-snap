@@ -47,7 +47,7 @@ class AiModelManager(context: Context) {
             val a = if (shape.size >= 2) shape[shape.lastIndex - 1] else 0
             val b = if (shape.isNotEmpty()) shape.last() else 0
             val count = when { a in 5..512 && b > a -> a - 4; b in 5..512 -> b - 4; b in 6..7 -> -1; else -> 0 }
-            val classes = if (count > 0) (0 until count).joinToString { "Class $it" } else if (count == -1) "NMS class IDs; label map required" else "Unable to infer classes"
+            val labels = classLabels(file)\n            val classes = if (labels.isNotEmpty()) labels.mapIndexed { index, label -> "$index: $label" }.joinToString() else if (count > 0) (0 until count).joinToString { "Class $it" } else if (count == -1) "NMS class IDs; label map required" else "Unable to infer classes"
             return Triple(input, output, classes)
         } finally { interpreter.close() }
     }
@@ -56,6 +56,18 @@ class AiModelManager(context: Context) {
         File(modelsDir, file.nameWithoutExtension + ".labels.txt")
             .takeIf { it.isFile }?.readLines(Charsets.UTF_8)?.map { it.trim() }?.filter { it.isNotEmpty() }.orEmpty()
     }.getOrDefault(emptyList())
+
+    fun importLabels(uri: Uri, modelName: String) {
+        val model = File(modelsDir, modelName)
+        require(model.isFile && model.extension.equals("tflite", true)) { "Select an imported TFLite model first." }
+        val labels = appContext.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readLines() }
+            ?.map { it.trim() }?.filter { it.isNotEmpty() } ?: throw IllegalArgumentException("Unable to read labels file.")
+        require(labels.isNotEmpty() && labels.size <= 1000) { "Labels file must contain 1–1000 class names." }
+        FileOutputStream(File(modelsDir, model.nameWithoutExtension + ".labels.txt")).use { output ->
+            output.write(labels.joinToString("\\n", postfix = "\\n").toByteArray(Charsets.UTF_8))
+            output.fd.sync()
+        }
+    }
 
     fun activeModelFile(): File? =
         activeModelName()?.let { File(modelsDir, it).takeIf { file -> file.isFile && file.length() > 0L } }

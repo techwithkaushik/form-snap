@@ -36,6 +36,7 @@ fun AiModelSettingsDialog(
     val manager = remember { AiModelManager(context) }
     var models by remember { mutableStateOf(manager.models()) }
     var backupName by remember { mutableStateOf<String?>(null) }
+    var labelsModelName by remember { mutableStateOf<String?>(null) }
 
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
@@ -58,6 +59,16 @@ fun AiModelSettingsDialog(
             runCatching { manager.exportModel(name, uri) }
                 .onSuccess { onMessage("AI model backup created.") }
                 .onFailure { onMessage("Backup failed: ${it.message ?: "unknown error"}") }
+        }
+    }
+
+    val labelsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val name = labelsModelName
+        labelsModelName = null
+        if (uri != null && name != null) {
+            runCatching { manager.importLabels(uri, name) }
+                .onSuccess { models = manager.models(); onMessage("Class labels imported for $name.") }
+                .onFailure { onMessage("Labels import failed: ${it.message ?: "unknown error"}") }
         }
     }
 
@@ -97,6 +108,7 @@ fun AiModelSettingsDialog(
                                             onMessage("Cannot activate model: ${it.message ?: "incompatible model"}")
                                         }
                                 },
+                                onLabels = { labelsModelName = model.name; labelsLauncher.launch(arrayOf("text/plain", "text/*")) },
                                 onBackup = {
                                     backupName = model.name
                                     backupLauncher.launch(model.name)
@@ -124,6 +136,7 @@ private fun ModelRow(
     model: AiModelInfo,
     onActivate: () -> Unit,
     onBackup: () -> Unit,
+    onLabels: () -> Unit,
     onDelete: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
@@ -139,6 +152,7 @@ private fun ModelRow(
             if (!model.active) {
                 TextButton(onClick = onActivate) { Text("Activate") }
             }
+            TextButton(onClick = onLabels) { Text("Import labels") }
             TextButton(onClick = onBackup) { Text("Backup") }
             if (!model.active) {
                 TextButton(onClick = onDelete) { Text("Delete") }

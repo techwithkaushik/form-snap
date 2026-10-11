@@ -113,6 +113,13 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        LaunchedEffect(pendingImport, autoSaveStore.folderUri()) {
+            if (pendingImport && autoSaveStore.folderUri() != null) {
+                pendingImport = false
+                openDocument.launch(arrayOf("image/*"))
+            }
+        }
+
         val outputFolderLauncher = rememberLauncherForActivityResult(
             ActivityResultContracts.OpenDocumentTree(),
         ) { uri ->
