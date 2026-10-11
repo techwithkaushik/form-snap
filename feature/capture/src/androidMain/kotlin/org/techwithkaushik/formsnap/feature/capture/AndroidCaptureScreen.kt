@@ -78,12 +78,16 @@ fun AndroidCaptureScreen(
         confidencePrefs.edit().putFloat("confidence_threshold", confidenceThreshold).apply()
     }
 
-    // Auto mode takes one full-resolution still on the first confident detection.
-    // Manual mode waits for the user to select boxes and press the shutter.
-    LaunchedEffect(liveDetections, confidenceThreshold, autoSaveEnabled) {
-        if (autoSaveEnabled && !autoCaptureTriggered && liveDetections.any { it.confidence >= confidenceThreshold }) {
-            kotlinx.coroutines.delay(250)
-            if (autoSaveEnabled && !autoCaptureTriggered && liveDetections.any { it.confidence >= confidenceThreshold }) {
+    // Require a detection to remain present for 1.5 seconds before taking
+    // the full-resolution still. Key only on presence, not every changing box,
+    // so each incoming camera frame does not restart the stabilization timer.
+    val hasConfidentDetection = liveDetections.any { it.confidence >= confidenceThreshold }
+    LaunchedEffect(hasConfidentDetection, autoSaveEnabled, autoCaptureTriggered) {
+        if (autoSaveEnabled && !autoCaptureTriggered && hasConfidentDetection) {
+            kotlinx.coroutines.delay(1_500)
+            if (autoSaveEnabled && !autoCaptureTriggered &&
+                liveDetections.any { it.confidence >= confidenceThreshold }
+            ) {
                 autoCaptureTriggered = true
                 pendingSelection = emptyList()
                 camera.capture(session)
