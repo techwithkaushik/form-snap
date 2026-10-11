@@ -34,6 +34,8 @@ fun AndroidCaptureScreen(
     var liveDetections by remember { mutableStateOf<List<LiveDetection>>(emptyList()) }
     var liveDiagnostics by remember { mutableStateOf("AI: waiting for camera frames…") }
     var pendingSelection by remember { mutableStateOf<List<LiveDetection>>(emptyList()) }
+    val confidencePrefs = remember(context) { context.getSharedPreferences("formsnap.live.detection", android.content.Context.MODE_PRIVATE) }
+    var confidenceThreshold by remember { mutableStateOf(confidencePrefs.getFloat("confidence_threshold", 0.35f).coerceIn(0.05f, 0.95f)) }
     var permissionGranted by remember { mutableStateOf(camera.hasCameraPermission()) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -52,11 +54,17 @@ fun AndroidCaptureScreen(
 
     DisposableEffect(Unit) {
         camera.setLiveDetectionListener { detections -> liveDetections = detections }
+        camera.setConfidenceThreshold(confidenceThreshold)
         camera.setLiveDiagnosticsListener { message -> liveDiagnostics = message }
         onDispose {
             camera.shutdown()
             session.close()
         }
+    }
+
+    androidx.compose.runtime.LaunchedEffect(confidenceThreshold) {
+        camera.setConfidenceThreshold(confidenceThreshold)
+        confidencePrefs.edit().putFloat("confidence_threshold", confidenceThreshold).apply()
     }
 
     LaunchedEffect(Unit) {
@@ -127,6 +135,8 @@ fun AndroidCaptureScreen(
         },
         liveDetections = liveDetections,
         liveDiagnostics = liveDiagnostics,
+        confidenceThreshold = confidenceThreshold,
+        onConfidenceThresholdChange = { confidenceThreshold = it },
     )
     }
 }

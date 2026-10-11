@@ -11,15 +11,9 @@ internal class YoloV8OutputDecoder(
     private companion object {
         const val CROSS_CLASS_DUPLICATE_IOU = 0.80f
         const val MAX_CANDIDATES_PER_CLASS = 100
-        const val PHOTO_MIN_CONFIDENCE = 0.45f
-        const val SIGNATURE_MIN_CONFIDENCE = 0.35f
     }
 
-    private fun thresholdFor(classId: Int): Float = when (classId) {
-        0 -> max(config.confidenceThreshold, PHOTO_MIN_CONFIDENCE)
-        1 -> max(config.confidenceThreshold, SIGNATURE_MIN_CONFIDENCE)
-        else -> config.confidenceThreshold
-    }
+    private fun thresholdFor(classId: Int): Float = config.confidenceThreshold.coerceAtLeast(0.05f)
     fun decode(
         values: FloatArray,
         shape: IntArray,

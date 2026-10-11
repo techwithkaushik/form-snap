@@ -16,6 +16,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.Slider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -38,6 +39,8 @@ fun CaptureScreen(
     onToggleFlash: () -> Unit,
     liveDetections: List<LiveDetection> = emptyList(),
     liveDiagnostics: String = "AI: starting camera…",
+    confidenceThreshold: Float = 0.35f,
+    onConfidenceThresholdChange: (Float) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val state by controller.state.collectAsState()
@@ -79,8 +82,28 @@ fun CaptureScreen(
 
         Column(
             modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            Surface(
+                color = Color.Black.copy(alpha = 0.78f),
+                shape = MaterialTheme.shapes.medium,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Live confidence", color = Color.White, style = MaterialTheme.typography.labelMedium)
+                        androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
+                        Text("${(confidenceThreshold * 100).toInt()}%", color = Color.White, style = MaterialTheme.typography.labelLarge)
+                    }
+                    Slider(
+                        value = confidenceThreshold,
+                        onValueChange = onConfidenceThresholdChange,
+                        valueRange = 0.05f..0.95f,
+                        steps = 17,
+                    )
+                    Text("Lower = more boxes/noise • Higher = fewer, stricter detections", color = Color.LightGray, style = MaterialTheme.typography.labelSmall)
+                }
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),

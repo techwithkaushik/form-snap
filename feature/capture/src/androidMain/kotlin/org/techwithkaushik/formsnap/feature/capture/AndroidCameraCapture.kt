@@ -55,6 +55,7 @@ class AndroidCameraCapture(
     private val analysisExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val frameGate = FrameSkipGate(2)
     private var lastLiveDetections: List<LiveDetection> = emptyList()
+    @Volatile private var confidenceThreshold: Float = 0.35f
     private val inferenceBusy = AtomicBoolean(false)
     private var onLiveDetections: ((List<LiveDetection>) -> Unit)? = null
     private var onLiveDiagnostics: ((String) -> Unit)? = null
@@ -64,6 +65,9 @@ class AndroidCameraCapture(
             PackageManager.PERMISSION_GRANTED
 
     fun setLiveDetectionListener(listener: (List<LiveDetection>) -> Unit) { onLiveDetections = listener }
+    fun setConfidenceThreshold(value: Float) {
+        confidenceThreshold = value.coerceIn(0.05f, 0.95f)
+    }
     fun setLiveDiagnosticsListener(listener: (String) -> Unit) { onLiveDiagnostics = listener }
 
     fun bind(preview: PreviewView, lifecycleOwner: LifecycleOwner) {
@@ -183,14 +187,14 @@ class AndroidCameraCapture(
             inferenceBusy.set(false)
             val mapped = detections
                 .asSequence()
-                .filter { it.confidence >= 0.05f }
+                .filter { it.confidence >= confidenceThreshold }
                 .map { toLiveDetection(it, sourceWidth, sourceHeight) }
                 .filter { it.right - it.left >= 0.008f && it.bottom - it.top >= 0.008f }
                 .toList()
             val topScores = detections.sortedByDescending { it.confidence }.take(4)
                 .joinToString { "${it.label} ${"%.2f".format(java.util.Locale.US, it.confidence)}" }
                 .ifBlank { "none" }
-            val status = "AI LIVE | raw=${detections.size} visible=${mapped.size}\nTop: $topScores\n${active.lastInferenceDiagnostics}"
+            val status = "AI LIVE | threshold=${(confidenceThreshold * 100).toInt()}% raw=${detections.size} visible=${mapped.size}\nTop: $topScores\n${active.lastInferenceDiagnostics}"
             Log.i(TAG, status.replace("\n", " "))
             onLiveDiagnostics?.invoke(status)
             val stable = stabilizeDetections(mapped)
