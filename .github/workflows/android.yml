@@ -107,6 +107,24 @@ jobs:
             gradle :app:assembleRelease --no-daemon --build-cache --stacktrace
           fi
 
+      - name: Build standalone Dataset Builder APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -x ./gradlew ]; then
+            ./gradlew :dataset-builder:assembleDebug --no-daemon --build-cache --stacktrace
+          else
+            gradle :dataset-builder:assembleDebug --no-daemon --build-cache --stacktrace
+          fi
+          test -f dataset-builder/build/outputs/apk/debug/dataset-builder-debug.apk
+          ls -lh dataset-builder/build/outputs/apk/debug/dataset-builder-debug.apk
+
+      - name: Upload Dataset Builder APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: dataset-builder-debug
+          path: dataset-builder/build/outputs/apk/debug/dataset-builder-debug.apk
+
       - name: Verify APK
         shell: bash
         run: |
