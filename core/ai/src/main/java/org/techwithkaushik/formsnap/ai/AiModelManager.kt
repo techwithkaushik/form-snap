@@ -77,8 +77,41 @@ class AiModelManager(context: Context) {
             }
             return embedded
         }
-        return emptyList()
+        // A .tflite file may contain the detector tensors but no semantic class
+        // names. For raw YOLO outputs, the class count is encoded in the channel
+        // dimension, so provide stable generic names instead of showing "Label
+        // missing" in Live Detection. These names are deliberately not guessed
+        // semantic labels; importing the matching labels file replaces them.
+        val inferredCount = inferRawYoloClassCount(file)
+        return inferredCount?.let { count -> (0 until count).map { "Class $it" } }.orEmpty()
     }
+
+    private fun inferRawYoloClassCount(file: File): Int? = runCatching {
+        val buffer = FileInputStream(file).use { stream ->
+            stream.channel.use { channel ->
+                channel.map(java.nio.channels.FileChannel.MapMode.READ_ONLY, 0, channel.size())
+            }
+        }
+        val interpreter = Interpreter(buffer, Interpreter.Options().setNumThreads(1))
+        try {
+            if (interpreter.outputTensorCount != 1) return@runCatching null
+            val shape = interpreter.getOutputTensor(0).shape()
+            if (shape.size != 3) return@runCatching null
+            val a = shape[shape.lastIndex - 1]
+            val b = shape.last()
+            // Post-NMS [1, N, 6/7] outputs expose class IDs per detection, not
+            // the total class count. Do not infer a class vocabulary from N.
+            if (b in 6..7 && a in 1..1000) return@runCatching null
+            val channels = when {
+                a in 5..512 && b > a -> a
+                b in 5..512 && a > b -> b
+                else -> 0
+            }
+            (channels - 4).takeIf { it in 1..1000 }
+        } finally {
+            interpreter.close()
+        }
+    }.getOrNull()
 
     private fun readLabels(file: File): List<String> = runCatching {
         file.takeIf { it.isFile }?.readText(Charsets.UTF_8)?.let(::parseLabelContent).orEmpty()
@@ -138,7 +171,8 @@ class AiModelManager(context: Context) {
                     .trim()
             }
             .filter { it.isNotEmpty() }
-            .distinct()
+            // Do not deduplicate: label order and duplicate names are both valid
+            // in a model's class map, and indices must remain stable.
             .take(1000)
             .toList()
     }
