@@ -47,6 +47,15 @@ fun AndroidCaptureScreen(
         presenter.onPermissionResult(it)
     }
 
+    // Ask for camera permission when the live capture page is opened, not on Home.
+    LaunchedEffect(Unit) {
+        if (!camera.hasCameraPermission()) permissionLauncher.launch(Manifest.permission.CAMERA)
+        else {
+            permissionGranted = true
+            presenter.onPermissionResult(true)
+        }
+    }
+
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri ->
