@@ -6,6 +6,7 @@ on:
     branches:
       - feature/foundation-pipeline
       - feature/universal-tflite-no-dataset-builder
+      - ai-objectsnap
   pull_request:
     branches:
       - feature/foundation-pipeline
