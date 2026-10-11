@@ -61,7 +61,6 @@ class MainActivity : ComponentActivity() {
         var autoSaveEnabled by remember { mutableStateOf(capturePrefs.getBoolean("auto_save_enabled", true)) }
         var settingsOpen by remember { mutableStateOf(false) }
         var aiSettingsOpen by remember { mutableStateOf(false) }
-        var storageSetupOpen by remember { mutableStateOf(false) }
         var saveMessage by remember { mutableStateOf<String?>(null) }
         var pendingCameraMode by remember { mutableStateOf<CaptureMode?>(null) }
         var pendingImport by remember { mutableStateOf(false) }
@@ -75,15 +74,12 @@ class MainActivity : ComponentActivity() {
             if (grants.values.isNotEmpty() && grants.values.all { it }) {
                 try {
                     autoSaveStore.setDirectFolder(File(defaultSharedStorageRoot(), "AI ObjectSnap"))
-                    storageSetupOpen = false
                     saveMessage = "AI ObjectSnap/savedImage folder is ready."
                 } catch (error: Exception) {
-                    storageSetupOpen = true
-                    saveMessage = "Storage permission was granted, but the folder could not be created. Choose the SD card folder."
+                    saveMessage = "Storage is permitted, but the folder could not be created. Set the save location in Save Settings."
                 }
             } else {
-                storageSetupOpen = true
-                saveMessage = "Storage permission denied. Choose a writable SD card folder instead."
+                saveMessage = "Storage permission denied. Choose a save location in Save Settings."
             }
         }
 
@@ -95,7 +91,7 @@ class MainActivity : ComponentActivity() {
                     if (hasRead && hasWrite) {
                         runCatching {
                             autoSaveStore.setDirectFolder(File(defaultSharedStorageRoot(), "AI ObjectSnap"))
-                        }.onFailure { storageSetupOpen = true }
+                        }.onFailure { saveMessage = "Could not create AI ObjectSnap folder. Set the save location in Save Settings." }
                     } else {
                         storagePermissionLauncher.launch(arrayOf(
                             Manifest.permission.READ_EXTERNAL_STORAGE,
@@ -103,9 +99,8 @@ class MainActivity : ComponentActivity() {
                         ))
                     }
                 } else {
-                    // Android 11+ restricts direct access to shared-storage roots; use
-                    // the system picker once and persist its URI permission.
-                    storageSetupOpen = true
+                    // Android 11+ requires explicit shared-storage access.
+                    // Do not interrupt startup/capture; folder selection lives in Save Settings.
                 }
             }
         }
@@ -182,7 +177,6 @@ class MainActivity : ComponentActivity() {
                 try {
                     autoSaveStore.setFolder(uri)
                     autoSaveStore.ensureAppFolders()
-                    storageSetupOpen = false
                     saveMessage = "AI ObjectSnap/savedImage folder is ready."
                     if (pendingCameraMode != null) {
                         cameraXMode = CameraCaptureMode.WHOLE_FORM
@@ -190,20 +184,8 @@ class MainActivity : ComponentActivity() {
                         pendingCameraMode = null
                     }
                 } catch (error: Exception) {
-                    storageSetupOpen = true
-                    saveMessage = "Storage setup failed. Choose a writable SD card folder."
+                    saveMessage = "Storage setup failed. Choose a writable folder in Save Settings."
                 }
-            }
-        }
-
-        fun proceedToCamera(selected: CaptureMode) {
-            if (autoSaveStore.folderUri() == null) {
-                pendingCameraMode = selected
-                outputFolderLauncher.launch(null)
-            } else {
-                pendingCameraMode = null
-                cameraXMode = CameraCaptureMode.WHOLE_FORM
-                showCameraX = true
             }
         }
 
@@ -216,24 +198,14 @@ class MainActivity : ComponentActivity() {
             },
             onSettings = { settingsOpen = true },
             onAiModel = { aiSettingsOpen = true },
-            onCamera = { selected ->
-                pendingCameraMode = selected
-                if (autoSaveStore.folderUri() == null) {
-                    storageSetupOpen = true
-                } else {
-                    pendingCameraMode = null
-                    cameraXMode = CameraCaptureMode.WHOLE_FORM
-                    showCameraX = true
-                }
+            onCamera = {
+                pendingCameraMode = null
+                cameraXMode = CameraCaptureMode.WHOLE_FORM
+                showCameraX = true
             },
             onImport = {
                 pendingImport = false
-                if (autoSaveStore.folderUri() == null) {
-                    pendingImport = true
-                    outputFolderLauncher.launch(null)
-                } else {
-                    openDocument.launch(arrayOf("image/*"))
-                }
+                openDocument.launch(arrayOf("image/*"))
             },
         )
 
@@ -289,16 +261,6 @@ class MainActivity : ComponentActivity() {
                     capturePrefs.edit().putBoolean("auto_save_enabled", autoSave).apply()
                     settingsOpen = false
                 },
-            )
-        }
-
-        if (storageSetupOpen && !showCameraX && !aiSettingsOpen && !settingsOpen) {
-            AlertDialog(
-                onDismissRequest = { storageSetupOpen = false },
-                title = { Text("Choose save location") },
-                text = { Text("Choose the SD card or shared-storage root. AI ObjectSnap will create AI ObjectSnap/savedImage/modelName/annotationName/image1.jpg folders there. If broad storage permission is unavailable, use this folder picker.") },
-                confirmButton = { Button(onClick = { outputFolderLauncher.launch(null) }) { Text("Choose SD card folder") } },
-                dismissButton = { TextButton(onClick = { storageSetupOpen = false }) { Text("Not now") } },
             )
         }
 
