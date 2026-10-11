@@ -137,11 +137,7 @@ private fun SavedImageRow(
 ) {
     val bitmap by produceState<Bitmap?>(initialValue = null, key1 = entry.uri) {
         value = withContext(Dispatchers.IO) {
-            runCatching {
-                val uri = Uri.parse(entry.uri)
-                if (uri.scheme == "file") BitmapFactory.decodeFile(uri.path)
-                else context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
-            }.getOrNull()
+            runCatching { decodeThumbnail(context, Uri.parse(entry.uri)) }.getOrNull()
         }
     }
     Card(shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
@@ -167,4 +163,17 @@ private fun SavedImageRow(
             IconButton(onClick = onDelete) { Text("🗑") }
         }
     }
+}
+
+private fun decodeThumbnail(context: Context, uri: Uri): Bitmap? {
+    fun decode(options: BitmapFactory.Options): Bitmap? =
+        if (uri.scheme == "file") BitmapFactory.decodeFile(uri.path, options)
+        else context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    decode(bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+    var sample = 1
+    while (bounds.outWidth / sample > 360 || bounds.outHeight / sample > 360) sample *= 2
+    return decode(BitmapFactory.Options().apply { inSampleSize = sample; inPreferredConfig = Bitmap.Config.RGB_565 })
 }
