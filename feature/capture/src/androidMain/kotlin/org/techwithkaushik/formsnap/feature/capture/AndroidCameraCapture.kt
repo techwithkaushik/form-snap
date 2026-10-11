@@ -201,9 +201,7 @@ class AndroidCameraCapture(
             inferenceBusy.set(false)
             Log.e(TAG, "Live PHOTO/SIGNATURE inference failed", error)
             onLiveDiagnostics?.invoke("AI INFERENCE ERROR\n${error.javaClass.simpleName}: ${error.message ?: "unknown"}")
-            presenter.onCaptureFailure(
-                "AI detection failed: ${error.message ?: error::class.java.simpleName}",
-            )
+            // Detection is optional: inference failure must never cancel or block photo capture.
         })
     }
 
@@ -438,9 +436,7 @@ class AndroidCameraCapture(
                         )
                     }.getOrElse { error ->
                         Log.e(TAG, "Unable to initialize active AI model", error)
-                        presenter.onCaptureFailure(
-                            "Unable to initialize AI model: ${error.message ?: error::class.java.simpleName}",
-                        )
+                        onLiveDiagnostics?.invoke("AI MODEL ERROR\n${error.message ?: error::class.java.simpleName}")
                         null
                     }
                     if (active != null && active.modelAvailable()) {
@@ -454,24 +450,16 @@ class AndroidCameraCapture(
                             .onFailure { error ->
                                 Log.e(TAG, "Active AI model is incompatible", error)
                                 active.close()
-                                presenter.onCaptureFailure(
-                                    "Active AI model is incompatible: ${error.message ?: "unsupported output"}",
-                                )
+                                onLiveDiagnostics?.invoke("AI MODEL INCOMPATIBLE\n${error.message ?: "unsupported output"}")
                             }
                     } else {
                         active?.close()
-                        presenter.onCaptureFailure(
-                            "No compatible active AI model. Import a trained PHOTO/SIGNATURE .tflite model; " +
-                                "saving labels or exporting a dataset does not train the detector.",
-                        )
+                        onLiveDiagnostics?.invoke("NO COMPATIBLE AI MODEL\nCapture works without live AI detection.")
                     }
                 } else {
                     // Previously this path stayed silent, leaving users with only the camera grid.
                     onLiveDiagnostics?.invoke("NO ACTIVE MODEL\nImport trained PHOTO/SIGNATURE .tflite")
-                    presenter.onCaptureFailure(
-                        "AI model missing. Open AI learning to collect labels, then install a trained " +
-                            "PHOTO/SIGNATURE .tflite model. Labels alone cannot enable live AI detection.",
-                    )
+                    onLiveDiagnostics?.invoke("NO ACTIVE MODEL\nCapture works normally; live detection is disabled.")
                 }
             }
             camera = cameraProvider.bindToLifecycle(
