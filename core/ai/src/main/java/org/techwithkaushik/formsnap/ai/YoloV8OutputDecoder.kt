@@ -21,7 +21,7 @@ internal class YoloV8OutputDecoder(
         require(shape.isNotEmpty()) { "YOLO output shape is empty." }
         require(values.isNotEmpty()) { "YOLO output tensor is empty." }
 
-        val detections = if (looksLikeNmsOutput(shape)) {
+        val detections = if (looksLikeNmsOutput(shape, transform)) {
             decodeNms(values, shape, transform)
         } else {
             decodeRawYolo(values, shape, transform)
@@ -88,8 +88,20 @@ internal class YoloV8OutputDecoder(
      * 8,400. A small final dimension alone is not enough to identify NMS:
      * raw channel-last output is also [1, N, 6].
      */
-    private fun looksLikeNmsOutput(shape: IntArray): Boolean =
-        shape.size >= 3 && shape.last() in 6..7 && shape[shape.size - 2] <= 1000
+    private fun looksLikeNmsOutput(shape: IntArray, transform: LetterboxTransform): Boolean {
+        if (shape.size < 3 || shape.last() !in 6..7 || shape[shape.size - 2] > 1000) return false
+
+        // Tiny raw YOLO models can also end in six channels (4 box values + 2
+        // class scores) and have <=1,000 candidate rows. For example, a 160px
+        // three-scale YOLO head has 525 candidates, shaped [1, 525, 6].
+        // Prefer raw decoding when the row count matches the standard YOLO grids.
+        val size = transform.inputSize
+        val stride8 = (size + 7) / 8
+        val stride16 = (size + 15) / 16
+        val stride32 = (size + 31) / 32
+        val expectedRawCandidates = stride8 * stride8 + stride16 * stride16 + stride32 * stride32
+        return shape[shape.size - 2] != expectedRawCandidates
+    }
 
     private fun decodeNms(
         values: FloatArray,
