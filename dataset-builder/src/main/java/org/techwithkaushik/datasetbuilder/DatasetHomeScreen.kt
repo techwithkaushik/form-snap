@@ -148,20 +148,32 @@ private fun ProjectHome(context: Context, onOpen: (Project) -> Unit) {
 private fun ProjectDialog(project: Project?, dismiss: () -> Unit, save: (String, String, List<String>) -> Unit) {
     var name by remember(project?.id) { mutableStateOf(project?.name.orEmpty()) }
     var description by remember(project?.id) { mutableStateOf(project?.description.orEmpty()) }
-    var labels by remember(project?.id) { mutableStateOf(project?.labels ?: listOf("Photo", "Signature")) }
-    var newLabel by remember { mutableStateOf("") }
-    AlertDialog(onDismissRequest = dismiss, title = { Text(if (project == null) "Create New Dataset" else "Edit Project") }, text = {
-        Column(Modifier.heightIn(max = 500.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(name, { name = it }, label = { Text("Project name") }, singleLine = true)
-            OutlinedTextField(description, { description = it }, label = { Text("Description (optional)") }, minLines = 2)
-            Text("Annotations", fontWeight = FontWeight.SemiBold)
-            labels.forEach { label -> Row(verticalAlignment = Alignment.CenterVertically) { Text("●", color = brand); Text(label, Modifier.weight(1f).padding(start = 8.dp)); IconButton(onClick = { labels = labels - label }) { Icon(Icons.Default.DeleteOutline, null) } } }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(newLabel, { newLabel = it }, Modifier.weight(1f), label = { Text("Add annotation") }, singleLine = true)
-                IconButton(onClick = { if (newLabel.isNotBlank() && labels.none { it.equals(newLabel.trim(), true) }) { labels = labels + newLabel.trim(); newLabel = "" } }) { Icon(Icons.Default.AddCircle, null, tint = brand) }
+    AlertDialog(
+        onDismissRequest = dismiss,
+        title = { Text(if (project == null) "Create New Dataset" else "Edit Project") },
+        text = {
+            Column(Modifier.heightIn(max = 420.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(name, { name = it }, label = { Text("Project name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(description, { description = it }, label = { Text("Description (optional)") }, minLines = 2, modifier = Modifier.fillMaxWidth())
+                Text("Annotation classes", fontWeight = FontWeight.SemiBold)
+                listOf("Photo" to Color(0xFF1768E8), "Signature" to Color(0xFF168B58)).forEachIndexed { index, pair ->
+                    Surface(color = pair.second.copy(alpha = 0.08f), shape = RoundedCornerShape(10.dp)) {
+                        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(11.dp).background(pair.second, RoundedCornerShape(50)))
+                            Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                                Text(pair.first, fontWeight = FontWeight.Medium)
+                                Text("YOLO class ID: $index", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Icon(Icons.Default.Lock, contentDescription = "Fixed class", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+                Text("Photo and Signature class IDs are fixed to keep existing annotations and YOLO exports compatible.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-        }
-    }, confirmButton = { Button(enabled = name.isNotBlank() && labels.isNotEmpty(), onClick = { save(name, description, labels) }) { Text(if (project == null) "Create Dataset" else "Save Changes") } }, dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } })
+        },
+        confirmButton = { Button(enabled = name.isNotBlank(), onClick = { save(name, description, listOf("Photo", "Signature")) }) { Text(if (project == null) "Create Dataset" else "Save Changes") } },
+        dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable
