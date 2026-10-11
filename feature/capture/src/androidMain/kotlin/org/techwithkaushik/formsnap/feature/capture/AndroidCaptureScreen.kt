@@ -34,6 +34,7 @@ fun AndroidCaptureScreen(
     var liveDetections by remember { mutableStateOf<List<LiveDetection>>(emptyList()) }
     var liveDiagnostics by remember { mutableStateOf("AI: waiting for camera frames…") }
     var pendingSelection by remember { mutableStateOf<List<LiveDetection>>(emptyList()) }
+    var autoCaptureTriggered by remember { mutableStateOf(false) }
     val confidencePrefs = remember(context) { context.getSharedPreferences("formsnap.live.detection", android.content.Context.MODE_PRIVATE) }
     var confidenceThreshold by remember { mutableStateOf(confidencePrefs.getFloat("confidence_threshold", 0.35f).coerceIn(0.05f, 0.95f)) }
     var permissionGranted by remember { mutableStateOf(camera.hasCameraPermission()) }
@@ -65,6 +66,19 @@ fun AndroidCaptureScreen(
     androidx.compose.runtime.LaunchedEffect(confidenceThreshold) {
         camera.setConfidenceThreshold(confidenceThreshold)
         confidencePrefs.edit().putFloat("confidence_threshold", confidenceThreshold).apply()
+    }
+
+    // The first confident live annotation triggers a full-resolution still capture.
+    // The still is re-inferred and every passing class is cropped and auto-saved.
+    LaunchedEffect(liveDetections, confidenceThreshold) {
+        if (!autoCaptureTriggered && liveDetections.any { it.confidence >= confidenceThreshold }) {
+            kotlinx.coroutines.delay(250)
+            if (!autoCaptureTriggered && liveDetections.any { it.confidence >= confidenceThreshold }) {
+                autoCaptureTriggered = true
+                pendingSelection = emptyList()
+                camera.capture(session)
+            }
+        }
     }
 
     LaunchedEffect(Unit) {

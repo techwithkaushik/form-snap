@@ -203,7 +203,7 @@ class AndroidCameraCapture(
         }, { error ->
             bitmap.recycle()
             inferenceBusy.set(false)
-            Log.e(TAG, "Live PHOTO/SIGNATURE inference failed", error)
+            Log.e(TAG, "Live TFLite inference failed", error)
             onLiveDiagnostics?.invoke("AI INFERENCE ERROR\n${error.javaClass.simpleName}: ${error.message ?: "unknown"}")
             // Detection is optional: inference failure must never cancel or block photo capture.
         })
@@ -462,8 +462,8 @@ class AndroidCameraCapture(
                     }
                 } else {
                     // Previously this path stayed silent, leaving users with only the camera grid.
-                    onLiveDiagnostics?.invoke("NO ACTIVE MODEL\nImport trained PHOTO/SIGNATURE .tflite")
-                    onLiveDiagnostics?.invoke("NO ACTIVE MODEL\nCapture works normally; live detection is disabled.")
+                    onLiveDiagnostics?.invoke("NO ACTIVE MODEL\nImport a TFLite object detector")
+                    onLiveDiagnostics?.invoke("NO ACTIVE MODEL\nImport and activate a TFLite detector to enable live detection.")
                 }
             }
             camera = cameraProvider.bindToLifecycle(

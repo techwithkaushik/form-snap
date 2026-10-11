@@ -106,27 +106,6 @@ fun CaptureScreen(
             }
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                CaptureMode.entries.forEach { item ->
-                    FilterChip(
-                        selected = state.mode == item,
-                        onClick = { controller.setMode(item) },
-                        label = {
-                            Text(
-                                when (item) {
-                                    CaptureMode.WHOLE_FORM -> "Form"
-                                    CaptureMode.PHOTO -> "Photo"
-                                    CaptureMode.SIGNATURE -> "Sign"
-                                },
-                            )
-                        },
-                    )
-                }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -214,11 +193,7 @@ private fun LiveDetectionOverlay(
                 val right = detection.right.coerceIn(0f, 1f) * size.width
                 val bottom = detection.bottom.coerceIn(0f, 1f) * size.height
                 drawRect(
-                    color = when {
-                        detection.locked -> Color(0xFF2979FF)
-                        detection.label == "Signature" -> Color(0xFFFFC107)
-                        else -> Color(0xFF00E676)
-                    },
+                    color = if (detection.locked) Color(0xFF2979FF) else Color(0xFF00E676),
                     topLeft = androidx.compose.ui.geometry.Offset(left, top),
                     size = androidx.compose.ui.geometry.Size(
                         (right - left).coerceAtLeast(1f),
@@ -246,11 +221,7 @@ private fun LiveDetectionOverlay(
                         y = (top * maxHeight.value).dp,
                     )
                     .background(
-                        color = when {
-                            detection.locked -> Color(0xFF2979FF)
-                            detection.label.equals("Signature", ignoreCase = true) -> Color(0xFFFFA000)
-                            else -> Color(0xFF00A86B)
-                        },
+                        color = if (detection.locked) Color(0xFF2979FF) else Color(0xFF00A86B),
                         shape = MaterialTheme.shapes.extraSmall,
                     )
                     .padding(horizontal = 6.dp, vertical = 3.dp),
