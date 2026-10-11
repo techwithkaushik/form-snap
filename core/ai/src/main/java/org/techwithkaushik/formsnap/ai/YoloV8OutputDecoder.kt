@@ -154,7 +154,8 @@ internal class YoloV8OutputDecoder(
             channelsFirst = false
         }
 
-        if (channels < 6 || candidates <= 0) return emptyList()
+        // A single-class raw YOLO head has 4 box channels + 1 class score.
+        if (channels < 5 || candidates <= 0) return emptyList()
         val classCount = channels - 4
         if (classCount < 1) return emptyList()
 
