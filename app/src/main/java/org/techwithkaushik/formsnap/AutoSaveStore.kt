@@ -49,7 +49,7 @@ class AutoSaveStore(private val context: Context) {
             return
         }
         val tree = prefs.getString(KEY_TREE_URI, null)?.let(Uri::parse)
-            ?: throw IOException("Choose the SD card or shared storage folder first.")
+            ?: throw IOException("Open Save Settings and choose the SD card or shared-storage folder first.")
         val appFolder = ensureDirectory(tree, APP_FOLDER)
         ensureDirectory(appFolder, SAVED_FOLDER)
     }
@@ -65,7 +65,7 @@ class AutoSaveStore(private val context: Context) {
             return "$APP_FOLDER/$SAVED_FOLDER/${safeSegment(modelName.removeSuffix(".tflite"))}/${safeSegment(annotationName)}/$fileName"
         }
         val tree = prefs.getString(KEY_TREE_URI, null)?.let(Uri::parse)
-            ?: throw IOException("Choose an SD card or shared storage folder first.")
+            ?: throw IOException("Open Save Settings and choose the SD card or shared-storage folder first.")
         val appFolder = ensureDirectory(tree, APP_FOLDER)
         val savedRoot = ensureDirectory(appFolder, SAVED_FOLDER)
         val modelFolder = ensureDirectory(savedRoot, safeSegment(modelName.removeSuffix(".tflite")))
