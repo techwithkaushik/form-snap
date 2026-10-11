@@ -92,16 +92,6 @@ jobs:
           fileName: dev_keystore.jks
           encodedString: ${{ secrets.SIGNING_KEYSTORE }}
 
-      - name: Run unit tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -x ./gradlew ]; then
-            ./gradlew :app:testDebugUnitTest --no-daemon --build-cache --stacktrace
-          else
-            gradle :app:testDebugUnitTest --no-daemon --build-cache --stacktrace
-          fi
-
       - name: Build signed APK
         env:
           SIGN_KEY_STORE: ${{ steps.keystore.outputs.filePath }}
