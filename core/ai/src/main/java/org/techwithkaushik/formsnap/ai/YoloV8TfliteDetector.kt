@@ -224,7 +224,7 @@ class YoloV8TfliteDetector(
     }
 
     private fun classLabel(classId: Int): String =
-        config.classLabels.getOrNull(classId)?.trim()?.takeIf { it.isNotEmpty() } ?: "Class $classId"
+        config.classLabels.getOrNull(classId)?.trim()?.takeIf { it.isNotEmpty() } ?: "Annotation label missing ($classId)"
 
     private enum class InputLayout {
         NHWC,
