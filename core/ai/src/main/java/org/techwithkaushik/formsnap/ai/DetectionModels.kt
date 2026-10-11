@@ -18,9 +18,10 @@ data class DetectedObject(
     val confidence: Float,
     val boundingBox: RectF,
 ) {
+    /** All detected classes can be previewed and selected; the default form export
+     * still treats class 0 as PHOTO and class 1 as SIGNATURE. */
     val isExtractable: Boolean
-        get() = classId == DetectedClass.PHOTO.id ||
-            classId == DetectedClass.SIGNATURE.id
+        get() = classId >= 0
 }
 
 data class LetterboxTransform(

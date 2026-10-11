@@ -18,7 +18,7 @@ internal class YoloV8OutputDecoder(
     private fun thresholdFor(classId: Int): Float = when (classId) {
         0 -> max(config.confidenceThreshold, PHOTO_MIN_CONFIDENCE)
         1 -> max(config.confidenceThreshold, SIGNATURE_MIN_CONFIDENCE)
-        else -> 1.0f
+        else -> config.confidenceThreshold
     }
     fun decode(
         values: FloatArray,
@@ -63,7 +63,6 @@ internal class YoloV8OutputDecoder(
         // PHOTO-only and SIGNATURE-only images must still return their one detection.
         // This also prevents low-confidence duplicates from filling the preview.
         val bestByClass = nonMaximumSuppression(detections)
-            .filter { it.classId in 0..1 }
             .groupBy { it.classId }
             .mapNotNull { (_, classDetections) ->
                 classDetections.maxByOrNull { it.confidence }
@@ -77,7 +76,8 @@ internal class YoloV8OutputDecoder(
         if (photo != null && signature != null &&
             iou(photo.boundingBox, signature.boundingBox) >= CROSS_CLASS_DUPLICATE_IOU
         ) {
-            return listOf(if (photo.confidence >= signature.confidence) photo else signature)
+            val winner = if (photo.confidence >= signature.confidence) photo else signature
+            return bestByClass.filter { it.classId !in 0..1 } + winner
         }
         return bestByClass.sortedByDescending { it.confidence }
     }
@@ -169,7 +169,7 @@ internal class YoloV8OutputDecoder(
         val candidates: Int
         val channelsFirst: Boolean
 
-        if (a == 6 && b > a || a in 7..256 && b > a) {
+        if (a in 5..512 && b > a) {
             channels = a
             candidates = b
             channelsFirst = true

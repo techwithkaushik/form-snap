@@ -164,20 +164,16 @@ class AiModelManager(context: Context) {
             }
 
             val outputShape = outputTensor.shape()
-            val minRawCandidates = 256
-            val isRawTwoClassOutput = outputShape.size == 3 &&
-                ((outputShape[1] == 6 && outputShape[2] > minRawCandidates) ||
-                    (outputShape[2] == 6 && outputShape[1] > minRawCandidates))
-            if (outputShape.size == 3 && outputShape.any { it == 84 }) {
-                throw IllegalArgumentException(
-                    "This is an 80-class YOLO model (output ${outputShape.contentToString()}), not a PHOTO/SIGNATURE model. " +
-                        "Export a YOLO object detector with exactly 2 classes: PHOTO and SIGNATURE."
-                )
-            }
-            require(isRawTwoClassOutput) {
-                "Unsupported output shape ${outputShape.contentToString()}. FormSnap needs a YOLO object detector " +
-                    "with exactly 2 classes and 6 output channels (PHOTO=0, SIGNATURE=1). A classifier cannot " +
-                    "locate/crop regions; an 80-class COCO model is not compatible."
+            val isRawYolo = outputShape.size == 3 && (
+                (outputShape[1] in 5..512 && outputShape[2] > 100) ||
+                    (outputShape[2] in 5..512 && outputShape[1] > 100)
+            )
+            val isNmsYolo = outputShape.size == 3 &&
+                outputShape.last() in 6..7 &&
+                outputShape[outputShape.lastIndex - 1] in 1..1000
+            require(isRawYolo || isNmsYolo) {
+                "Unsupported output shape ${outputShape.contentToString()}. Import a YOLO-style object detector " +
+                    "with box coordinates and at least one class score. Classification-only models cannot locate objects."
             }
 
             // Run a real inference before activating the imported file. Shape checks alone

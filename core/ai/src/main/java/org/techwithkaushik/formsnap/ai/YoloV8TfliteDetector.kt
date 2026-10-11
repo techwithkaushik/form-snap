@@ -204,21 +204,17 @@ class YoloV8TfliteDetector(
     }
 
     private fun validateOutputContract(shape: IntArray) {
-        require(shape.size >= 2) {
-            "Unsupported FormSnap model output shape ${shape.contentToString()}. " +
-                "Expected a 2-class PHOTO/SIGNATURE YOLO output."
+        require(shape.size == 3) {
+            "Unsupported model output shape ${shape.contentToString()}. Expected a YOLO object-detection tensor."
         }
-
+        val previous = shape[shape.lastIndex - 1]
         val last = shape.last()
-        val channelsFirst = shape.size >= 3 &&
-            shape[shape.size - 2] == 6 && last > 6
-        val channelsLast = shape.size >= 3 &&
-            last == 6 && shape[shape.size - 2] > 6
-        val nmsOutput = last in 6..7
-
+        val channelsFirst = previous in 5..512 && last > previous
+        val channelsLast = last in 5..512 && previous > last
+        val nmsOutput = last in 6..7 && previous in 1..1000
         require(channelsFirst || channelsLast || nmsOutput) {
-            "The active model output is ${shape.contentToString()}. Expected a two-class PHOTO(0)/SIGNATURE(1) " +
-                "YOLO object detector output. A classifier cannot locate or crop objects."
+            "Unsupported model output ${shape.contentToString()}. Expected YOLO boxes with one or more class scores; " +
+                "classification-only models cannot locate/crop objects."
         }
     }
 
