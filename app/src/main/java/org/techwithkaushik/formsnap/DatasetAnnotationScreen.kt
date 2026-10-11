@@ -265,9 +265,9 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                         Text("${libraryImages.size} images • ${savedPaths.size} saved", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                     }
                 },
-                navigationIcon = { TextButton(onClick = onExit, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("Exit") } },
+                navigationIcon = { TextButton(onClick = onExit, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) { Text("Exit") } },
                 actions = {
-                    TextButton(onClick = { addImagesLauncher.launch(arrayOf("image/*")) }, contentPadding = PaddingValues(horizontal = 6.dp)) { Text("+ Add") }
+                    TextButton(onClick = { addImagesLauncher.launch(arrayOf("image/*")) }, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) { Text("+ Add") }
                     Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(12.dp), modifier = Modifier.padding(start = 2.dp, end = 8.dp)) {
                         Text((if (libraryImages.isEmpty()) 0 else index + 1).toString() + "/" + libraryImages.size, modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
                     }
@@ -301,7 +301,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                                 }
                             },
                             enabled = boxes.isNotEmpty() && !busy,
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
                             shape = RoundedCornerShape(8.dp),
                         ) { Text("Undo") }
                         OutlinedButton(
@@ -314,6 +314,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                                 status = "सभी boxes हटे। दोबारा mark करके Save करें; बदले हुए dataset को export से पहले save करना जरूरी है।"
                             },
                             enabled = boxes.isNotEmpty() && !busy,
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
                             shape = RoundedCornerShape(8.dp),
                         ) { Text("Clear") }
                     }
@@ -356,13 +357,13 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                         }
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { if (index > 0) { index--; activeBox = null; status = "पिछले form के saved boxes जाँचें" } }, enabled = index > 0 && !busy, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp), shape = RoundedCornerShape(8.dp)) { Text("Previous") }
-                        Button(onClick = { saveAndNext() }, enabled = image != null && !busy, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp), shape = RoundedCornerShape(8.dp)) { Text(if (index < libraryImages.lastIndex) "Save & Next" else "Save Form") }
-                        OutlinedButton(onClick = { confirmRemove = true }, enabled = image != null && !busy, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp), shape = RoundedCornerShape(8.dp)) { Text("Remove image") }
+                        OutlinedButton(onClick = { if (index > 0) { index--; activeBox = null; status = "पिछले form के saved boxes जाँचें" } }, enabled = index > 0 && !busy, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp), shape = RoundedCornerShape(8.dp)) { Text("Previous") }
+                        Button(onClick = { saveAndNext() }, enabled = image != null && !busy, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp), shape = RoundedCornerShape(8.dp)) { Text(if (index < libraryImages.lastIndex) "Save & Next" else "Save Form") }
+                        OutlinedButton(onClick = { confirmRemove = true }, enabled = image != null && !busy, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp), shape = RoundedCornerShape(8.dp)) { Text("Remove image") }
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { zipLauncher.launch("formsnap-dataset.zip") }, enabled = saved == libraryImages.size && libraryImages.isNotEmpty() && dirtyPaths.isEmpty() && !busy, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp), shape = RoundedCornerShape(8.dp)) { Text(if (dirtyPaths.isNotEmpty()) "Save edits first" else if (saved != libraryImages.size) "Save all images first" else "Export dataset.zip") }
-                        OutlinedButton(onClick = onExit, enabled = !busy, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp), shape = RoundedCornerShape(8.dp)) { Text("Finish") }
+                        OutlinedButton(onClick = { zipLauncher.launch("formsnap-dataset.zip") }, enabled = saved == libraryImages.size && libraryImages.isNotEmpty() && dirtyPaths.isEmpty() && !busy, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp), shape = RoundedCornerShape(8.dp)) { Text(if (dirtyPaths.isNotEmpty()) "Save edits first" else if (saved != libraryImages.size) "Save all images first" else "Export dataset.zip") }
+                        OutlinedButton(onClick = onExit, enabled = !busy, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp), shape = RoundedCornerShape(8.dp)) { Text("Finish") }
                     }
                 }
             }
@@ -372,7 +373,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
             if (libraryImages.isEmpty()) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("No dataset images yet", color = Color.White)
-                    Button(onClick = { addImagesLauncher.launch(arrayOf("image/*")) }, enabled = !busy, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp), shape = RoundedCornerShape(8.dp)) { Text("Add images") }
+                    Button(onClick = { addImagesLauncher.launch(arrayOf("image/*")) }, enabled = !busy, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp), shape = RoundedCornerShape(8.dp)) { Text("Add images") }
                 }
             } else if (bitmap == null) Text("Image could not be opened", color = Color.White)
             else BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -426,7 +427,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                             val count = boxes.count { it.type == cls }
                             FilterChip(selected = selected == cls, onClick = { selected = cls }, label = { Text("${cls.title} ($count)", maxLines = 1, softWrap = false) }, modifier = Modifier.weight(1f))
                         }
-                        Button(onClick = { fullScreen = false }, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp), shape = RoundedCornerShape(8.dp)) { Text("Done") }
+                        Button(onClick = { fullScreen = false }, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp), shape = RoundedCornerShape(8.dp)) { Text("Done") }
                     }
                 }
             }
