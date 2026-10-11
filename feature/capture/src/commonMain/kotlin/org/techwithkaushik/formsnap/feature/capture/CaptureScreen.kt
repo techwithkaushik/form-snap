@@ -17,7 +17,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -33,14 +32,10 @@ import androidx.compose.ui.unit.dp
 fun CaptureScreen(
     cameraPreview: @Composable () -> Unit,
     controller: CapturePresenter,
-    onRequestCameraPermission: () -> Unit,
     onCapture: (List<LiveDetection>) -> Unit,
     onImport: () -> Unit,
     onToggleLens: () -> Unit,
     onToggleFlash: () -> Unit,
-    onImageCaptured: (CapturedImage) -> Unit,
-    onImportImage: (CapturedImage) -> Unit = onImageCaptured,
-    onError: (String) -> Unit = {},
     liveDetections: List<LiveDetection> = emptyList(),
     liveDiagnostics: String = "AI: starting camera…",
     modifier: Modifier = Modifier,
@@ -48,17 +43,6 @@ fun CaptureScreen(
     val state by controller.state.collectAsState()
     val selection = androidx.compose.runtime.remember { LiveDetectionSelection() }
     var selectionVersion by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
-
-    LaunchedEffect(controller) {
-        controller.events.collect { event ->
-            when (event) {
-                CaptureEvent.CameraPermissionRequired -> onRequestCameraPermission()
-                is CaptureEvent.ImageCaptured -> onImageCaptured(event.image)
-                is CaptureEvent.ImportSelected -> onImportImage(event.image)
-                is CaptureEvent.Error -> onError(event.message)
-            }
-        }
-    }
 
     val appliedDetections = selection.apply(liveDetections)
 
