@@ -76,8 +76,9 @@ object UniversalAutoSaveService {
             if (mergeEnabled && candidates.size > 1) {
                 val merged = mergeCrops(source, candidates, mergeOrientation)
                 try {
-                    val bytes = UniversalImageEncoder.encode(merged, maxKb, imageType)
                     val folder = if (mergeOrientation == MergeOrientation.VERTICAL) "Merged_Vertical" else "Merged_Horizontal"
+                    if (store.isDuplicate(model.name, folder, merged)) return emptyList()
+                    val bytes = UniversalImageEncoder.encode(merged, maxKb, imageType)
                     val path = store.saveDetection(model.name, folder, bytes, imageType.extension, imageType.mimeType)
                     return listOf(UniversalSavedDetection(folder, -1, candidates.minOf { it.confidence }, path, bytes.size))
                 } finally { merged.recycle() }
