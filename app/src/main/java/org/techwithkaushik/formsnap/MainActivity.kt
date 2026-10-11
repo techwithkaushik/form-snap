@@ -24,8 +24,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import org.techwithkaushik.formSnap.feature.capture.AndroidCaptureScreen
-import org.techwithkaushik.formSnap.feature.capture.CaptureMode as CameraCaptureMode
+import org.techwithkaushik.formsnap.feature.capture.AndroidCaptureScreen
+import org.techwithkaushik.formsnap.feature.capture.CaptureMode as CameraCaptureMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -112,7 +112,7 @@ class MainActivity : ComponentActivity() {
 
         fun startAutoProcess(
             input: File,
-            selectedDetections: List<org.techwithkaushik.formSnap.feature.capture.LiveDetection> = emptyList(),
+            selectedDetections: List<org.techwithkaushik.formsnap.feature.capture.LiveDetection> = emptyList(),
             autoSave: Boolean = true,
         ) {
             ioScope.launch {
