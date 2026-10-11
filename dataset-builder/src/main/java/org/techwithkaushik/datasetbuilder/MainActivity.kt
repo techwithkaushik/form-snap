@@ -24,6 +24,8 @@ class MainActivity : ComponentActivity() {
                             onMessage = { message ->
                                 Toast.makeText(this, message, Toast.LENGTH_LONG).show()
                             },
+                            projectId = openedProject.first,
+                            projectName = openedProject.second,
                         )
                     }
                 }
