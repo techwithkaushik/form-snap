@@ -47,7 +47,8 @@ class AiModelManager(context: Context) {
             val a = if (shape.size >= 2) shape[shape.lastIndex - 1] else 0
             val b = if (shape.isNotEmpty()) shape.last() else 0
             val count = when { a in 5..512 && b > a -> a - 4; b in 5..512 -> b - 4; b in 6..7 -> -1; else -> 0 }
-            val labels = classLabels(file)\n            val classes = if (labels.isNotEmpty()) labels.mapIndexed { index, label -> "$index: $label" }.joinToString() else if (count > 0) (0 until count).joinToString { "Class $it" } else if (count == -1) "NMS class IDs; label map required" else "Unable to infer classes"
+            val labels = classLabels(file)
+            val classes = if (labels.isNotEmpty()) labels.mapIndexed { index, label -> "$index: $label" }.joinToString() else if (count > 0) (0 until count).joinToString { "Class $it" } else if (count == -1) "NMS class IDs; label map required" else "Unable to infer classes"
             return Triple(input, output, classes)
         } finally { interpreter.close() }
     }
