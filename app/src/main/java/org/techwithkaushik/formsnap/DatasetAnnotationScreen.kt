@@ -301,6 +301,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                                 }
                             },
                             enabled = boxes.isNotEmpty() && !busy,
+                            shape = RoundedCornerShape(8.dp),
                         ) { Text("Undo") }
                         OutlinedButton(
                             onClick = {
@@ -312,6 +313,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                                 status = "सभी boxes हटे। दोबारा mark करके Save करें; बदले हुए dataset को export से पहले save करना जरूरी है।"
                             },
                             enabled = boxes.isNotEmpty() && !busy,
+                            shape = RoundedCornerShape(8.dp),
                         ) { Text("Clear") }
                     }
                     OutlinedTextField(value = formGroupId, onValueChange = { formGroupId = it }, label = { Text("Form Group ID") }, supportingText = { Text("एक original form की सभी photos में same ID रखें।") }, singleLine = true, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth(), enabled = !busy)
@@ -358,8 +360,8 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
                         OutlinedButton(onClick = { confirmRemove = true }, enabled = image != null && !busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) { Text("Remove image") }
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { zipLauncher.launch("formsnap-dataset.zip") }, enabled = saved == libraryImages.size && libraryImages.isNotEmpty() && dirtyPaths.isEmpty() && !busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text(if (dirtyPaths.isNotEmpty()) "Save edits first" else if (saved != libraryImages.size) "Save all images first" else "Export dataset.zip") }
-                        TextButton(onClick = onExit, enabled = !busy, contentPadding = PaddingValues(horizontal = 10.dp)) { Text("Finish") }
+                        OutlinedButton(onClick = { zipLauncher.launch("formsnap-dataset.zip") }, enabled = saved == libraryImages.size && libraryImages.isNotEmpty() && dirtyPaths.isEmpty() && !busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) { Text(if (dirtyPaths.isNotEmpty()) "Save edits first" else if (saved != libraryImages.size) "Save all images first" else "Export dataset.zip") }
+                        OutlinedButton(onClick = onExit, enabled = !busy, contentPadding = PaddingValues(horizontal = 10.dp), shape = RoundedCornerShape(8.dp)) { Text("Finish") }
                     }
                 }
             }
@@ -369,7 +371,7 @@ internal fun DatasetAnnotationScreen(images: List<File>, onExit: () -> Unit, onM
             if (libraryImages.isEmpty()) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("No dataset images yet", color = Color.White)
-                    Button(onClick = { addImagesLauncher.launch(arrayOf("image/*")) }, enabled = !busy) { Text("Add images") }
+                    Button(onClick = { addImagesLauncher.launch(arrayOf("image/*")) }, enabled = !busy, shape = RoundedCornerShape(8.dp)) { Text("Add images") }
                 }
             } else if (bitmap == null) Text("Image could not be opened", color = Color.White)
             else BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
