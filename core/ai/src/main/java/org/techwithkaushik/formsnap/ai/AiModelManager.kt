@@ -29,6 +29,26 @@ class AiModelManager(context: Context) {
             ?.map { file -> val metadata = runCatching { inspectModel(file) }.getOrNull(); AiModelInfo(file, file.name, file.length(), file.name == activeModelName(), metadata?.first.orEmpty(), metadata?.second.orEmpty(), metadata?.third.orEmpty()) }
             ?: emptyList()
 
+    fun modelTask(file: File): ModelTask {
+        val buffer = FileInputStream(file).use { input ->
+            input.channel.use { channel ->
+                channel.map(java.nio.channels.FileChannel.MapMode.READ_ONLY, 0, channel.size())
+            }
+        }
+        val interpreter = Interpreter(buffer, Interpreter.Options().setNumThreads(1))
+        try {
+            require(interpreter.inputTensorCount >= 1 && interpreter.outputTensorCount >= 1) {
+                "Model must have at least one input and one output tensor."
+            }
+            return ModelTaskClassifier.classify(
+                interpreter.getInputTensor(0).shape(),
+                interpreter.getOutputTensor(0).shape(),
+            )
+        } finally {
+            interpreter.close()
+        }
+    }
+
     private fun inspectModel(file: File): Triple<String, String, String> {
         val buffer = FileInputStream(file).use { input ->
             input.channel.use { channel -> channel.map(java.nio.channels.FileChannel.MapMode.READ_ONLY, 0, channel.size()) }
