@@ -44,8 +44,6 @@ class AiModelManager(context: Context) {
                 "#$index ${tensor.shape().contentToString()} ${tensor.dataType()}"
             }
             val shape = interpreter.getOutputTensor(0).shape()
-            val a = if (shape.size >= 2) shape[shape.lastIndex - 1] else 0
-            val b = if (shape.isNotEmpty()) shape.last() else 0
             val count = if (YoloOutputShape.isLikelyNmsOutput(shape, interpreter.getInputTensor(0).shape())) {
                 -1
             } else {
