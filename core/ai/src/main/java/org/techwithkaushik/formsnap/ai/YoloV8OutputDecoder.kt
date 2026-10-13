@@ -116,8 +116,13 @@ internal class YoloV8OutputDecoder(
             for (row in 0 until rows) {
                 val base = row * cols
                 val confidence = values[base + 4]
-                val classId = values[base + 5].toInt()
-                if (confidence < config.confidenceThreshold) continue
+                val rawClassId = values[base + 5]
+                if (!confidence.isFinite() || confidence < config.confidenceThreshold) continue
+                if (!rawClassId.isFinite() || rawClassId < 0f || rawClassId > 999f) continue
+                val classId = rawClassId.toInt()
+                // Post-NMS class IDs are integral; malformed floats should not
+                // silently turn into a different class label.
+                if (kotlin.math.abs(rawClassId - classId) > 0.01f) continue
 
                 val box = mapBox(
                     RectF(
@@ -195,7 +200,7 @@ internal class YoloV8OutputDecoder(
                 }
             }
 
-            if (bestClass !in 0 until classCount || bestScore < config.confidenceThreshold) continue
+            if (bestClass !in 0 until classCount || !bestScore.isFinite() || bestScore < config.confidenceThreshold) continue
 
             val box = mapBox(
                 RectF(
@@ -226,6 +231,10 @@ internal class YoloV8OutputDecoder(
         raw: RectF,
         transform: LetterboxTransform,
     ): RectF? {
+        if (!raw.left.isFinite() || !raw.top.isFinite() ||
+            !raw.right.isFinite() || !raw.bottom.isFinite()
+        ) return null
+
         val maxInput = transform.inputSize.toFloat()
         val maxCoordinate = max(
             max(kotlin.math.abs(raw.left), kotlin.math.abs(raw.right)),
