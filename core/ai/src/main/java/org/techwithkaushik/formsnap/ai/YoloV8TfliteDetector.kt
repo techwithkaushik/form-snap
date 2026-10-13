@@ -93,7 +93,12 @@ class YoloV8TfliteDetector(
             val shape = output.shape()
             val a = shape.getOrNull(shape.lastIndex - 1) ?: 0
             val b = shape.lastOrNull() ?: 0
-            val count = when { b in 6..7 && a in 1..1000 -> -1; a in 5..512 && b > a -> a - 4; b in 5..512 -> b - 4; else -> 0 }
+            val count = when {
+                isLikelyNmsOutput(shape, input.shape()) -> -1
+                a in 5..512 && b > a -> a - 4
+                b in 5..512 && a > b -> b - 4
+                else -> 0
+            }
             "Model: ${modelFile?.name ?: modelAssetName}; " +
                 "input=${input.shape().contentToString()} ${input.dataType()}; " +
                 "output=${shape.contentToString()} ${output.dataType()}; " +
@@ -221,6 +226,24 @@ class YoloV8TfliteDetector(
             "Unsupported model output ${shape.contentToString()}. Expected YOLO boxes with one or more class scores; " +
                 "classification-only models cannot locate/crop objects."
         }
+    }
+
+    private fun isLikelyNmsOutput(outputShape: IntArray, imageShape: IntArray): Boolean {
+        if (outputShape.size != 3) return false
+        val rows = outputShape[outputShape.lastIndex - 1]
+        val columns = outputShape.last()
+        if (columns !in 6..7 || rows !in 1..1000) return false
+        val inputSize = when {
+            imageShape.size == 4 && imageShape[3] == 3 -> imageShape[1]
+            imageShape.size == 4 && imageShape[1] == 3 -> imageShape[2]
+            else -> 0
+        }
+        if (inputSize <= 0) return true
+        val stride8 = (inputSize + 7) / 8
+        val stride16 = (inputSize + 15) / 16
+        val stride32 = (inputSize + 31) / 32
+        val expectedRawCandidates = stride8 * stride8 + stride16 * stride16 + stride32 * stride32
+        return rows != expectedRawCandidates
     }
 
     private fun classLabel(classId: Int): String =
