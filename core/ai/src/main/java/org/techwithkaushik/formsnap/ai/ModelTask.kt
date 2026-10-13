@@ -7,13 +7,13 @@ package org.techwithkaushik.formsnap.ai
  * shape uses the same preprocessing or output semantics. Metadata and model
  * documentation remain authoritative when available.
  */
-internal enum class ModelTask {
+enum class ModelTask {
     OBJECT_DETECTION,
     IMAGE_CLASSIFICATION,
     UNSUPPORTED,
 }
 
-internal object ModelTaskClassifier {
+object ModelTaskClassifier {
     fun classify(inputShape: IntArray, outputShape: IntArray): ModelTask {
         if (!isSingleImageRgbInput(inputShape)) return ModelTask.UNSUPPORTED
 
