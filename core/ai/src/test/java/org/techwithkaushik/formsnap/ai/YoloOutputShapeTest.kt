@@ -63,4 +63,33 @@ class YoloOutputShapeTest {
         assertEquals(2, YoloOutputShape.rawClassCount(output, input))
     }
 
+
+    @Test
+    fun recognizesPostNmsOutputForRectangularInput() {
+        val input = intArrayOf(1, 160, 240, 3)
+        val output = intArrayOf(1, 100, 6)
+
+        assertTrue(YoloOutputShape.isLikelyNmsOutput(output, input))
+        assertNull(YoloOutputShape.rawClassCount(output, input))
+    }
+
+    @Test
+    fun recognizesSingleClassRawYoloOutput() {
+        val input = intArrayOf(1, 320, 320, 3)
+        val output = intArrayOf(1, 2100, 5)
+
+        assertFalse(YoloOutputShape.isLikelyNmsOutput(output, input))
+        assertEquals(1, YoloOutputShape.rawClassCount(output, input))
+    }
+
+    @Test
+    fun rejectsUnsupportedOutputRankForRawClassInference() {
+        assertNull(
+            YoloOutputShape.rawClassCount(
+                intArrayOf(1, 100, 6, 1),
+                intArrayOf(1, 160, 160, 3),
+            ),
+        )
+    }
+
 }
