@@ -1,21 +1,18 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 package org.techwithkaushik.formSnap
 
-import org.techwithkaushik.formsnap.BuildConfig
-
-import android.content.Context
-import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import android.os.Environment
 import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -25,14 +22,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import org.techwithkaushik.formsnap.feature.capture.AndroidCaptureScreen
 import org.techwithkaushik.formsnap.feature.capture.CaptureMode as CameraCaptureMode
-import androidx.core.content.FileProvider
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -40,79 +33,113 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.Locale
 
-private enum class CaptureMode { WHOLE_FORM, PHOTO, SIGNATURE }
+private enum class CaptureMode { WHOLE_FORM }
 
 private data class OutputSettings(
-    val photoWidthMm: Double = 40.0,
-    val photoHeightMm: Double = 50.0,
-    val signatureWidthMm: Double = 50.0,
-    val signatureHeightMm: Double = 20.0,
-    val dpi: Double = 300.0,
     val maxKb: Int = 50,
+    val fileType: OutputImageType = OutputImageType.JPEG,
+    val mergeEnabled: Boolean = false,
+    val mergeOrientation: MergeOrientation = MergeOrientation.VERTICAL,
 )
 
 class MainActivity : ComponentActivity() {
-    private var cameraUri: Uri? = null
-    private var cameraOutputFile: File? = null
+    private var useDarkTheme by mutableStateOf(true)
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
-        cameraUri = savedInstanceState?.getString(STATE_CAMERA_URI)?.let(Uri::parse)
-        cameraOutputFile = savedInstanceState?.getString(STATE_CAMERA_FILE)?.let(::File)
+        useDarkTheme = getSharedPreferences("objectsnap.ui", MODE_PRIVATE).getBoolean("dark_theme", true)
         // Remove stale intermediate files left by a killed or previously crashed run.
         org.techwithkaushik.formSnap.foundation.ProcessingPaths.cleanupStale(this)
-        setContent { FormSnapTheme { FormSnapApp() } }
+        setContent { FormSnapTheme(darkTheme = useDarkTheme) { FormSnapApp() } }
     }
 
     @Composable
     private fun FormSnapApp() {
         val ioScope = rememberCoroutineScope()
         var settings by remember { mutableStateOf(OutputSettings()) }
+        val capturePrefs = remember { getSharedPreferences("formsnap.live.detection", MODE_PRIVATE) }
+        var autoSaveEnabled by remember { mutableStateOf(capturePrefs.getBoolean("auto_save_enabled", true)) }
         var settingsOpen by remember { mutableStateOf(false) }
+        var savedImagesOpen by remember { mutableStateOf(false) }
+        var captureProcessing by remember { mutableStateOf(false) }
+        var savedImagesRefresh by remember { mutableIntStateOf(0) }
         var aiSettingsOpen by remember { mutableStateOf(false) }
-        var source by remember { mutableStateOf<File?>(null) }
-        var mode by remember { mutableStateOf(CaptureMode.WHOLE_FORM) }
         var saveMessage by remember { mutableStateOf<String?>(null) }
         var pendingCameraMode by remember { mutableStateOf<CaptureMode?>(null) }
         var pendingImport by remember { mutableStateOf(false) }
         var showCameraX by remember { mutableStateOf(false) }
         var cameraXMode by remember { mutableStateOf(CameraCaptureMode.WHOLE_FORM) }
-        var lockedSelections by remember { mutableStateOf<List<org.techwithkaushik.formsnap.feature.capture.LiveDetection>>(emptyList()) }
         val autoSaveStore = remember { AutoSaveStore(this@MainActivity) }
 
-        fun startAutoProcess(input: File, selectedMode: CaptureMode) {
-            ioScope.launch {
-                saveMessage = "AI detecting photo and signature…"
+        val storagePermissionLauncher = rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestMultiplePermissions(),
+        ) { grants ->
+            if (grants.values.isNotEmpty() && grants.values.all { it }) {
                 try {
-                    val result = withContext(Dispatchers.IO) {
-                        AutoExtractionService.process(
+                    autoSaveStore.setDirectFolder(File(defaultSharedStorageRoot(), "AI ObjectSnap"))
+                    saveMessage = "AI ObjectSnap/savedImage folder is ready."
+                } catch (error: Exception) {
+                    saveMessage = "Storage is permitted, but the folder could not be created. Set the save location in Save Settings."
+                }
+            } else {
+                saveMessage = "Storage permission denied. Choose a save location in Save Settings."
+            }
+        }
+
+        LaunchedEffect(Unit) {
+            if (!autoSaveStore.isConfigured()) {
+                if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.Q) {
+                    val hasRead = checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+                    val hasWrite = checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+                    if (hasRead && hasWrite) {
+                        runCatching {
+                            autoSaveStore.setDirectFolder(File(defaultSharedStorageRoot(), "AI ObjectSnap"))
+                        }.onFailure { saveMessage = "Could not create AI ObjectSnap folder. Set the save location in Save Settings." }
+                    } else {
+                        storagePermissionLauncher.launch(arrayOf(
+                            Manifest.permission.READ_EXTERNAL_STORAGE,
+                            Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                        ))
+                    }
+                } else {
+                    // Android 11+ requires explicit shared-storage access.
+                    // Do not interrupt startup/capture; folder selection lives in Save Settings.
+                }
+            }
+        }
+
+        fun startAutoProcess(
+            input: File,
+            selectedDetections: List<org.techwithkaushik.formsnap.feature.capture.LiveDetection> = emptyList(),
+            autoSave: Boolean = true,
+        ) {
+            ioScope.launch {
+                saveMessage = "TFLite detecting objects…"
+                try {
+                    val saved = withContext(Dispatchers.IO) {
+                        UniversalAutoSaveService.processAndSave(
                             context = this@MainActivity,
-                            selectedDetections = lockedSelections,
                             input = input,
-                            dpi = settings.dpi.toInt(),
                             maxKb = settings.maxKb,
-                            mode = selectedMode.name,
-                            photoWidthMm = settings.photoWidthMm,
-                            photoHeightMm = settings.photoHeightMm,
-                            signatureWidthMm = settings.signatureWidthMm,
-                            signatureHeightMm = settings.signatureHeightMm,
+                            imageType = settings.fileType,
+                            selectedDetections = selectedDetections,
+                            autoSaveEnabled = autoSave,
+                            mergeEnabled = settings.mergeEnabled,
+                            mergeOrientation = settings.mergeOrientation,
                         )
                     }
-                    val saved = withContext(Dispatchers.IO) {
-                        autoSaveStore.save(result.photoBytes, result.signatureBytes)
-                    }
-                    val parts = listOfNotNull(saved.first, saved.second)
-                    saveMessage = if (parts.isEmpty()) {
-                        "Photo/signature not detected. Please capture the form more clearly."
+                    saveMessage = if (saved.isEmpty()) {
+                        "Duplicate capture detected. Kept the previously saved image."
                     } else {
-                        "Auto-saved: " + parts.joinToString(" + ")
+                        "Saved ${saved.size} output(s): " + saved.joinToString { "${it.className} (${it.byteCount / 1024} KB)" }
                     }
                 } catch (t: Throwable) {
-                    saveMessage = "Auto extraction failed: " + (t.message ?: "unknown error")
+                    saveMessage = "Detection/save failed: " + (t.message ?: "unknown error")
                 } finally {
-                    lockedSelections = emptyList()
                     input.delete()
                     org.techwithkaushik.formSnap.foundation.ProcessingPaths.cleanup(this@MainActivity)
+                    captureProcessing = false
+                    savedImagesRefresh++
                 }
             }
         }
@@ -126,35 +153,9 @@ class MainActivity : ComponentActivity() {
         BackHandler(enabled = settingsOpen && !aiSettingsOpen) {
             settingsOpen = false
         }
-        BackHandler(enabled = source != null && !settingsOpen) {
-            source?.delete()
-            source = null
+        BackHandler(enabled = savedImagesOpen && !showCameraX && !settingsOpen && !aiSettingsOpen) {
+            savedImagesOpen = false
         }
-
-        val openCamera = rememberLauncherForActivityResult(
-            ActivityResultContracts.TakePicture(),
-        ) { ok ->
-            val uri = cameraUri
-            val capturedFile = cameraOutputFile
-            cameraUri = null
-            cameraOutputFile = null
-            if (ok && uri != null && capturedFile?.isFile == true && capturedFile.length() > 0L) {
-                ioScope.launch {
-                    val imported = withContext(Dispatchers.IO) { uriToFile(uri, "camera") }
-                    capturedFile.delete()
-                    if (imported == null) {
-                        saveMessage = "Could not read the captured image. Please capture again."
-                    } else {
-                        startAutoProcess(imported, pendingCameraMode ?: CaptureMode.WHOLE_FORM)
-                    }
-                    pendingCameraMode = null
-                }
-            } else {
-                capturedFile?.delete()
-                if (ok) saveMessage = "Camera did not return a usable image. Please try again."
-            }
-        }
-
         val openDocument = rememberLauncherForActivityResult(
             ActivityResultContracts.OpenDocument(),
         ) { uri ->
@@ -164,10 +165,17 @@ class MainActivity : ComponentActivity() {
                     if (imported == null) {
                         saveMessage = "Could not open this image. Try a different file."
                     } else {
-                        startAutoProcess(imported, if (pendingImport) mode else CaptureMode.WHOLE_FORM)
+                        startAutoProcess(imported, autoSave = true)
                     }
                     pendingImport = false
                 }
+            }
+        }
+
+        LaunchedEffect(pendingImport, autoSaveStore.folderUri()) {
+            if (pendingImport && autoSaveStore.folderUri() != null) {
+                pendingImport = false
+                openDocument.launch(arrayOf("image/*"))
             }
         }
 
@@ -175,58 +183,42 @@ class MainActivity : ComponentActivity() {
             ActivityResultContracts.OpenDocumentTree(),
         ) { uri ->
             if (uri == null) {
+                pendingCameraMode = null
                 saveMessage = "Output folder was not selected."
             } else {
-                autoSaveStore.setFolder(uri)
-                saveMessage = "Output folder selected. Next capture will auto-save."
-                pendingCameraMode?.let { selected ->
-                    cameraXMode = when (selected) {
-                        CaptureMode.PHOTO -> CameraCaptureMode.PHOTO
-                        CaptureMode.SIGNATURE -> CameraCaptureMode.SIGNATURE
-                        CaptureMode.WHOLE_FORM -> CameraCaptureMode.WHOLE_FORM
+                try {
+                    autoSaveStore.setFolder(uri)
+                    autoSaveStore.ensureAppFolders()
+                    saveMessage = "AI ObjectSnap/savedImage folder is ready."
+                    if (pendingCameraMode != null) {
+                        cameraXMode = CameraCaptureMode.WHOLE_FORM
+                        showCameraX = true
+                        pendingCameraMode = null
                     }
-                    showCameraX = true
-                    pendingCameraMode = null
+                } catch (error: Exception) {
+                    saveMessage = "Storage setup failed. Choose a writable folder in Save Settings."
                 }
             }
         }
 
-        val pipelineLauncher = rememberLauncherForActivityResult(
-            ActivityResultContracts.StartActivityForResult(),
-        ) {
-            source?.delete()
-            source = null
-            // The pipeline activity has finished; no temporary session should remain.
-            org.techwithkaushik.formSnap.foundation.ProcessingPaths.cleanup(this@MainActivity)
-            mode = CaptureMode.WHOLE_FORM
-        }
-
-        HomeScreen(
+        if (!aiSettingsOpen && !settingsOpen && !showCameraX && !savedImagesOpen) HomeScreen(
             settings = settings,
+            isDarkTheme = useDarkTheme,
+            onToggleTheme = {
+                useDarkTheme = !useDarkTheme
+                getSharedPreferences("objectsnap.ui", MODE_PRIVATE).edit().putBoolean("dark_theme", useDarkTheme).apply()
+            },
             onSettings = { settingsOpen = true },
+            onSavedImages = { savedImagesOpen = true; savedImagesRefresh++ },
             onAiModel = { aiSettingsOpen = true },
-            onCamera = { selected ->
-                mode = selected
-                if (autoSaveStore.folderUri() == null) {
-                    pendingCameraMode = selected
-                    outputFolderLauncher.launch(null)
-                } else {
-                    cameraXMode = when (selected) {
-                        CaptureMode.PHOTO -> CameraCaptureMode.PHOTO
-                        CaptureMode.SIGNATURE -> CameraCaptureMode.SIGNATURE
-                        CaptureMode.WHOLE_FORM -> CameraCaptureMode.WHOLE_FORM
-                    }
-                    showCameraX = true
-                }
+            onCamera = {
+                pendingCameraMode = null
+                cameraXMode = CameraCaptureMode.WHOLE_FORM
+                showCameraX = true
             },
             onImport = {
                 pendingImport = false
-                if (autoSaveStore.folderUri() == null) {
-                    pendingImport = true
-                    outputFolderLauncher.launch(null)
-                } else {
-                    openDocument.launch(arrayOf("image/*"))
-                }
+                openDocument.launch(arrayOf("image/*"))
             },
         )
 
@@ -234,18 +226,20 @@ class MainActivity : ComponentActivity() {
             BackHandler { showCameraX = false }
             AndroidCaptureScreen(
                 initialMode = cameraXMode,
-                onSelectionCaptured = { lockedSelections = it },
-                onImageCaptured = { image ->
-                    showCameraX = false
+                captureProcessing = captureProcessing,
+                autoSaveEnabled = autoSaveEnabled,
+                onAutoSaveEnabledChange = { enabled ->
+                    autoSaveEnabled = enabled
+                    capturePrefs.edit().putBoolean("auto_save_enabled", enabled).apply()
+                },
+                onImageCaptured = { image, selectedDetections ->
+                    captureProcessing = true
                     val uri = Uri.parse(image.uri)
                     val file = if (uri.scheme == "file") File(uri.path ?: "") else null
                     if (file?.isFile == true && file.length() > 0L) {
-                        startAutoProcess(file, when (image.mode) {
-                            CameraCaptureMode.PHOTO -> CaptureMode.PHOTO
-                            CameraCaptureMode.SIGNATURE -> CaptureMode.SIGNATURE
-                            CameraCaptureMode.WHOLE_FORM -> CaptureMode.WHOLE_FORM
-                        })
+                        startAutoProcess(file, selectedDetections, autoSaveEnabled)
                     } else {
+                        captureProcessing = false
                         saveMessage = "Camera image could not be opened. Please capture again."
                     }
                 },
@@ -254,14 +248,14 @@ class MainActivity : ComponentActivity() {
                     ioScope.launch {
                         val imported = withContext(Dispatchers.IO) { uriToFile(Uri.parse(image.uri), "import") }
                         if (imported == null) saveMessage = "Could not open this image. Try a different file."
-                        else startAutoProcess(imported, CaptureMode.WHOLE_FORM)
+                        else startAutoProcess(imported, autoSave = true)
                     }
                 },
                 onError = { saveMessage = it },
             )
         }
 
-        if (aiSettingsOpen) {
+        if (aiSettingsOpen && !showCameraX) {
             AiModelSettingsDialog(
                 context = this@MainActivity,
                 onDismiss = { aiSettingsOpen = false },
@@ -269,12 +263,26 @@ class MainActivity : ComponentActivity() {
             )
         }
 
-        if (settingsOpen) {
+        if (savedImagesOpen && !aiSettingsOpen && !settingsOpen && !showCameraX) {
+            SavedImagesScreen(
+                store = autoSaveStore,
+                refreshKey = savedImagesRefresh,
+                onBack = { savedImagesOpen = false },
+                onMessage = { saveMessage = it },
+            )
+        }
+
+        if (settingsOpen && !aiSettingsOpen && !showCameraX) {
             OutputSettingsDialog(
                 initial = settings,
+                initialAutoSave = autoSaveEnabled,
+                currentFolder = autoSaveStore.folderUri()?.lastPathSegment ?: "Selected folder",
+                onChooseFolder = { outputFolderLauncher.launch(null) },
                 onDismiss = { settingsOpen = false },
-                onSave = {
-                    settings = it
+                onSave = { updated, autoSave ->
+                    settings = updated
+                    autoSaveEnabled = autoSave
+                    capturePrefs.edit().putBoolean("auto_save_enabled", autoSave).apply()
                     settingsOpen = false
                 },
             )
@@ -294,45 +302,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun launchCamera(launcher: ActivityResultLauncher<Uri>) {
-        try {
-            val dir = File(
-                org.techwithkaushik.formSnap.foundation.ProcessingPaths.root(this),
-                "inputs/captures",
-            ).apply {
-                check(isDirectory || mkdirs()) { "Cannot create the camera output directory." }
-            }
-            val file = File(dir, "capture_" + System.currentTimeMillis() + ".jpg")
-            check(!file.exists() || file.delete()) { "Cannot prepare the camera output file." }
-            val uri = FileProvider.getUriForFile(
-                this,
-                BuildConfig.APPLICATION_ID + ".fileprovider",
-                file,
-            )
-            cameraOutputFile = file
-            cameraUri = uri
-            launcher.launch(uri)
-        } catch (error: Exception) {
-            cameraUri = null
-            cameraOutputFile?.delete()
-            cameraOutputFile = null
-            android.widget.Toast.makeText(
-                this,
-                error.message ?: "Unable to open the camera. Check camera permission and try again.",
-                android.widget.Toast.LENGTH_LONG,
-            ).show()
-        }
-    }
-
-    override fun onSaveInstanceState(outState: android.os.Bundle) {
-        outState.putString(STATE_CAMERA_URI, cameraUri?.toString())
-        outState.putString(STATE_CAMERA_FILE, cameraOutputFile?.absolutePath)
-        super.onSaveInstanceState(outState)
-    }
-
-    companion object {
-        private const val STATE_CAMERA_URI = "formsnap.camera.uri"
-        private const val STATE_CAMERA_FILE = "formsnap.camera.file"
+    /** Prefer a removable SD-card volume when Android exposes one, otherwise use primary shared storage. */
+    private fun defaultSharedStorageRoot(): File {
+        val roots = getExternalFilesDirs(null).filterNotNull().mapNotNull { appDir ->
+            val path = appDir.absolutePath
+            val marker = path.indexOf("/Android/")
+            if (marker > 0) File(path.substring(0, marker)) else null
+        }.distinctBy { it.absolutePath }
+        return roots.firstOrNull { root ->
+            runCatching { Environment.isExternalStorageRemovable(root) }.getOrDefault(false)
+        } ?: Environment.getExternalStorageDirectory()
     }
 
     private fun uriToFile(uri: Uri, prefix: String): File? {
@@ -386,7 +365,10 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun HomeScreen(
         settings: OutputSettings,
+        isDarkTheme: Boolean,
+        onToggleTheme: () -> Unit,
         onSettings: () -> Unit,
+        onSavedImages: () -> Unit,
         onAiModel: () -> Unit,
         onCamera: (CaptureMode) -> Unit,
         onImport: () -> Unit,
@@ -394,10 +376,12 @@ class MainActivity : ComponentActivity() {
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("FormSnap", fontWeight = FontWeight.Bold) },
+                    title = { Text("AI ObjectSnap", fontWeight = FontWeight.Bold) },
                     actions = {
+                        TextButton(onClick = onToggleTheme) { Text(if (isDarkTheme) "Light" else "Dark") }
                         TextButton(onClick = onAiModel) { Text("AI Model") }
-                        TextButton(onClick = onSettings) { Text("Output") }
+                        TextButton(onClick = onSavedImages) { Text("Saved") }
+                        TextButton(onClick = onSettings) { Text("Save") }
                     },
                 )
             },
@@ -416,12 +400,12 @@ class MainActivity : ComponentActivity() {
                     ) {
                         Column(Modifier.padding(20.dp)) {
                             Text(
-                                "FormSnap",
+                                "AI ObjectSnap",
                                 style = MaterialTheme.typography.headlineMedium,
                                 fontWeight = FontWeight.ExtraBold,
                             )
                             Spacer(Modifier.height(8.dp))
-                            Text("Capture or import a form. AI will detect, crop and auto-save photo and signature without a review screen.")
+                            Text("Detect. Label. Crop. Save. Import a TFLite object-detection model, point the camera at any objects, and AI ObjectSnap will label and crop detections automatically.")
                             Spacer(Modifier.height(8.dp))
                             
                         }
@@ -432,41 +416,32 @@ class MainActivity : ComponentActivity() {
                 }
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        ActionCard("Capture", "Form", "▣", Modifier.weight(1f)) {
+                        ActionCard("Capture", "Live camera", "▣", Modifier.weight(1f)) {
                             onCamera(CaptureMode.WHOLE_FORM)
                         }
-                        ActionCard("Import", "Form image", "▤", Modifier.weight(1f)) {
+                        ActionCard("Import", "Image", "▤", Modifier.weight(1f)) {
                             onImport()
-                        }
-                    }
-                }
-                item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        ActionCard("Photo", "Close capture", "◉", Modifier.weight(1f)) {
-                            onCamera(CaptureMode.PHOTO)
-                        }
-                        ActionCard("Signature", "Close capture", "✎", Modifier.weight(1f)) {
-                            onCamera(CaptureMode.SIGNATURE)
                         }
                     }
                 }
                 item {
                     Card(shape = RoundedCornerShape(18.dp)) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("Zero-touch AI mode", fontWeight = FontWeight.Bold)
-                            Text("YOLO detects Photo and Signature locally. Handwriting is ignored; final crops come from the original full-resolution image and are auto-saved.")
+                            Text("Smart object detection", fontWeight = FontWeight.Bold)
+                            Text("Your selected AI model identifies objects. Detected crops are saved automatically, or tap boxes to choose objects manually.")
                         }
                     }
                 }
                 item {
                     Card(shape = RoundedCornerShape(18.dp)) {
                         Column(Modifier.padding(16.dp)) {
-                            Text("Output settings", fontWeight = FontWeight.Bold)
-                            Text("Photo: ${fmt(settings.photoWidthMm)} × ${fmt(settings.photoHeightMm)} mm")
-                            Text("Signature: ${fmt(settings.signatureWidthMm)} × ${fmt(settings.signatureHeightMm)} mm")
-                            Text("${settings.dpi.toInt()} DPI • ≤${settings.maxKb} KB each")
+                            Text("Save settings", fontWeight = FontWeight.Bold)
+                            Text("Crop size: detected object box")
+                            Text("Maximum file size: ${settings.maxKb} KB per output")
+                            Text("File type: ${settings.fileType.name}")
+                            Text(if (settings.mergeEnabled) "Merge: ${settings.mergeOrientation.name.lowercase()} (same ${if (settings.mergeOrientation == MergeOrientation.VERTICAL) "width" else "height"})" else "Merge: Off")
                             Spacer(Modifier.height(8.dp))
-                            OutlinedButton(onClick = onSettings) { Text("Change size / DPI") }
+                            OutlinedButton(onClick = onSettings) { Text("Configure save options") }
                         }
                     }
                 }
@@ -496,257 +471,148 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun EditorScreen(
-        file: File,
-        mode: CaptureMode,
-        onSettings: () -> Unit,
-        onBack: () -> Unit,
-        onCaptureAgain: () -> Unit,
-        onImportAgain: () -> Unit,
-        onExtract: suspend () -> Unit,
+    private fun OutputSettingsDialog(
+        initial: OutputSettings,
+        initialAutoSave: Boolean,
+        currentFolder: String,
+        onChooseFolder: () -> Unit,
+        onDismiss: () -> Unit,
+        onSave: (OutputSettings, Boolean) -> Unit,
     ) {
-        var processing by remember { mutableStateOf(false) }
-        var status by remember { mutableStateOf("Extracting…") }
-        LaunchedEffect(file.absolutePath, mode) {
-            processing = true
-            status = "Opening OpenCV extraction preview…"
-            try {
-                onExtract()
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (t: Exception) {
-                status = t.message ?: "Extraction failed"
-            } finally {
-                processing = false
-            }
-        }
-
+        var kb by remember { mutableIntStateOf(initial.maxKb) }
+        var autoSave by remember { mutableStateOf(initialAutoSave) }
+        var fileType by remember { mutableStateOf(initial.fileType) }
+        var mergeEnabled by remember { mutableStateOf(initial.mergeEnabled) }
+        var mergeOrientation by remember { mutableStateOf(initial.mergeOrientation) }
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("Preview", fontWeight = FontWeight.Bold) },
-                    navigationIcon = { TextButton(onClick = onBack) { Text("Back") } },
-                    actions = { TextButton(onClick = onSettings) { Text("Output") } },
+                    title = { Text("Save Settings", fontWeight = FontWeight.SemiBold) },
+                    navigationIcon = { TextButton(onClick = onDismiss) { Text("‹", style = MaterialTheme.typography.headlineMedium) } },
+                    actions = { TextButton(onClick = { onSave(OutputSettings(kb, fileType, mergeEnabled, mergeOrientation), autoSave) }) { Text("Save") } },
                 )
             },
         ) { padding ->
             LazyColumn(
                 Modifier.fillMaxSize().padding(padding),
                 contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 item {
-                    Card(shape = RoundedCornerShape(20.dp)) {
-                        Column {
-                            Text("Input", Modifier.padding(16.dp), fontWeight = FontWeight.Bold)
-                            BitmapImage(file, Modifier.fillMaxWidth().height(300.dp))
+                    Card {
+                        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Auto crop & save", fontWeight = FontWeight.SemiBold)
+                                Text("Automatically crop and save any object class detected by the active model.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(checked = autoSave, onCheckedChange = { autoSave = it })
                         }
                     }
                 }
-                
                 item {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        OutlinedButton(
-                            onClick = onCaptureAgain,
-                            modifier = Modifier.weight(1f),
-                            enabled = !processing,
-                        ) { Text("Capture") }
-                        OutlinedButton(
-                            onClick = onImportAgain,
-                            modifier = Modifier.weight(1f),
-                            enabled = !processing,
-                        ) { Text("Import") }
+                    Card {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Save location", fontWeight = FontWeight.SemiBold)
+                            Text(currentFolder, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("AI ObjectSnap/savedImage/modelName/annotationName/image1.jpg", style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = onChooseFolder) { Text("Change location") }
+                        }
                     }
                 }
                 item {
-                    Text(status, Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodySmall)
+                    Card {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("Merge detected objects", fontWeight = FontWeight.SemiBold)
+                                    Text("Combine multiple detected objects into one image.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Switch(checked = mergeEnabled, onCheckedChange = { mergeEnabled = it })
+                            }
+                            if (mergeEnabled) {
+                                Text("Merge direction", fontWeight = FontWeight.SemiBold)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    FilterChip(selected = mergeOrientation == MergeOrientation.VERTICAL, onClick = { mergeOrientation = MergeOrientation.VERTICAL }, label = { Text("↕ Vertical") }, modifier = Modifier.weight(1f))
+                                    FilterChip(selected = mergeOrientation == MergeOrientation.HORIZONTAL, onClick = { mergeOrientation = MergeOrientation.HORIZONTAL }, label = { Text("↔ Horizontal") }, modifier = Modifier.weight(1f))
+                                }
+                                Text(if (mergeOrientation == MergeOrientation.VERTICAL) "Stack top-to-bottom; every crop uses the same width." else "Place left-to-right; every crop uses the same height.", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+                item {
+                    Card {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text("Output file type", fontWeight = FontWeight.SemiBold)
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                OutputImageType.entries.forEach { type ->
+                                    FilterChip(selected = fileType == type, onClick = { fileType = type }, label = { Text(type.name) }, modifier = Modifier.weight(1f))
+                                }
+                            }
+                            HorizontalDivider()
+                            Text("Max file size (KB)", fontWeight = FontWeight.SemiBold)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                OutlinedButton(onClick = { kb = (kb - 25).coerceAtLeast(5) }) { Text("−") }
+                                Text(kb.toString(), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                                OutlinedButton(onClick = { kb = (kb + 25).coerceAtMost(2048) }) { Text("+") }
+                            }
+                            Text("Images follow detected object dimensions and are compressed/resized only as needed to meet this size.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+                item {
+                    Button(onClick = { onSave(OutputSettings(kb, fileType, mergeEnabled, mergeOrientation), autoSave) }, modifier = Modifier.fillMaxWidth()) { Text("Save settings") }
                 }
             }
         }
     }
 
-    @Composable
-    private fun BitmapImage(file: File, modifier: Modifier = Modifier) {
-        val bitmap = remember(file.absolutePath) { decodeSampled(file, 1200) }
-        if (bitmap != null) {
-            Image(
-                bitmap.asImageBitmap(),
-                contentDescription = null,
-                modifier = modifier,
-                contentScale = ContentScale.Fit,
-            )
-        } else {
-            Box(
-                modifier.background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center,
-            ) { Text("Unable to preview") }
-        }
-    }
-
-    @Composable
-    private fun OutputSettingsDialog(
-        initial: OutputSettings,
-        onDismiss: () -> Unit,
-        onSave: (OutputSettings) -> Unit,
-    ) {
-        var pw by remember { mutableStateOf(initial.photoWidthMm.toString()) }
-        var ph by remember { mutableStateOf(initial.photoHeightMm.toString()) }
-        var sw by remember { mutableStateOf(initial.signatureWidthMm.toString()) }
-        var sh by remember { mutableStateOf(initial.signatureHeightMm.toString()) }
-        var dpi by remember { mutableStateOf(initial.dpi.toInt().toString()) }
-        var kb by remember { mutableStateOf(initial.maxKb.toString()) }
-        var invalid by remember { mutableStateOf(false) }
-
-        AlertDialog(
-            onDismissRequest = onDismiss,
-            title = { Text("Output size") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Card(shape = RoundedCornerShape(14.dp)) {
-                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("Photo size", fontWeight = FontWeight.Bold)
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedTextField(
-                                    value = pw,
-                                    onValueChange = { pw = it },
-                                    modifier = Modifier.weight(1f),
-                                    label = { Text("Width (mm)") },
-                                    singleLine = true,
-                                )
-                                OutlinedTextField(
-                                    value = ph,
-                                    onValueChange = { ph = it },
-                                    modifier = Modifier.weight(1f),
-                                    label = { Text("Height (mm)") },
-                                    singleLine = true,
-                                )
-                            }
-                        }
-                    }
-                    Card(shape = RoundedCornerShape(14.dp)) {
-                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("Signature size", fontWeight = FontWeight.Bold)
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedTextField(
-                                    value = sw,
-                                    onValueChange = { sw = it },
-                                    modifier = Modifier.weight(1f),
-                                    label = { Text("Width (mm)") },
-                                    singleLine = true,
-                                )
-                                OutlinedTextField(
-                                    value = sh,
-                                    onValueChange = { sh = it },
-                                    modifier = Modifier.weight(1f),
-                                    label = { Text("Height (mm)") },
-                                    singleLine = true,
-                                )
-                            }
-                        }
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
-                            value = dpi,
-                            onValueChange = { dpi = it },
-                            modifier = Modifier.weight(1f),
-                            label = { Text("DPI") },
-                            singleLine = true,
-                        )
-                        OutlinedTextField(
-                            value = kb,
-                            onValueChange = { kb = it },
-                            modifier = Modifier.weight(1f),
-                            label = { Text("Max KB") },
-                            singleLine = true,
-                        )
-                    }
-                    Text(
-                        "Photo and signature dimensions are independent. DPI and Max KB apply to both outputs.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    if (invalid) {
-                        Text(
-                            "Enter valid positive sizes, DPI ≥72 and Max KB between 5 and 200.",
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                Button(onClick = {
-                    val photoW = pw.toDoubleOrNull()
-                    val photoH = ph.toDoubleOrNull()
-                    val signW = sw.toDoubleOrNull()
-                    val signH = sh.toDoubleOrNull()
-                    val dpiValue = dpi.toDoubleOrNull()
-                    val kbValue = kb.toIntOrNull()
-                    if (photoW != null && photoW > 0.0 &&
-                        photoH != null && photoH > 0.0 &&
-                        signW != null && signW > 0.0 &&
-                        signH != null && signH > 0.0 &&
-                        dpiValue != null && dpiValue >= 72.0 &&
-                        kbValue != null && kbValue in 5..200
-                    ) {
-                        onSave(
-                            OutputSettings(
-                                photoWidthMm = photoW,
-                                photoHeightMm = photoH,
-                                signatureWidthMm = signW,
-                                signatureHeightMm = signH,
-                                dpi = dpiValue,
-                                maxKb = kbValue,
-                            ),
-                        )
-                    } else {
-                        invalid = true
-                    }
-                }) { Text("Save") }
-            },
-            dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-        )
-    }
-
-    private fun decodeSampled(file: File, max: Int): Bitmap? {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(file.absolutePath, bounds)
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-        var sample = 1
-        while (bounds.outWidth / sample > max || bounds.outHeight / sample > max) sample *= 2
-        return BitmapFactory.decodeFile(
-            file.absolutePath,
-            BitmapFactory.Options().apply { inSampleSize = sample },
-        )
-    }
-
-    private fun fmt(value: Double): String = String.format(Locale.US, "%.1f", value)
 }
 
 @Composable
-private fun FormSnapTheme(content: @Composable () -> Unit) {
-    val scheme = lightColorScheme(
-        primary = Color(0xFF2457A7),
-        onPrimary = Color(0xFFFFFFFF),
-        primaryContainer = Color(0xFFDCE8FF),
-        onPrimaryContainer = Color(0xFF102B55),
-        secondary = Color(0xFF176B68),
-        onSecondary = Color(0xFFFFFFFF),
-        secondaryContainer = Color(0xFFD2F3EE),
-        onSecondaryContainer = Color(0xFF103B39),
-        tertiary = Color(0xFF6750A4),
-        onTertiary = Color(0xFFFFFFFF),
-        tertiaryContainer = Color(0xFFE9DDFF),
+private fun FormSnapTheme(darkTheme: Boolean, content: @Composable () -> Unit) {
+    val scheme = if (darkTheme) darkColorScheme(
+        primary = Color(0xFF168BFF),
+        onPrimary = Color.White,
+        primaryContainer = Color(0xFF14283A),
+        onPrimaryContainer = Color(0xFFEAF5FF),
+        secondary = Color(0xFF25D9E8),
+        onSecondary = Color(0xFF05212A),
+        secondaryContainer = Color(0xFF12333A),
+        onSecondaryContainer = Color(0xFFDDFBFF),
+        tertiary = Color(0xFF9B8AFF),
+        onTertiary = Color(0xFF1D1637),
+        tertiaryContainer = Color(0xFF28233C),
+        onTertiaryContainer = Color(0xFFEAE3FF),
+        background = Color(0xFF07111D),
+        onBackground = Color(0xFFEAF1F8),
+        surface = Color(0xFF101C29),
+        onSurface = Color(0xFFEAF1F8),
+        surfaceVariant = Color(0xFF1B2A39),
+        onSurfaceVariant = Color(0xFFB9C9D8),
+        outline = Color(0xFF506579),
+        outlineVariant = Color(0xFF293B4D),
+    ) else lightColorScheme(
+        primary = Color(0xFF0878D1),
+        onPrimary = Color.White,
+        primaryContainer = Color(0xFFD9F2FF),
+        onPrimaryContainer = Color(0xFF082D49),
+        secondary = Color(0xFF007F8B),
+        onSecondary = Color.White,
+        secondaryContainer = Color(0xFFD0F7F7),
+        onSecondaryContainer = Color(0xFF073B40),
+        tertiary = Color(0xFF6550A4),
+        onTertiary = Color.White,
+        tertiaryContainer = Color(0xFFEAE2FF),
         onTertiaryContainer = Color(0xFF25134E),
-        background = Color(0xFFF7F8FC),
-        onBackground = Color(0xFF191C22),
-        surface = Color(0xFFFDFBFF),
-        onSurface = Color(0xFF191C22),
-        surfaceVariant = Color(0xFFE8ECF4),
-        onSurfaceVariant = Color(0xFF444A56),
-        outline = Color(0xFF747B88),
-        outlineVariant = Color(0xFFD0D6E1),
+        background = Color(0xFFF4F8FC),
+        onBackground = Color(0xFF14202B),
+        surface = Color.White,
+        onSurface = Color(0xFF14202B),
+        surfaceVariant = Color(0xFFE7EEF5),
+        onSurfaceVariant = Color(0xFF435363),
+        outline = Color(0xFF72869A),
+        outlineVariant = Color(0xFFD1DCE6),
     )
     MaterialTheme(colorScheme = scheme, content = content)
 }

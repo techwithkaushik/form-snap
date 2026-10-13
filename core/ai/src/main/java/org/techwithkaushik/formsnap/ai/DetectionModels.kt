@@ -2,15 +2,6 @@ package org.techwithkaushik.formsnap.ai
 
 import android.graphics.RectF
 
-enum class DetectedClass(val id: Int, val label: String) {
-    PHOTO(0, "Photo"),
-    SIGNATURE(1, "Signature");
-
-    companion object {
-        fun fromId(id: Int): DetectedClass? = entries.firstOrNull { it.id == id }
-    }
-}
-
 data class DetectedObject(
     val id: Long,
     val classId: Int,
@@ -18,9 +9,9 @@ data class DetectedObject(
     val confidence: Float,
     val boundingBox: RectF,
 ) {
+    /** Any non-negative model class ID can be previewed, selected, and exported. */
     val isExtractable: Boolean
-        get() = classId == DetectedClass.PHOTO.id ||
-            classId == DetectedClass.SIGNATURE.id
+        get() = classId >= 0
 }
 
 data class LetterboxTransform(
@@ -30,6 +21,8 @@ data class LetterboxTransform(
     val sourceWidth: Int,
     val sourceHeight: Int,
     val inputSize: Int,
+    val inputWidth: Int = inputSize,
+    val inputHeight: Int = inputSize,
 )
 
 data class DetectionConfig(
@@ -37,4 +30,5 @@ data class DetectionConfig(
     val confidenceThreshold: Float = 0.35f,
     val iouThreshold: Float = 0.45f,
     val maxDetections: Int = 8,
+    val classLabels: List<String> = emptyList(),
 )

@@ -9,26 +9,31 @@ internal class YoloV8OutputDecoder(
     private val config: DetectionConfig,
 ) {
     private companion object {
-        const val CROSS_CLASS_DUPLICATE_IOU = 0.80f
         const val MAX_CANDIDATES_PER_CLASS = 100
-        const val PHOTO_MIN_CONFIDENCE = 0.45f
-        const val SIGNATURE_MIN_CONFIDENCE = 0.35f
     }
 
-    private fun thresholdFor(classId: Int): Float = when (classId) {
-        0 -> max(config.confidenceThreshold, PHOTO_MIN_CONFIDENCE)
-        1 -> max(config.confidenceThreshold, SIGNATURE_MIN_CONFIDENCE)
-        else -> 1.0f
-    }
+    private fun thresholdFor(classId: Int): Float = config.confidenceThreshold.coerceAtLeast(0.05f)
     fun decode(
         values: FloatArray,
         shape: IntArray,
         transform: LetterboxTransform,
     ): List<DetectedObject> {
-        require(shape.isNotEmpty()) { "YOLO output shape is empty." }
-        require(values.isNotEmpty()) { "YOLO output tensor is empty." }
+        if (values.isEmpty()) {
+            Log.w("FormSnapAI", "YOLO output tensor is empty; skipping this frame.")
+            return emptyList()
+        }
+        val expectedValues = YoloTensorShape.expectedValueCount(shape)
+        if (expectedValues == null || expectedValues != values.size) {
+            Log.e(
+                "FormSnapAI",
+                "Invalid YOLO output tensor: shape=${shape.contentToString()}, " +
+                    "values=${values.size}, expected=${expectedValues ?: "unsupported shape"}. " +
+                    "Skipping this frame to avoid invalid tensor indexing.",
+            )
+            return emptyList()
+        }
 
-        val detections = if (looksLikeNmsOutput(shape)) {
+        val detections = if (looksLikeNmsOutput(shape, transform)) {
             decodeNms(values, shape, transform)
         } else {
             decodeRawYolo(values, shape, transform)
@@ -58,47 +63,29 @@ internal class YoloV8OutputDecoder(
             )
         }
 
-        // A form has at most one target PHOTO and one target SIGNATURE in the
-        // capture workflow. Keep the best candidate for each class independently:
-        // PHOTO-only and SIGNATURE-only images must still return their one detection.
-        // This also prevents low-confidence duplicates from filling the preview.
-        val bestByClass = nonMaximumSuppression(detections)
-            .filter { it.classId in 0..1 }
-            .groupBy { it.classId }
-            .mapNotNull { (_, classDetections) ->
-                classDetections.maxByOrNull { it.confidence }
-            }
-
-        // The same physical region can occasionally be assigned both class IDs.
-        // If the best boxes overlap almost completely, keep only the stronger one;
-        // distinct photo and signature regions remain independent.
-        val photo = bestByClass.firstOrNull { it.classId == 0 }
-        val signature = bestByClass.firstOrNull { it.classId == 1 }
-        if (photo != null && signature != null &&
-            iou(photo.boundingBox, signature.boundingBox) >= CROSS_CLASS_DUPLICATE_IOU
-        ) {
-            return listOf(if (photo.confidence >= signature.confidence) photo else signature)
-        }
-        return bestByClass.sortedByDescending { it.confidence }
+        // Keep multiple instances of every class. Class-aware NMS only removes overlapping duplicates.
+        return nonMaximumSuppression(detections).sortedByDescending { it.confidence }.take(config.maxDetections.coerceAtLeast(1))
     }
 
     private fun rawClassScoreStats(values: FloatArray, shape: IntArray): Triple<Float, Int, Int> {
         if (shape.size < 3) return Triple(Float.NaN, 0, 0)
         val a = shape[shape.size - 2]
         val b = shape.last()
-        val channelsFirst = a == 6 && b > a
+        val channelsFirst = a in 5..512 && b > a
         val channels = if (channelsFirst) a else b
         val candidates = if (channelsFirst) b else a
-        if (channels != 6 || candidates <= 0 || values.size < channels * candidates) {
+        if (channels < 5 || candidates <= 0 || values.size < channels * candidates) {
             return Triple(Float.NaN, 0, 0)
         }
         var best = 0f
         var above005 = 0
         var above012 = 0
         for (candidate in 0 until candidates) {
-            val score0 = if (channelsFirst) values[4 * candidates + candidate] else values[candidate * channels + 4]
-            val score1 = if (channelsFirst) values[5 * candidates + candidate] else values[candidate * channels + 5]
-            val score = max(score0, score1)
+            var score = 0f
+            for (channel in 4 until channels) {
+                val value = if (channelsFirst) values[channel * candidates + candidate] else values[candidate * channels + channel]
+                if (value.isFinite()) score = max(score, value)
+            }
             if (score.isFinite()) {
                 best = max(best, score)
                 if (score >= 0.05f) above005++
@@ -113,8 +100,12 @@ internal class YoloV8OutputDecoder(
      * 8,400. A small final dimension alone is not enough to identify NMS:
      * raw channel-last output is also [1, N, 6].
      */
-    private fun looksLikeNmsOutput(shape: IntArray): Boolean =
-        shape.size >= 3 && shape.last() in 6..7 && shape[shape.size - 2] <= 1000
+    private fun looksLikeNmsOutput(shape: IntArray, transform: LetterboxTransform): Boolean =
+        YoloOutputShape.isLikelyNmsOutput(
+            outputShape = shape,
+            inputWidth = transform.inputWidth,
+            inputHeight = transform.inputHeight,
+        )
 
     private fun decodeNms(
         values: FloatArray,
@@ -129,8 +120,13 @@ internal class YoloV8OutputDecoder(
             for (row in 0 until rows) {
                 val base = row * cols
                 val confidence = values[base + 4]
-                val classId = values[base + 5].toInt()
-                if (confidence < config.confidenceThreshold) continue
+                val rawClassId = values[base + 5]
+                if (!confidence.isFinite() || confidence < config.confidenceThreshold) continue
+                if (!rawClassId.isFinite() || rawClassId < 0f || rawClassId > 999f) continue
+                val classId = rawClassId.toInt()
+                // Post-NMS class IDs are integral; malformed floats should not
+                // silently turn into a different class label.
+                if (kotlin.math.abs(rawClassId - classId) > 0.01f) continue
 
                 val box = mapBox(
                     RectF(
@@ -169,7 +165,7 @@ internal class YoloV8OutputDecoder(
         val candidates: Int
         val channelsFirst: Boolean
 
-        if (a == 6 && b > a || a in 7..256 && b > a) {
+        if (a in 5..512 && b > a) {
             channels = a
             candidates = b
             channelsFirst = true
@@ -179,9 +175,10 @@ internal class YoloV8OutputDecoder(
             channelsFirst = false
         }
 
-        if (channels < 6 || candidates <= 0) return emptyList()
+        // A single-class raw YOLO head has 4 box channels + 1 class score.
+        if (channels < 5 || candidates <= 0) return emptyList()
         val classCount = channels - 4
-        if (classCount != 2) return emptyList()
+        if (classCount < 1) return emptyList()
 
         fun at(candidate: Int, channel: Int): Float =
             if (channelsFirst) {
@@ -207,7 +204,7 @@ internal class YoloV8OutputDecoder(
                 }
             }
 
-            if (bestClass !in 0..1 || bestScore < config.confidenceThreshold) continue
+            if (bestClass !in 0 until classCount || !bestScore.isFinite() || bestScore < config.confidenceThreshold) continue
 
             val box = mapBox(
                 RectF(
@@ -231,23 +228,31 @@ internal class YoloV8OutputDecoder(
     }
 
     private fun classLabel(classId: Int): String =
-        DetectedClass.fromId(classId)?.label ?: "Object $classId"
+        config.classLabels.getOrNull(classId)?.trim()?.takeIf { it.isNotEmpty() }
+            ?: "Class $classId"
 
     private fun mapBox(
         raw: RectF,
         transform: LetterboxTransform,
     ): RectF? {
-        val maxInput = transform.inputSize.toFloat()
+        if (!raw.left.isFinite() || !raw.top.isFinite() ||
+            !raw.right.isFinite() || !raw.bottom.isFinite()
+        ) return null
+
         val maxCoordinate = max(
             max(kotlin.math.abs(raw.left), kotlin.math.abs(raw.right)),
             max(kotlin.math.abs(raw.top), kotlin.math.abs(raw.bottom)),
         )
-        val scaleToInput = if (maxCoordinate <= 1.5f) maxInput else 1f
+        // Some custom exports return normalized 0..1 boxes. Scale x and y
+        // independently: rectangular model inputs must not use width for y.
+        val normalizedCoordinates = maxCoordinate <= 1.5f
+        val xScale = if (normalizedCoordinates) transform.inputWidth.toFloat() else 1f
+        val yScale = if (normalizedCoordinates) transform.inputHeight.toFloat() else 1f
 
-        val left = (raw.left * scaleToInput - transform.padX) / transform.scale
-        val top = (raw.top * scaleToInput - transform.padY) / transform.scale
-        val right = (raw.right * scaleToInput - transform.padX) / transform.scale
-        val bottom = (raw.bottom * scaleToInput - transform.padY) / transform.scale
+        val left = (raw.left * xScale - transform.padX) / transform.scale
+        val top = (raw.top * yScale - transform.padY) / transform.scale
+        val right = (raw.right * xScale - transform.padX) / transform.scale
+        val bottom = (raw.bottom * yScale - transform.padY) / transform.scale
 
         val clipped = RectF(
             left.coerceIn(0f, transform.sourceWidth.toFloat()),

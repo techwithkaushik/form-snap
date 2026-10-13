@@ -21,10 +21,12 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 fun AndroidCaptureScreen(
     modifier: Modifier = Modifier,
     initialMode: CaptureMode = CaptureMode.WHOLE_FORM,
-    onImageCaptured: (CapturedImage) -> Unit,
-    onImportImage: (CapturedImage) -> Unit = onImageCaptured,
+    onImageCaptured: (CapturedImage, List<LiveDetection>) -> Unit,
+    onImportImage: (CapturedImage) -> Unit = { image -> onImageCaptured(image, emptyList()) },
     onError: (String) -> Unit = {},
-    onSelectionCaptured: (List<LiveDetection>) -> Unit = {},
+    autoSaveEnabled: Boolean = true,
+    captureProcessing: Boolean = false,
+    onAutoSaveEnabledChange: (Boolean) -> Unit = {},
 ) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
@@ -34,6 +36,10 @@ fun AndroidCaptureScreen(
     var liveDetections by remember { mutableStateOf<List<LiveDetection>>(emptyList()) }
     var liveDiagnostics by remember { mutableStateOf("AI: waiting for camera frames…") }
     var pendingSelection by remember { mutableStateOf<List<LiveDetection>>(emptyList()) }
+    var autoCaptureTriggered by remember { mutableStateOf(false) }
+    var captureCooldown by remember { mutableStateOf(false) }
+    val confidencePrefs = remember(context) { context.getSharedPreferences("formsnap.live.detection", android.content.Context.MODE_PRIVATE) }
+    var confidenceThreshold by remember { mutableStateOf(confidencePrefs.getFloat("confidence_threshold", 0.35f).coerceIn(0.05f, 0.95f)) }
     var permissionGranted by remember { mutableStateOf(camera.hasCameraPermission()) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -41,6 +47,15 @@ fun AndroidCaptureScreen(
     ) {
         permissionGranted = it
         presenter.onPermissionResult(it)
+    }
+
+    // Ask for camera permission when the live capture page is opened, not on Home.
+    LaunchedEffect(Unit) {
+        if (!camera.hasCameraPermission()) permissionLauncher.launch(Manifest.permission.CAMERA)
+        else {
+            permissionGranted = true
+            presenter.onPermissionResult(true)
+        }
     }
 
     val importLauncher = rememberLauncherForActivityResult(
@@ -52,10 +67,46 @@ fun AndroidCaptureScreen(
 
     DisposableEffect(Unit) {
         camera.setLiveDetectionListener { detections -> liveDetections = detections }
+        camera.setConfidenceThreshold(confidenceThreshold)
         camera.setLiveDiagnosticsListener { message -> liveDiagnostics = message }
         onDispose {
             camera.shutdown()
             session.close()
+        }
+    }
+
+    androidx.compose.runtime.LaunchedEffect(confidenceThreshold) {
+        camera.setConfidenceThreshold(confidenceThreshold)
+        confidencePrefs.edit().putFloat("confidence_threshold", confidenceThreshold).apply()
+    }
+
+    // After processing each still, keep the preview open and wait 4.5 seconds
+    // before re-arming capture. This prevents overlapping captures while the
+    // crop/save pipeline is still working.
+    LaunchedEffect(captureProcessing) {
+        if (captureProcessing) {
+            captureCooldown = true
+        } else if (captureCooldown) {
+            kotlinx.coroutines.delay(4_500)
+            autoCaptureTriggered = false
+            captureCooldown = false
+        }
+    }
+
+    // Require a detection to remain present for 1.5 seconds before taking
+    // the full-resolution still. Key only on presence, not every changing box,
+    // so each incoming camera frame does not restart the stabilization timer.
+    val hasConfidentDetection = liveDetections.any { it.confidence >= confidenceThreshold }
+    LaunchedEffect(hasConfidentDetection, autoSaveEnabled, autoCaptureTriggered, captureProcessing, captureCooldown) {
+        if (autoSaveEnabled && !autoCaptureTriggered && !captureProcessing && !captureCooldown && hasConfidentDetection) {
+            kotlinx.coroutines.delay(1_500)
+            if (autoSaveEnabled && !autoCaptureTriggered && !captureProcessing && !captureCooldown &&
+                liveDetections.any { it.confidence >= confidenceThreshold }
+            ) {
+                autoCaptureTriggered = true
+                pendingSelection = emptyList()
+                camera.capture(session)
+            }
         }
     }
 
@@ -65,12 +116,16 @@ fun AndroidCaptureScreen(
                 CaptureEvent.CameraPermissionRequired ->
                     permissionLauncher.launch(Manifest.permission.CAMERA)
                 is CaptureEvent.ImageCaptured -> {
-                    onSelectionCaptured(pendingSelection)
+                    val selected = pendingSelection
                     pendingSelection = emptyList()
-                    onImageCaptured(event.image)
+                    onImageCaptured(event.image, selected)
                 }
                 is CaptureEvent.ImportSelected -> onImportImage(event.image)
-                is CaptureEvent.Error -> onError(event.message)
+                is CaptureEvent.Error -> {
+                    // A failed automatic shutter must not permanently disarm live capture.
+                    autoCaptureTriggered = false
+                    onError(event.message)
+                }
             }
         }
     }
@@ -97,12 +152,18 @@ fun AndroidCaptureScreen(
         },
         controller = presenter,
         onCapture = { selected ->
-            pendingSelection = selected
-            if (!permissionGranted || !camera.hasCameraPermission()) {
-                permissionLauncher.launch(Manifest.permission.CAMERA)
+            if (captureProcessing || captureCooldown) {
+                onError("Capture is processing. Live capture will be ready in a few seconds.")
+            } else if (!autoSaveEnabled && selected.isEmpty()) {
+                onError("Manual mode: tap one or more detection boxes, then press the shutter.")
             } else {
-                presenter.onPermissionResult(true)
-                camera.capture(session)
+                pendingSelection = selected
+                if (!permissionGranted || !camera.hasCameraPermission()) {
+                    permissionLauncher.launch(Manifest.permission.CAMERA)
+                } else {
+                    presenter.onPermissionResult(true)
+                    camera.capture(session)
+                }
             }
         },
         onImport = {
@@ -127,6 +188,11 @@ fun AndroidCaptureScreen(
         },
         liveDetections = liveDetections,
         liveDiagnostics = liveDiagnostics,
+        confidenceThreshold = confidenceThreshold,
+        onConfidenceThresholdChange = { confidenceThreshold = it },
+        autoSaveEnabled = autoSaveEnabled,
+        onAutoSaveEnabledChange = onAutoSaveEnabledChange,
+        onError = onError,
     )
     }
 }

@@ -16,6 +16,8 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -38,6 +40,11 @@ fun CaptureScreen(
     onToggleFlash: () -> Unit,
     liveDetections: List<LiveDetection> = emptyList(),
     liveDiagnostics: String = "AI: starting camera…",
+    confidenceThreshold: Float = 0.35f,
+    onConfidenceThresholdChange: (Float) -> Unit = {},
+    autoSaveEnabled: Boolean = true,
+    onAutoSaveEnabledChange: (Boolean) -> Unit = {},
+    onError: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val state by controller.state.collectAsState()
@@ -52,12 +59,12 @@ fun CaptureScreen(
         cameraPreview()
         Surface(
             modifier = Modifier.align(Alignment.TopStart).padding(start = 10.dp, top = 12.dp, end = 88.dp),
-            color = Color.Black.copy(alpha = 0.82f),
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
             shape = MaterialTheme.shapes.small,
         ) {
             Text(
                 text = liveDiagnostics,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
             )
@@ -77,44 +84,52 @@ fun CaptureScreen(
             detections = appliedDetections,
         )
 
+        Surface(
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = 12.dp),
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+            onClick = onToggleFlash,
+        ) {
+            Text(
+                text = if (state.flashEnabled) "⚡ ON" else "⚡",
+                color = if (state.flashEnabled) Color(0xFFFFC247) else MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            )
+        }
+
         Column(
             modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Row(
+            Surface(
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+                shape = MaterialTheme.shapes.medium,
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                CaptureMode.entries.forEach { item ->
-                    FilterChip(
-                        selected = state.mode == item,
-                        onClick = { controller.setMode(item) },
-                        label = {
+                Column(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Auto crop & save", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
                             Text(
-                                when (item) {
-                                    CaptureMode.WHOLE_FORM -> "Form"
-                                    CaptureMode.PHOTO -> "Photo"
-                                    CaptureMode.SIGNATURE -> "Sign"
-                                },
+                                if (autoSaveEnabled) "First confident detection captures and saves automatically"
+                                else "Tap detection boxes to select crops, then press the shutter",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.labelSmall,
                             )
-                        },
-                    )
+                        }
+                        Switch(checked = autoSaveEnabled, onCheckedChange = onAutoSaveEnabledChange)
+                    }
+                    if (!autoSaveEnabled) {
+                        Text("Selected objects: ${appliedDetections.count { it.locked }}", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelMedium)
+                    }
                 }
             }
-
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Surface(
-                    shape = CircleShape,
-                    color = Color.Black.copy(alpha = 0.48f),
-                    onClick = onToggleLens,
-                ) {
-                    Text("↔", color = Color.White, modifier = Modifier.padding(14.dp))
-                }
-
                 Surface(
                     shape = CircleShape,
                     color = Color.White,
@@ -134,29 +149,17 @@ fun CaptureScreen(
 
                 Surface(
                     shape = CircleShape,
-                    color = Color.Black.copy(alpha = 0.48f),
-                    onClick = onToggleFlash,
-                ) {
-                    Text(
-                        if (state.flashEnabled) "⚡" else "◌",
-                        color = Color.White,
-                        modifier = Modifier.padding(14.dp),
-                    )
-                }
-
-                Surface(
-                    shape = CircleShape,
-                    color = Color.Black.copy(alpha = 0.48f),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
                     onClick = onImport,
                 ) {
-                    Text("▣", color = Color.White, modifier = Modifier.padding(14.dp))
+                    Text("Import", color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp))
                 }
             }
 
             if (state.capturing) {
                 Text(
                     "Capturing…",
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onSurface,
                     style = MaterialTheme.typography.labelLarge,
                 )
             }
@@ -191,11 +194,7 @@ private fun LiveDetectionOverlay(
                 val right = detection.right.coerceIn(0f, 1f) * size.width
                 val bottom = detection.bottom.coerceIn(0f, 1f) * size.height
                 drawRect(
-                    color = when {
-                        detection.locked -> Color(0xFF2979FF)
-                        detection.label == "Signature" -> Color(0xFFFFC107)
-                        else -> Color(0xFF00E676)
-                    },
+                    color = if (detection.locked) Color(0xFF2979FF) else Color(0xFF00E676),
                     topLeft = androidx.compose.ui.geometry.Offset(left, top),
                     size = androidx.compose.ui.geometry.Size(
                         (right - left).coerceAtLeast(1f),
@@ -223,11 +222,7 @@ private fun LiveDetectionOverlay(
                         y = (top * maxHeight.value).dp,
                     )
                     .background(
-                        color = when {
-                            detection.locked -> Color(0xFF2979FF)
-                            detection.label.equals("Signature", ignoreCase = true) -> Color(0xFFFFA000)
-                            else -> Color(0xFF00A86B)
-                        },
+                        color = if (detection.locked) Color(0xFF2979FF) else Color(0xFF00A86B),
                         shape = MaterialTheme.shapes.extraSmall,
                     )
                     .padding(horizontal = 6.dp, vertical = 3.dp),

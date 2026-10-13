@@ -5,6 +5,8 @@ on:
   push:
     branches:
       - feature/foundation-pipeline
+      - feature/universal-tflite-no-dataset-builder
+      - ai-objectsnap
   pull_request:
     branches:
       - feature/foundation-pipeline
@@ -20,10 +22,45 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: feature/foundation-pipeline
-          fetch-depth: 1
+          # Build the PR head, not the target branch, so CI validates proposed changes.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
           submodules: false
 
+      - name: Compute branch version and commit count
+        id: app-version
+        shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
+          SOURCE_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          set -euo pipefail
+          BRANCH="${SOURCE_BRANCH//\//-}"
+          BRANCH="$(printf '%s' "$BRANCH" | tr -cd '[:alnum:]._-')"
+          test -n "$BRANCH"
+          SHORT_SHA="$(git rev-parse --short=7 HEAD)"
+          if git ls-remote --exit-code --heads origin "$DEFAULT_BRANCH" >/dev/null 2>&1; then
+            git fetch --no-tags origin "$DEFAULT_BRANCH"
+            if [ "$BRANCH" = "$DEFAULT_BRANCH" ]; then
+              COMMIT_COUNT="$(git rev-list --count HEAD)"
+            else
+              COMMIT_COUNT="$(git rev-list --count HEAD "^origin/$DEFAULT_BRANCH")"
+            fi
+          else
+            COMMIT_COUNT="$(git rev-list --count HEAD)"
+          fi
+          VERSION_CODE=$((COMMIT_COUNT + 1))
+          VERSION_NAME="${BRANCH}-${SHORT_SHA}"
+          APK_NAME="AI-ObjectSnap-${VERSION_NAME}-c${COMMIT_COUNT}.apk"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "commit_count=$COMMIT_COUNT" >> "$GITHUB_OUTPUT"
+          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "apk_name=$APK_NAME" >> "$GITHUB_OUTPUT"
+          echo "APP_VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+          echo "APP_VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
+          echo "Building $APK_NAME (versionCode=$VERSION_CODE)"
       - name: Cache OpenCV Android SDK
         id: opencv-cache
         uses: actions/cache@v4
@@ -71,7 +108,9 @@ jobs:
           MODEL_DIR="core/ai/src/main/assets"
           MODEL="$MODEL_DIR/formsnap_bootstrap_yolov8n_float32.tflite"
           mkdir -p "$MODEL_DIR"
-          curl --fail --location --retry 5 --retry-all-errors             "https://raw.githubusercontent.com/naz23/yolo-tensorflow-lite/main/yolov8n_float32.tflite"             -o "$MODEL"
+          curl --fail --location --retry 5 --retry-all-errors \
+            "https://raw.githubusercontent.com/naz23/yolo-tensorflow-lite/main/yolov8n_float32.tflite" \
+            -o "$MODEL"
           test -s "$MODEL"
           test "$(stat -c%s "$MODEL")" -gt 1000000
           ls -lh "$MODEL"
@@ -98,6 +137,8 @@ jobs:
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
           SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          APP_VERSION_CODE: ${{ steps.app-version.outputs.version_code }}
+          APP_VERSION_NAME: ${{ steps.app-version.outputs.version_name }}
         shell: bash
         run: |
           set -euo pipefail
@@ -107,36 +148,24 @@ jobs:
             gradle :app:assembleRelease --no-daemon --build-cache --stacktrace
           fi
 
-      - name: Build standalone Dataset Builder APK
+      - name: Verify APK and report download size
         shell: bash
         run: |
           set -euo pipefail
-          if [ -x ./gradlew ]; then
-            ./gradlew :dataset-builder:assembleDebug --no-daemon --build-cache --stacktrace
-          else
-            gradle :dataset-builder:assembleDebug --no-daemon --build-cache --stacktrace
-          fi
-          test -f dataset-builder/build/outputs/apk/debug/dataset-builder-debug.apk
-          ls -lh dataset-builder/build/outputs/apk/debug/dataset-builder-debug.apk
-
-      - name: Upload Dataset Builder APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: dataset-builder-debug
-          path: dataset-builder/build/outputs/apk/debug/dataset-builder-debug.apk
-
-      - name: Verify APK
-        shell: bash
-        run: |
-          set -euo pipefail
-          APK="app/build/outputs/apk/release/app-release.apk"
-          test -f "$APK"
+          SOURCE_APK="app/build/outputs/apk/release/app-release.apk"
+          test -f "$SOURCE_APK"
+          APK="app/build/outputs/apk/release/${{ steps.app-version.outputs.apk_name }}"
+          cp "$SOURCE_APK" "$APK"
           ls -lh "$APK"
+          echo "APK_SIZE_BYTES=$(stat -c%s "$APK")"
+          echo "Native library entries (compression method and size):"
+          unzip -lv "$APK" | grep -E 'lib/armeabi-v7a/.*\.so$' || true
           APKSIGNER="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)/apksigner"
           "$APKSIGNER" verify --verbose "$APK"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: form-snap-arm32-java-opencv
-          path: app/build/outputs/apk/release/app-release.apk
+          name: AI-ObjectSnap-${{ steps.app-version.outputs.version_name }}-c${{ steps.app-version.outputs.commit_count }}
+          path: app/build/outputs/apk/release/${{ steps.app-version.outputs.apk_name }}
+          if-no-files-found: error

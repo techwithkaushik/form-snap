@@ -30,9 +30,13 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import org.techwithkaushik.formsnap.ai.AiModelManager
 import org.techwithkaushik.formsnap.ai.DetectedObject
+import org.techwithkaushik.formsnap.ai.DetectionAdapter
 import org.techwithkaushik.formsnap.ai.DetectionConfig
 import org.techwithkaushik.formsnap.ai.FrameSkipGate
 import org.techwithkaushik.formsnap.ai.YoloV8TfliteDetector
+import org.techwithkaushik.formsnap.ai.ModelTask
+import org.techwithkaushik.formsnap.ai.TfliteImageClassifier
+import org.techwithkaushik.formsnap.ai.SsdTfliteDetector
 
 class AndroidCameraCapture(
     context: Context,
@@ -51,10 +55,12 @@ class AndroidCameraCapture(
     private var boundPreview: PreviewView? = null
     private var bindingInProgress = false
     private var analyzer: ImageAnalysis? = null
-    private var detector: YoloV8TfliteDetector? = null
+    private var detector: DetectionAdapter? = null
+    private var classifier: TfliteImageClassifier? = null
     private val analysisExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val frameGate = FrameSkipGate(2)
     private var lastLiveDetections: List<LiveDetection> = emptyList()
+    @Volatile private var confidenceThreshold: Float = 0.35f
     private val inferenceBusy = AtomicBoolean(false)
     private var onLiveDetections: ((List<LiveDetection>) -> Unit)? = null
     private var onLiveDiagnostics: ((String) -> Unit)? = null
@@ -64,6 +70,9 @@ class AndroidCameraCapture(
             PackageManager.PERMISSION_GRANTED
 
     fun setLiveDetectionListener(listener: (List<LiveDetection>) -> Unit) { onLiveDetections = listener }
+    fun setConfidenceThreshold(value: Float) {
+        confidenceThreshold = value.coerceIn(0.05f, 0.95f)
+    }
     fun setLiveDiagnosticsListener(listener: (String) -> Unit) { onLiveDiagnostics = listener }
 
     fun bind(preview: PreviewView, lifecycleOwner: LifecycleOwner) {
@@ -116,22 +125,31 @@ class AndroidCameraCapture(
         val file = session.nextCaptureFile("jpg")
         val options = ImageCapture.OutputFileOptions.Builder(file).build()
 
-        capture.takePicture(
-            options,
-            ContextCompat.getMainExecutor(appContext),
-            object : ImageCapture.OnImageSavedCallback {
-                override fun onError(exception: ImageCaptureException) {
-                    file.delete()
-                    presenter.onCaptureFailure(
-                        exception.message ?: "Failed to capture image.",
-                    )
-                }
+        // Give the live analyzer time to settle immediately before the still is
+        // taken. The auto-capture path also requires a stable detection window;
+        // this short delay applies to manual shutter taps too.
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            if (imageCapture !== capture) {
+                presenter.onCaptureFailure("Camera changed before capture. Please try again.")
+                return@postDelayed
+            }
+            capture.takePicture(
+                options,
+                ContextCompat.getMainExecutor(appContext),
+                object : ImageCapture.OnImageSavedCallback {
+                    override fun onError(exception: ImageCaptureException) {
+                        file.delete()
+                        presenter.onCaptureFailure(
+                            exception.message ?: "Failed to capture image.",
+                        )
+                    }
 
-                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                    presenter.onCaptured(Uri.fromFile(file).toString(), file.name)
-                }
-            },
-        )
+                    override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                        presenter.onCaptured(Uri.fromFile(file).toString(), file.name)
+                    }
+                },
+            )
+        }, 1_000L)
     }
 
     fun shutdown() {
@@ -145,6 +163,8 @@ class AndroidCameraCapture(
         imageCapture = null
         detector?.close()
         detector = null
+        classifier?.close()
+        classifier = null
         inferenceBusy.set(false)
         analysisExecutor.shutdownNow()
         lastLiveDetections = emptyList()
@@ -156,7 +176,8 @@ class AndroidCameraCapture(
     private fun analyze(image: ImageProxy) {
         if (!frameGate.shouldProcess()) { image.close(); return }
         val active = detector
-        if (active == null) {
+        val activeClassifier = classifier
+        if (active == null && activeClassifier == null) {
             onLiveDiagnostics?.invoke("AI: NO ACTIVE MODEL")
             image.close()
             return
@@ -178,19 +199,42 @@ class AndroidCameraCapture(
         }
         val sourceWidth = bitmap.width.toFloat().coerceAtLeast(1f)
         val sourceHeight = bitmap.height.toFloat().coerceAtLeast(1f)
-        active.detectAsync(bitmap, { detections ->
+        if (activeClassifier != null) {
+            try {
+                val predictions = activeClassifier.classify(bitmap, topK = 5)
+                val summary = predictions.joinToString("\\n") {
+                    "${it.label}: ${"%.1f".format(java.util.Locale.US, it.confidence * 100f)}%"
+                }.ifBlank { "No class scores returned." }
+                onLiveDiagnostics?.invoke("AI CLASSIFICATION (no bounding boxes)\\n$summary")
+                onLiveDetections?.invoke(emptyList())
+            } catch (error: Throwable) {
+                Log.e(TAG, "Live TFLite classification failed", error)
+                onLiveDiagnostics?.invoke("AI CLASSIFICATION ERROR\\n${error.message ?: error.javaClass.simpleName}")
+            } finally {
+                bitmap.recycle()
+                inferenceBusy.set(false)
+            }
+            return
+        }
+        val detectionModel = active ?: run {
+            bitmap.recycle()
+            inferenceBusy.set(false)
+            onLiveDiagnostics?.invoke("AI MODEL ERROR\\nNo compatible inference adapter.")
+            return
+        }
+        detectionModel.detectAsync(bitmap, { detections ->
             bitmap.recycle()
             inferenceBusy.set(false)
             val mapped = detections
                 .asSequence()
-                .filter { it.confidence >= 0.05f }
+                .filter { it.confidence >= confidenceThreshold }
                 .map { toLiveDetection(it, sourceWidth, sourceHeight) }
                 .filter { it.right - it.left >= 0.008f && it.bottom - it.top >= 0.008f }
                 .toList()
             val topScores = detections.sortedByDescending { it.confidence }.take(4)
                 .joinToString { "${it.label} ${"%.2f".format(java.util.Locale.US, it.confidence)}" }
                 .ifBlank { "none" }
-            val status = "AI LIVE | raw=${detections.size} visible=${mapped.size}\nTop: $topScores\n${active.lastInferenceDiagnostics}"
+            val status = "AI LIVE | threshold=${(confidenceThreshold * 100).toInt()}% raw=${detections.size} visible=${mapped.size}\nTop: $topScores\n${detectionModel.lastInferenceDiagnostics}"
             Log.i(TAG, status.replace("\n", " "))
             onLiveDiagnostics?.invoke(status)
             val stable = stabilizeDetections(mapped)
@@ -199,7 +243,7 @@ class AndroidCameraCapture(
         }, { error ->
             bitmap.recycle()
             inferenceBusy.set(false)
-            Log.e(TAG, "Live PHOTO/SIGNATURE inference failed", error)
+            Log.e(TAG, "Live TFLite inference failed", error)
             onLiveDiagnostics?.invoke("AI INFERENCE ERROR\n${error.javaClass.simpleName}: ${error.message ?: "unknown"}")
             // Detection is optional: inference failure must never cancel or block photo capture.
         })
@@ -399,8 +443,8 @@ class AndroidCameraCapture(
                 .build()
                 .also { it.setSurfaceProvider(previewView.surfaceProvider) }
             val capture = ImageCapture.Builder()
-                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-                .setJpegQuality(92)
+                .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+                .setJpegQuality(100)
                 .setTargetRotation(rotation)
                 .build()
             val analysis = ImageAnalysis.Builder()
@@ -420,46 +464,71 @@ class AndroidCameraCapture(
             analyzer?.clearAnalyzer()
             analyzer = analysis
             imageCapture = capture
-            if (detector == null) {
-                val importedModel = AiModelManager(appContext).activeModelFile()
+            if (detector == null && classifier == null) {
+                val manager = AiModelManager(appContext)
+                val importedModel = manager.activeModelFile()
                 if (importedModel != null) {
-                    val active = runCatching {
-                        YoloV8TfliteDetector(
-                            appContext,
-                            modelFile = importedModel,
-                            config = DetectionConfig(
-                                inputSize = 320,
-                                confidenceThreshold = 0.05f,
-                                iouThreshold = 0.45f,
-                                maxDetections = 4,
-                            ),
-                        )
-                    }.getOrElse { error ->
+                    runCatching {
+                        when (manager.modelTask(importedModel)) {
+                            ModelTask.IMAGE_CLASSIFICATION -> {
+                                classifier = TfliteImageClassifier(
+                                    modelFile = importedModel,
+                                    labels = manager.classLabels(importedModel),
+                                    numThreads = 2,
+                                )
+                                onLiveDiagnostics?.invoke(
+                                    "CLASSIFICATION MODEL READY\\nPredictions show class names and confidence; this model does not produce boxes.",
+                                )
+                            }
+                            ModelTask.OBJECT_DETECTION -> {
+                                val created = YoloV8TfliteDetector(
+                                    appContext,
+                                    modelFile = importedModel,
+                                    config = DetectionConfig(
+                                        inputSize = 320,
+                                        confidenceThreshold = 0.05f,
+                                        iouThreshold = 0.45f,
+                                        maxDetections = 20,
+                                        classLabels = manager.classLabels(importedModel),
+                                    ),
+                                )
+                                runCatching { created.modelDiagnostics() }
+                                    .onSuccess { diagnostics ->
+                                        detector = created
+                                        Log.i(TAG, "Active model ready: $diagnostics")
+                                        onLiveDiagnostics?.invoke("MODEL READY\\n$diagnostics")
+                                    }
+                                    .onFailure {
+                                        created.close()
+                                        throw it
+                                    }
+                            }
+                            ModelTask.SSD_OBJECT_DETECTION -> {
+                                detector = SsdTfliteDetector(
+                                    context = appContext,
+                                    modelFile = importedModel,
+                                    config = DetectionConfig(
+                                        inputSize = 320,
+                                        confidenceThreshold = 0.05f,
+                                        iouThreshold = 0.45f,
+                                        maxDetections = 20,
+                                        classLabels = manager.classLabels(importedModel),
+                                    ),
+                                )
+                                onLiveDiagnostics?.invoke(
+                                    "SSD MODEL READY\\nStandard Detection_PostProcess outputs detected; verify model-specific preprocessing if results look incorrect.",
+                                )
+                            }
+                            ModelTask.UNSUPPORTED -> error("Unsupported TFLite task or tensor contract.")
+                        }
+                    }.onFailure { error ->
                         Log.e(TAG, "Unable to initialize active AI model", error)
-                        onLiveDiagnostics?.invoke("AI MODEL ERROR\n${error.message ?: error::class.java.simpleName}")
-                        null
-                    }
-                    if (active != null && active.modelAvailable()) {
-                        runCatching { active.modelDiagnostics() }
-                            .onSuccess { diagnostics ->
-                                Log.i(TAG, diagnostics)
-                                detector = active
-                                Log.i(TAG, "Active model ready: $diagnostics")
-                                onLiveDiagnostics?.invoke("MODEL READY\n$diagnostics")
-                            }
-                            .onFailure { error ->
-                                Log.e(TAG, "Active AI model is incompatible", error)
-                                active.close()
-                                onLiveDiagnostics?.invoke("AI MODEL INCOMPATIBLE\n${error.message ?: "unsupported output"}")
-                            }
-                    } else {
-                        active?.close()
-                        onLiveDiagnostics?.invoke("NO COMPATIBLE AI MODEL\nCapture works without live AI detection.")
+                        onLiveDiagnostics?.invoke("AI MODEL ERROR\\n${error.message ?: error::class.java.simpleName}")
                     }
                 } else {
-                    // Previously this path stayed silent, leaving users with only the camera grid.
-                    onLiveDiagnostics?.invoke("NO ACTIVE MODEL\nImport trained PHOTO/SIGNATURE .tflite")
-                    onLiveDiagnostics?.invoke("NO ACTIVE MODEL\nCapture works normally; live detection is disabled.")
+                    onLiveDiagnostics?.invoke(
+                        "NO ACTIVE MODEL\\nImport and activate a supported TFLite image model to enable AI.",
+                    )
                 }
             }
             camera = cameraProvider.bindToLifecycle(

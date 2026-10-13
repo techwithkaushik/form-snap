@@ -1,3 +1,4 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 package org.techwithkaushik.formSnap
 
 import android.content.Context
@@ -6,15 +7,22 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -22,6 +30,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import org.techwithkaushik.formsnap.ai.AiModelInfo
 import org.techwithkaushik.formsnap.ai.AiModelManager
@@ -36,111 +45,146 @@ fun AiModelSettingsDialog(
     val manager = remember { AiModelManager(context) }
     var models by remember { mutableStateOf(manager.models()) }
     var backupName by remember { mutableStateOf<String?>(null) }
+    var labelsModelName by remember { mutableStateOf<String?>(null) }
+    var expandedModelName by remember { mutableStateOf<String?>(null) }
+    var labelsVisibleFor by remember { mutableStateOf<String?>(null) }
 
-    val importLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument(),
-    ) { uri ->
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         runCatching { manager.importModel(uri) }
-            .onSuccess { info ->
-                models = manager.models()
-                onMessage("AI model imported and activated: ${info.name}")
-            }
+            .onSuccess { info -> models = manager.models(); onMessage("AI model imported and activated: ${info.name}") }
             .onFailure { onMessage("AI model import failed: ${it.message ?: "unknown error"}") }
     }
-
-    val backupLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/octet-stream"),
-    ) { uri ->
-        val name = backupName
-        backupName = null
-        if (uri != null && name != null) {
-            runCatching { manager.exportModel(name, uri) }
-                .onSuccess { onMessage("AI model backup created.") }
-                .onFailure { onMessage("Backup failed: ${it.message ?: "unknown error"}") }
-        }
+    val backupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        val name = backupName; backupName = null
+        if (uri != null && name != null) runCatching { manager.exportModel(name, uri) }
+            .onSuccess { onMessage("Model backup created.") }
+            .onFailure { onMessage("Backup failed: ${it.message ?: "unknown error"}") }
     }
-
+    val labelsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val name = labelsModelName; labelsModelName = null
+        if (uri != null && name != null) runCatching { manager.importLabels(uri, name) }
+            .onSuccess { models = manager.models(); onMessage("Annotation labels imported for $name.") }
+            .onFailure { onMessage("Labels import failed: ${it.message ?: "unknown error"}") }
+    }
     LaunchedEffect(Unit) { models = manager.models() }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("AI Model") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    "AI models are stored outside the APK. Import a compatible .tflite model here; the active model is used for live detection and extraction.",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Button(
-                    onClick = { importLauncher.launch(arrayOf("*/*")) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Import AI Model (.tflite)")
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Model Details", fontWeight = FontWeight.SemiBold) },
+                navigationIcon = { IconButton(onClick = onDismiss) { Text("‹", style = MaterialTheme.typography.headlineMedium) } },
+            )
+        },
+    ) { padding ->
+        LazyColumn(
+            Modifier.fillMaxSize().padding(padding),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            item {
+                Button(onClick = { importLauncher.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Import TFLite model (.tflite)")
                 }
-                HorizontalDivider()
-                if (models.isEmpty()) {
-                    Text("No AI model imported.", style = MaterialTheme.typography.bodyMedium)
-                } else {
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        items(models.size) { index ->
-                            val model = models[index]
-                            ModelRow(
-                                model = model,
-                                onActivate = {
-                                    runCatching { manager.setActive(model.name) }
-                                        .onSuccess {
-                                            models = manager.models()
-                                            onMessage("Active model: ${model.name}")
-                                        }
-                                        .onFailure {
-                                            onMessage("Cannot activate model: ${it.message ?: "incompatible model"}")
-                                        }
-                                },
-                                onBackup = {
-                                    backupName = model.name
-                                    backupLauncher.launch(model.name)
-                                },
-                                onDelete = {
-                                    runCatching { manager.delete(model.name) }
-                                        .onSuccess {
-                                            models = manager.models()
-                                            onMessage("Model deleted.")
-                                        }
-                                        .onFailure { onMessage(it.message ?: "Cannot delete model.") }
-                                },
-                            )
+                Text(
+                    "Embedded class names are loaded automatically. If the model has no labels, Live Detection shows generic Class 0, Class 1, etc.; import the matching labels file to show real class names.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
+            if (models.isEmpty()) {
+                item {
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("No model imported", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Text("Import a compatible TensorFlow Lite object-detection model to enable live detection.")
                         }
                     }
                 }
             }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
-    )
+            items(models, key = { it.name }) { model ->
+                ModelCard(
+                    model = model,
+                    expanded = expandedModelName == model.name,
+                    showLabels = labelsVisibleFor == model.name,
+                    onToggleDetails = { expandedModelName = if (expandedModelName == model.name) null else model.name },
+                    onToggleLabels = { labelsVisibleFor = if (labelsVisibleFor == model.name) null else model.name },
+                    onActivate = {
+                        runCatching { manager.setActive(model.name) }
+                            .onSuccess { models = manager.models(); onMessage("Active model: ${model.name}") }
+                            .onFailure { onMessage("Cannot activate model: ${it.message ?: "incompatible model"}") }
+                    },
+                    onLabels = { labelsModelName = model.name; labelsLauncher.launch(arrayOf("text/plain", "text/*")) },
+                    onBackup = { backupName = model.name; backupLauncher.launch(model.name) },
+                    onDelete = {
+                        runCatching { manager.delete(model.name) }
+                            .onSuccess { models = manager.models(); onMessage("Model deleted.") }
+                            .onFailure { onMessage(it.message ?: "Cannot delete model.") }
+                    },
+                )
+            }
+        }
+    }
 }
 
 @Composable
-private fun ModelRow(
+private fun ModelCard(
     model: AiModelInfo,
+    expanded: Boolean,
+    showLabels: Boolean,
+    onToggleDetails: () -> Unit,
+    onToggleLabels: () -> Unit,
     onActivate: () -> Unit,
     onBackup: () -> Unit,
+    onLabels: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-        Text(model.name, style = MaterialTheme.typography.titleSmall)
-        Text(
-            formatBytes(model.sizeBytes) + if (model.active) " • ACTIVE" else "",
-            style = MaterialTheme.typography.bodySmall,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (!model.active) {
-                TextButton(onClick = onActivate) { Text("Activate") }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.medium) {
+                    Text("AI", modifier = Modifier.padding(12.dp), color = MaterialTheme.colorScheme.onPrimaryContainer, fontWeight = FontWeight.Bold)
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(model.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(formatBytes(model.sizeBytes) + if (model.active) " • ACTIVE" else "", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(if (model.active) "Model loaded successfully" else "Imported model", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                }
             }
-            TextButton(onClick = onBackup) { Text("Backup") }
-            if (!model.active) {
-                TextButton(onClick = onDelete) { Text("Delete") }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = onToggleDetails) { Text(if (expanded) "Hide details" else "Show details") }
+                TextButton(onClick = onToggleLabels) { Text(if (showLabels) "Hide labels" else "Show labels") }
+                if (!model.active) TextButton(onClick = onActivate) { Text("Activate") }
+                TextButton(onClick = onLabels) { Text("Import labels") }
+                TextButton(onClick = onBackup) { Text("Backup") }
+                if (!model.active) TextButton(onClick = onDelete) { Text("Delete") }
+            }
+            if (expanded) {
+                HorizontalDivider()
+                Text("Model Information", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                InfoLine("Model name", model.name)
+                InfoLine("File size", formatBytes(model.sizeBytes))
+                InfoLine("Input tensor", model.inputDetails.ifBlank { "Unavailable" })
+                InfoLine("Output tensor", model.outputDetails.ifBlank { "Unavailable" })
+            }
+            if (showLabels) {
+                HorizontalDivider()
+                Text("Classes / annotations", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Text(model.classDetails.ifBlank { "No embedded class names were found. Use Import labels if this model has a matching labels file." }, style = MaterialTheme.typography.bodySmall)
             }
         }
+    }
+}
+
+@Composable
+private fun InfoLine(label: String, value: String) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(label, Modifier.weight(0.9f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, Modifier.weight(1.1f), style = MaterialTheme.typography.bodySmall)
     }
 }
 

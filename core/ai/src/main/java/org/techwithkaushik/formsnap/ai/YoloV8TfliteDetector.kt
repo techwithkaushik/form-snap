@@ -22,7 +22,7 @@ class YoloV8TfliteDetector(
     private val modelAssetName: String = DEFAULT_MODEL_ASSET,
     private val config: DetectionConfig = DetectionConfig(),
     private val modelFile: File? = null,
-) : AutoCloseable {
+) : DetectionAdapter {
 
     companion object {
         const val DEFAULT_MODEL_ASSET = "formsnap_yolov8n_int8.tflite"
@@ -45,7 +45,7 @@ class YoloV8TfliteDetector(
     private var inputWidth: Int = config.inputSize
 
     @Volatile
-    var lastInferenceDiagnostics: String = "Inference has not run"
+    override var lastInferenceDiagnostics: String = "Inference has not run"
         private set
 
     fun detect(bitmap: Bitmap): List<DetectedObject> {
@@ -56,10 +56,10 @@ class YoloV8TfliteDetector(
         return future.get()
     }
 
-    fun detectAsync(
+    override fun detectAsync(
         bitmap: Bitmap,
         onResult: (List<DetectedObject>) -> Unit,
-        onError: (Throwable) -> Unit = {},
+        onError: (Throwable) -> Unit,
     ) {
         if (closed) {
             onError(IllegalStateException("Detector is already closed."))
@@ -81,7 +81,7 @@ class YoloV8TfliteDetector(
     /**
      * Returns the actual tensor metadata after loading the model.
      * Useful for diagnosing imported models that do not match FormSnap's
-     * PHOTO(0)/SIGNATURE(1) detector contract.
+     * object-detection contract and class labels.
      */
     fun modelDiagnostics(): String {
         check(!closed) { "Detector is already closed." }
@@ -90,10 +90,16 @@ class YoloV8TfliteDetector(
             val model = requireNotNull(interpreter)
             val input = model.getInputTensor(0)
             val output = model.getOutputTensor(0)
+            val shape = output.shape()
+            val count = when {
+                YoloOutputShape.isLikelyNmsOutput(shape, input.shape()) -> -1
+                else -> YoloOutputShape.rawClassCount(shape, input.shape()) ?: 0
+            }
             "Model: ${modelFile?.name ?: modelAssetName}; " +
                 "input=${input.shape().contentToString()} ${input.dataType()}; " +
-                "output=${output.shape().contentToString()} ${output.dataType()}; " +
-"mode=OBJECT DETECTION; classes=PHOTO(0), SIGNATURE(1)"
+                "output=${shape.contentToString()} ${output.dataType()}; " +
+                "mode=YOLO OBJECT DETECTION; classCount=${count.takeIf { it > 0 } ?: "NMS/unknown"}; " +
+                "labels=${config.classLabels.takeIf { it.isNotEmpty() }?.joinToString() ?: "generic Class N labels"}"
         }.get()
     }
 
@@ -123,36 +129,36 @@ class YoloV8TfliteDetector(
         if (shape.size < 3) return "tensor=${shape.contentToString()} values=${values.size}"
         val a = shape[shape.size - 2]
         val b = shape.last()
-        val channelsFirst = a == 6 && b > a
+        val channelsFirst = a in 5..512 && b > a
         val channels = if (channelsFirst) a else b
         val candidates = if (channelsFirst) b else a
-        if (channels != 6 || candidates <= 0 || values.size < channels * candidates) {
+        if (channels < 5 || candidates <= 0 || values.size < channels * candidates) {
             val finite = values.filter { it.isFinite() }
             return "tensor=${shape.contentToString()} min=${finite.minOrNull()} max=${finite.maxOrNull()}"
         }
-        var best0 = Float.NEGATIVE_INFINITY
-        var best1 = Float.NEGATIVE_INFINITY
+        var best = Float.NEGATIVE_INFINITY
         var above005 = 0
         var above012 = 0
-        var minClass = Float.POSITIVE_INFINITY
-        var maxClass = Float.NEGATIVE_INFINITY
         for (i in 0 until candidates) {
-            val s0 = if (channelsFirst) values[4 * candidates + i] else values[i * channels + 4]
-            val s1 = if (channelsFirst) values[5 * candidates + i] else values[i * channels + 5]
-            if (s0.isFinite()) { best0 = maxOf(best0, s0); minClass = minOf(minClass, s0); maxClass = maxOf(maxClass, s0) }
-            if (s1.isFinite()) { best1 = maxOf(best1, s1); minClass = minOf(minClass, s1); maxClass = maxOf(maxClass, s1) }
-            val score = maxOf(s0, s1)
-            if (score.isFinite() && score >= 0.05f) above005++
-            if (score.isFinite() && score >= 0.12f) above012++
+            var score = Float.NEGATIVE_INFINITY
+            for (channel in 4 until channels) {
+                val value = if (channelsFirst) values[channel * candidates + i] else values[i * channels + channel]
+                if (value.isFinite()) score = maxOf(score, value)
+            }
+            if (score.isFinite()) {
+                best = maxOf(best, score)
+                if (score >= 0.05f) above005++
+                if (score >= 0.12f) above012++
+            }
         }
-        return "tensor=${shape.contentToString()} classRange=${"%.3f".format(java.util.Locale.US, minClass)}..${"%.3f".format(java.util.Locale.US, maxClass)} bestP=${"%.3f".format(java.util.Locale.US, best0)} bestS=${"%.3f".format(java.util.Locale.US, best1)} >=.05:$above005 >=.12:$above012"
+        return "tensor=${shape.contentToString()} classes=${channels - 4} bestScore=${"%.3f".format(java.util.Locale.US, best)} >=.05:$above005 >=.12:$above012"
     }
 
     private fun ensureInterpreter() {
         if (interpreter != null) return
 
         check(modelAvailable()) {
-            "No AI model is available. Open AI Model in FormSnap and import your trained PHOTO/SIGNATURE .tflite detector."
+            "No AI model is available. Open AI Model in FormSnap and import a compatible TFLite object detector."
         }
 
         val modelBuffer = if (modelFile != null) {
@@ -182,52 +188,59 @@ class YoloV8TfliteDetector(
         }
 
         val created = Interpreter(modelBuffer, options)
-        interpreter = created
-        outputShape = created.getOutputTensor(0).shape().copyOf()
-        inputShape = created.getInputTensor(0).shape().copyOf()
-        inputLayout = detectInputLayout(inputShape)
-        inputHeight = when (inputLayout) {
-            InputLayout.NHWC -> inputShape[1]
-            InputLayout.NCHW -> inputShape[2]
-        }.takeIf { it > 0 } ?: config.inputSize
-        inputWidth = when (inputLayout) {
-            InputLayout.NHWC -> inputShape[2]
-            InputLayout.NCHW -> inputShape[3]
-        }.takeIf { it > 0 } ?: config.inputSize
-        validateOutputContract(outputShape)
-        inputBuffer = ByteBuffer
-            .allocateDirect(created.getInputTensor(0).numBytes())
-            .order(ByteOrder.nativeOrder())
-        outputBuffer = ByteBuffer
-            .allocateDirect(created.getOutputTensor(0).numBytes())
-            .order(ByteOrder.nativeOrder())
+        try {
+            // Keep the interpreter private until every tensor contract check and
+            // buffer allocation succeeds. Otherwise a rejected model could leave
+            // a half-initialized interpreter cached and break all later frames.
+            val createdInputShape = created.getInputTensor(0).shape().copyOf()
+            val createdOutputShape = created.getOutputTensor(0).shape().copyOf()
+            val createdInputLayout = detectInputLayout(createdInputShape)
+            validateOutputContract(createdOutputShape)
+
+            val createdInputBuffer = ByteBuffer
+                .allocateDirect(created.getInputTensor(0).numBytes())
+                .order(ByteOrder.nativeOrder())
+            val createdOutputBuffer = ByteBuffer
+                .allocateDirect(created.getOutputTensor(0).numBytes())
+                .order(ByteOrder.nativeOrder())
+
+            inputShape = createdInputShape
+            outputShape = createdOutputShape
+            inputLayout = createdInputLayout
+            inputHeight = when (createdInputLayout) {
+                InputLayout.NHWC -> createdInputShape[1]
+                InputLayout.NCHW -> createdInputShape[2]
+            }.takeIf { it > 0 } ?: config.inputSize
+            inputWidth = when (createdInputLayout) {
+                InputLayout.NHWC -> createdInputShape[2]
+                InputLayout.NCHW -> createdInputShape[3]
+            }.takeIf { it > 0 } ?: config.inputSize
+            inputBuffer = createdInputBuffer
+            outputBuffer = createdOutputBuffer
+            interpreter = created
+        } catch (error: Throwable) {
+            created.close()
+            throw error
+        }
     }
 
     private fun validateOutputContract(shape: IntArray) {
-        require(shape.size >= 2) {
-            "Unsupported FormSnap model output shape ${shape.contentToString()}. " +
-                "Expected a 2-class PHOTO/SIGNATURE YOLO output."
+        require(shape.size == 3) {
+            "Unsupported model output shape ${shape.contentToString()}. Expected a YOLO object-detection tensor."
         }
-
+        val previous = shape[shape.lastIndex - 1]
         val last = shape.last()
-        val channelsFirst = shape.size >= 3 &&
-            shape[shape.size - 2] == 6 && last > 6
-        val channelsLast = shape.size >= 3 &&
-            last == 6 && shape[shape.size - 2] > 6
-        val nmsOutput = last in 6..7
-
+        val channelsFirst = previous in 5..512 && last > previous
+        val channelsLast = last in 5..512 && previous > last
+        val nmsOutput = last in 6..7 && previous in 1..1000
         require(channelsFirst || channelsLast || nmsOutput) {
-            "The active model output is ${shape.contentToString()}. Expected a two-class PHOTO(0)/SIGNATURE(1) " +
-                "YOLO object detector output. A classifier cannot locate or crop objects."
+            "Unsupported model output ${shape.contentToString()}. Expected YOLO boxes with one or more class scores; " +
+                "classification-only models cannot locate/crop objects."
         }
     }
 
     private fun classLabel(classId: Int): String =
-        when (classId) {
-            0 -> "Photo"
-            1 -> "Signature"
-            else -> "Class $classId"
-        }
+        config.classLabels.getOrNull(classId)?.trim()?.takeIf { it.isNotEmpty() } ?: "Class $classId"
 
     private enum class InputLayout {
         NHWC,
@@ -365,6 +378,8 @@ class YoloV8TfliteDetector(
                 sourceWidth = source.width,
                 sourceHeight = source.height,
                 inputSize = width,
+                inputWidth = width,
+                inputHeight = height,
             ),
         )
     }
