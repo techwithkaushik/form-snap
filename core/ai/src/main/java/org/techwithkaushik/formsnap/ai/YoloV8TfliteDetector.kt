@@ -22,7 +22,7 @@ class YoloV8TfliteDetector(
     private val modelAssetName: String = DEFAULT_MODEL_ASSET,
     private val config: DetectionConfig = DetectionConfig(),
     private val modelFile: File? = null,
-) : AutoCloseable {
+) : DetectionAdapter {
 
     companion object {
         const val DEFAULT_MODEL_ASSET = "formsnap_yolov8n_int8.tflite"
@@ -45,7 +45,7 @@ class YoloV8TfliteDetector(
     private var inputWidth: Int = config.inputSize
 
     @Volatile
-    var lastInferenceDiagnostics: String = "Inference has not run"
+    override var lastInferenceDiagnostics: String = "Inference has not run"
         private set
 
     fun detect(bitmap: Bitmap): List<DetectedObject> {
