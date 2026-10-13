@@ -14,10 +14,14 @@ internal object YoloOutputShape {
         val columns = outputShape.last()
         if (columns !in 6..7 || rows !in 1..1000) return false
 
-        val dimensions = when {
-            inputShape.size == 4 && inputShape[3] == 3 -> inputShape[2] to inputShape[1]
-            inputShape.size == 4 && inputShape[1] == 3 -> inputShape[3] to inputShape[2]
-            else -> 0 to 0
+        if (inputShape.size != 4 || inputShape[0] != 1 ||
+            inputShape.any { it <= 0 } ||
+            (inputShape[3] != 3 && inputShape[1] != 3)
+        ) return false
+        val dimensions = if (inputShape[3] == 3) {
+            inputShape[2] to inputShape[1]
+        } else {
+            inputShape[3] to inputShape[2]
         }
         return isLikelyNmsOutput(outputShape, dimensions.first, dimensions.second)
     }
