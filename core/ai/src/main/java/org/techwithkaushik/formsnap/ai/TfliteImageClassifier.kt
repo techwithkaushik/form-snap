@@ -1,0 +1,149 @@
+package org.techwithkaushik.formsnap.ai
+
+import android.graphics.Bitmap
+import android.graphics.Color
+import java.io.Closeable
+import java.io.File
+import java.io.FileInputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import org.tensorflow.lite.DataType
+import org.tensorflow.lite.Interpreter
+
+data class ClassificationPrediction(
+    val classId: Int,
+    val label: String,
+    val confidence: Float,
+)
+
+/**
+ * Minimal offline classifier for common single-image TFLite classification
+ * exports. Supports fixed RGB NHWC/NCHW inputs and a single class-score output.
+ *
+ * Preprocessing defaults to RGB [0,1]. Models requiring a different
+ * normalization or non-image inputs must provide an adapter rather than being
+ * silently treated as compatible.
+ */
+class TfliteImageClassifier(
+    modelFile: File,
+    private val labels: List<String> = emptyList(),
+    numThreads: Int = 2,
+) : Closeable {
+    private val interpreter: Interpreter
+    private val inputShape: IntArray
+    private val outputShape: IntArray
+    private val channelsFirst: Boolean
+    private val inputType: DataType
+    private val outputType: DataType
+    private val inputScale: Float
+    private val inputZeroPoint: Int
+    private val outputScale: Float
+    private val outputZeroPoint: Int
+    private var closed = false
+
+    init {
+        require(modelFile.isFile && modelFile.length() > 0L) { "TFLite model file is missing or empty." }
+        val buffer = FileInputStream(modelFile).use { stream ->
+            stream.channel.use { it.map(java.nio.channels.FileChannel.MapMode.READ_ONLY, 0, it.size()) }
+        }
+        interpreter = Interpreter(buffer, Interpreter.Options().setNumThreads(numThreads.coerceIn(1, 4)))
+        try {
+            require(interpreter.inputTensorCount == 1 && interpreter.outputTensorCount == 1) {
+                "Classifier adapter requires exactly one input and one output tensor."
+            }
+            val input = interpreter.getInputTensor(0)
+            val output = interpreter.getOutputTensor(0)
+            inputShape = input.shape().copyOf()
+            outputShape = output.shape().copyOf()
+            require(ModelTaskClassifier.classify(inputShape, outputShape) == ModelTask.IMAGE_CLASSIFICATION) {
+                "Model tensors do not match the supported image-classification contract."
+            }
+            channelsFirst = inputShape[1] == 3
+            inputType = input.dataType()
+            outputType = output.dataType()
+            require(inputType in setOf(DataType.FLOAT32, DataType.UINT8, DataType.INT8)) {
+                "Unsupported classifier input type: $inputType"
+            }
+            require(outputType in setOf(DataType.FLOAT32, DataType.UINT8, DataType.INT8)) {
+                "Unsupported classifier output type: $outputType"
+            }
+            val iq = input.quantizationParams()
+            val oq = output.quantizationParams()
+            inputScale = iq.scale
+            inputZeroPoint = iq.zeroPoint
+            outputScale = oq.scale
+            outputZeroPoint = oq.zeroPoint
+            if (inputType != DataType.FLOAT32) require(inputScale > 0f) { "Invalid input quantization scale." }
+            if (outputType != DataType.FLOAT32) require(outputScale > 0f) { "Invalid output quantization scale." }
+        } catch (error: Throwable) {
+            interpreter.close()
+            throw error
+        }
+    }
+
+    @Synchronized
+    fun classify(bitmap: Bitmap, topK: Int = 5): List<ClassificationPrediction> {
+        check(!closed) { "Classifier is closed." }
+        require(!bitmap.isRecycled) { "Input bitmap is recycled." }
+        val height = if (channelsFirst) inputShape[2] else inputShape[1]
+        val width = if (channelsFirst) inputShape[3] else inputShape[2]
+        val resized = Bitmap.createScaledBitmap(bitmap, width, height, true)
+        try {
+            val pixels = IntArray(width * height)
+            resized.getPixels(pixels, 0, width, 0, 0, width, height)
+            val input = ByteBuffer.allocateDirect(interpreter.getInputTensor(0).numBytes()).order(ByteOrder.nativeOrder())
+            fun put(channel: Int) {
+                val normalized = channel / 255f
+                when (inputType) {
+                    DataType.FLOAT32 -> input.putFloat(normalized)
+                    DataType.UINT8 -> input.put((normalized / inputScale + inputZeroPoint).toInt().coerceIn(0, 255).toByte())
+                    DataType.INT8 -> input.put((normalized / inputScale + inputZeroPoint).toInt().coerceIn(-128, 127).toByte())
+                    else -> error("Unsupported classifier input type: $inputType")
+                }
+            }
+            if (channelsFirst) {
+                for (channel in 0..2) for (pixel in pixels) put(
+                    when (channel) { 0 -> Color.red(pixel); 1 -> Color.green(pixel); else -> Color.blue(pixel) },
+                )
+            } else {
+                for (pixel in pixels) {
+                    put(Color.red(pixel)); put(Color.green(pixel)); put(Color.blue(pixel))
+                }
+            }
+            input.rewind()
+            val outputTensor = interpreter.getOutputTensor(0)
+            val output = ByteBuffer.allocateDirect(outputTensor.numBytes()).order(ByteOrder.nativeOrder())
+            interpreter.run(input, output)
+            output.rewind()
+            val scores = FloatArray(outputTensor.numElements())
+            when (outputType) {
+                DataType.FLOAT32 -> for (i in scores.indices) scores[i] = output.float
+                DataType.UINT8 -> for (i in scores.indices) scores[i] = ((output.get().toInt() and 0xFF) - outputZeroPoint) * outputScale
+                DataType.INT8 -> for (i in scores.indices) scores[i] = (output.get().toInt() - outputZeroPoint) * outputScale
+                else -> error("Unsupported classifier output type: $outputType")
+            }
+            val finite = scores.indices.filter { scores[it].isFinite() }
+            require(finite.isNotEmpty()) { "Classifier returned no finite class scores." }
+            val looksLikeProbabilities = finite.all { scores[it] in 0f..1f } &&
+                kotlin.math.abs(finite.sumOf { scores[it].toDouble() } - 1.0) < 0.15
+            val maxScore = finite.maxOf { scores[it] }
+            val denominator = if (looksLikeProbabilities) 1.0 else {
+                finite.sumOf { kotlin.math.exp((scores[it] - maxScore).toDouble()) }
+            }
+            return finite.sortedByDescending { scores[it] }.take(topK.coerceIn(1, 100)).map { id ->
+                val confidence = if (looksLikeProbabilities) scores[id] else
+                    (kotlin.math.exp((scores[id] - maxScore).toDouble()) / denominator).toFloat()
+                ClassificationPrediction(id, labels.getOrNull(id)?.takeIf(String::isNotBlank) ?: "Class $id", confidence)
+            }
+        } finally {
+            if (resized !== bitmap) resized.recycle()
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        if (closed) return
+        closed = true
+        interpreter.close()
+    }
+}
