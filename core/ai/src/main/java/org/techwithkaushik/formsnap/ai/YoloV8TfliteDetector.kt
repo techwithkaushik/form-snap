@@ -59,7 +59,7 @@ class YoloV8TfliteDetector(
     override fun detectAsync(
         bitmap: Bitmap,
         onResult: (List<DetectedObject>) -> Unit,
-        onError: (Throwable) -> Unit = {},
+        onError: (Throwable) -> Unit,
     ) {
         if (closed) {
             onError(IllegalStateException("Detector is already closed."))
