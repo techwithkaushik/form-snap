@@ -224,11 +224,11 @@ class AiModelManager(context: Context) {
      * detector indexes this list by the model's numeric class ID.
      */
     private fun parseNumberedLabels(lines: List<String>): List<String> {
-        val pattern = Regex("""^\\s*(\\d{1,3})\\s*(?:[,;:\\t]+\\s*|\\s+)(.+?)\\s*$""")
+        val pattern = Regex("""^\s*(\d{1,3})\s*(?:[,;:\t]+\s*|\s+)(.+?)\s*$""")
         val entries = lines.map { line ->
             val match = pattern.matchEntire(line) ?: return emptyList()
             val id = match.groupValues[1].toIntOrNull() ?: return emptyList()
-            val label = match.groupValues[2].trim().trim('"', '\\'')
+            val label = match.groupValues[2].trim().trim('"', '\'')
             if (id !in 0..999 || !isPlausibleLabel(label)) return emptyList()
             id to label
         }
