@@ -185,11 +185,12 @@ class AiModelManager(context: Context) {
                     }
                     .sortedBy { entry ->
                         when (entry.name.substringAfterLast('/').lowercase()) {
-                            "labels.txt" -> 0
-                            "label.txt" -> 1
-                            "labelmap.txt", "label_map.txt", "labels.csv" -> 2
-                            "metadata.json", "temp_meta.txt", "metadata.txt" -> 3
-                            else -> 4
+                            "probability-labels-en.txt", "labels-en.txt", "label-en.txt" -> 0
+                            "labels.txt" -> 1
+                            "label.txt" -> 2
+                            "labelmap.txt", "label_map.txt", "labels.csv" -> 3
+                            "metadata.json", "temp_meta.txt", "metadata.txt" -> 4
+                            else -> 5
                         }
                     }
                 for (entry in entries) {
@@ -220,10 +221,11 @@ class AiModelManager(context: Context) {
                 lower.endsWith(".json") && (lower.contains("name") || lower.contains("object"))
         }.sortedBy { name ->
             when (name.substringAfterLast('/').lowercase()) {
-                "labels.txt" -> 0
-                "label.txt" -> 1
-                "labelmap.txt", "label_map.txt", "labels.csv" -> 2
-                else -> 3
+                "probability-labels-en.txt", "labels-en.txt", "label-en.txt" -> 0
+                "labels.txt" -> 1
+                "label.txt" -> 2
+                "labelmap.txt", "label_map.txt", "labels.csv" -> 3
+                else -> 4
             }
         }
         for (name in labelFiles) {
