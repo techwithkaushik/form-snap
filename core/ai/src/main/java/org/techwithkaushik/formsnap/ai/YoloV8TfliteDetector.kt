@@ -56,7 +56,7 @@ class YoloV8TfliteDetector(
         return future.get()
     }
 
-    fun detectAsync(
+    override fun detectAsync(
         bitmap: Bitmap,
         onResult: (List<DetectedObject>) -> Unit,
         onError: (Throwable) -> Unit = {},
