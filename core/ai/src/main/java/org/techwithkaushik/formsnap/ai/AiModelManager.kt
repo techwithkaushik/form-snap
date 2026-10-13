@@ -63,14 +63,30 @@ class AiModelManager(context: Context) {
                 val tensor = interpreter.getOutputTensor(index)
                 "#$index ${tensor.shape().contentToString()} ${tensor.dataType()}"
             }
+            val inputShape = interpreter.getInputTensor(0).shape()
             val shape = interpreter.getOutputTensor(0).shape()
-            val count = if (YoloOutputShape.isLikelyNmsOutput(shape, interpreter.getInputTensor(0).shape())) {
-                -1
-            } else {
-                YoloOutputShape.rawClassCount(shape, interpreter.getInputTensor(0).shape()) ?: 0
+            val task = ModelTaskClassifier.classify(inputShape, shape)
+            val count = when (task) {
+                ModelTask.IMAGE_CLASSIFICATION -> shape.fold(1) { total, dimension -> total * dimension } / shape.first().coerceAtLeast(1)
+                ModelTask.OBJECT_DETECTION -> if (YoloOutputShape.isLikelyNmsOutput(shape, inputShape)) {
+                    -1
+                } else {
+                    YoloOutputShape.rawClassCount(shape, inputShape) ?: 0
+                }
+                ModelTask.UNSUPPORTED -> 0
             }
             val labels = classLabels(file)
-            val classes = if (labels.isNotEmpty()) labels.mapIndexed { index, label -> "$index: $label" }.joinToString() else if (count > 0) "Names unavailable for $count classes. Import labels.txt." else if (count == -1) "Label map required for NMS output." else "Unable to infer classes; import labels.txt if available."
+            val taskName = when (task) {
+                ModelTask.IMAGE_CLASSIFICATION -> "Image classification"
+                ModelTask.OBJECT_DETECTION -> "Object detection"
+                ModelTask.UNSUPPORTED -> "Unsupported / unrecognized task"
+            }
+            val classes = when {
+                labels.isNotEmpty() -> "$taskName — " + labels.mapIndexed { index, label -> "$index: $label" }.joinToString()
+                count > 0 -> "$taskName — class names unavailable for $count classes. Import labels.txt."
+                count == -1 -> "$taskName — label map required for NMS output."
+                else -> "$taskName — class count could not be inferred; import labels.txt if available."
+            }
             return Triple(input, output, classes)
         } finally { interpreter.close() }
     }
