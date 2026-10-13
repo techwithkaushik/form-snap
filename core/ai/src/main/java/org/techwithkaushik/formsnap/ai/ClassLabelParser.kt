@@ -131,11 +131,10 @@ internal object ClassLabelParser {
         val odd = value.count { !it.isLetterOrDigit() && !it.isWhitespace() && it !in "._-/()&+'#" }
         return useful > 0 && odd <= maxOf(2, useful / 3)
     }
-}
     private fun parsePythonNamesMap(text: String): List<String> {
         val namesBlock = Regex("""(?s)['"]?names['"]?\s*:\s*\{([^}]*)\}""")
             .find(text)?.groupValues?.getOrNull(1) ?: return emptyList()
-        val entryPattern = Regex("""(\d{1,3})\s*:\s*(['"])(.*?)\\2""")
+        val entryPattern = Regex("""(\d{1,3})\s*:\s*(['"])(.*?)\2""")
         val entries = entryPattern.findAll(namesBlock).mapNotNull { match ->
             val id = match.groupValues[1].toIntOrNull() ?: return@mapNotNull null
             val label = match.groupValues[3].trim()
@@ -146,5 +145,6 @@ internal object ClassLabelParser {
         val maxId = byId.keys.maxOrNull() ?: return emptyList()
         return (0..maxId).map { id -> byId[id] ?: "Class $id" }
     }
+}
 
 
