@@ -133,9 +133,9 @@ internal object ClassLabelParser {
     }
 }
     private fun parsePythonNamesMap(text: String): List<String> {
-        val namesBlock = Regex("""(?s)['"]?names['"]?\\s*:\\s*\\{([^}]*)\\}""")
+        val namesBlock = Regex("""(?s)['"]?names['"]?\s*:\s*\{([^}]*)\}""")
             .find(text)?.groupValues?.getOrNull(1) ?: return emptyList()
-        val entryPattern = Regex("""(\\d{1,3})\\s*:\\s*(['"])(.*?)\\2""")
+        val entryPattern = Regex("""(\d{1,3})\s*:\s*(['"])(.*?)\\2""")
         val entries = entryPattern.findAll(namesBlock).mapNotNull { match ->
             val id = match.groupValues[1].toIntOrNull() ?: return@mapNotNull null
             val label = match.groupValues[3].trim()
