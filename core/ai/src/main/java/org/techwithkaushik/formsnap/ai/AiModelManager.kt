@@ -178,7 +178,7 @@ class AiModelManager(context: Context) {
                     .filter { !it.isDirectory }
                     .filter { entry ->
                         val name = entry.name.substringAfterLast('/').lowercase()
-                        name == "metadata.json" ||
+                        name == "metadata.json" || name == "temp_meta.txt" || name == "metadata.txt" ||
                             name.contains("label") || name.contains("class") ||
                             name.contains("categor") || name.contains("object_name") ||
                             (name.endsWith(".json") && (name.contains("name") || name.contains("object")))
@@ -188,7 +188,7 @@ class AiModelManager(context: Context) {
                             "labels.txt" -> 0
                             "label.txt" -> 1
                             "labelmap.txt", "label_map.txt", "labels.csv" -> 2
-                            "metadata.json" -> 3
+                            "metadata.json", "temp_meta.txt", "metadata.txt" -> 3
                             else -> 4
                         }
                     }
