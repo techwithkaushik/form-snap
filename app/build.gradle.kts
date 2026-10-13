@@ -12,8 +12,10 @@ android {
         applicationId = "org.techwithkaushik.formsnap"
         minSdk = libs.versions.androidMinSdk.get().toInt()
         targetSdk = libs.versions.androidTargetSdk.get().toInt()
-        versionCode = 3
-        versionName = "0.2.0"
+        // CI injects branch-aware versionName and commit-count-based versionCode.
+        // Local builds keep a stable development fallback.
+        versionCode = System.getenv("APP_VERSION_CODE")?.toIntOrNull()?.coerceAtLeast(1) ?: 3
+        versionName = System.getenv("APP_VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "0.2.0-local"
 
         // FormSnap's supported delivery target is 32-bit ARM (armeabi-v7a).
         // Avoid packaging native binaries for devices this APK is not intended for.
