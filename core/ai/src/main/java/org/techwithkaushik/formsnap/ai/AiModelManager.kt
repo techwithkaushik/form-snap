@@ -195,7 +195,7 @@ class AiModelManager(context: Context) {
         }
         for (name in labelFiles) {
             val labels = extractor.getAssociatedFile(name)?.bufferedReader(Charsets.UTF_8)?.use { reader ->
-                parseLabelContent(reader.readText())
+                ClassLabelParser.parse(reader.readText())
             }.orEmpty()
             if (labels.isNotEmpty()) return@runCatching labels
         }
@@ -206,7 +206,7 @@ class AiModelManager(context: Context) {
     fun importLabels(uri: Uri, modelName: String) {
         val model = File(modelsDir, modelName)
         require(model.isFile && model.extension.equals("tflite", true)) { "Select an imported TFLite model first." }
-        val labels = appContext.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { parseLabelContent(it.readText()) }
+        val labels = appContext.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { ClassLabelParser.parse(it.readText()) }
             ?: throw IllegalArgumentException("Unable to read labels file.")
         require(labels.isNotEmpty() && labels.size <= 1000) { "Labels file must contain 1–1000 class names." }
         FileOutputStream(File(modelsDir, model.nameWithoutExtension + ".labels.txt")).use { output ->
