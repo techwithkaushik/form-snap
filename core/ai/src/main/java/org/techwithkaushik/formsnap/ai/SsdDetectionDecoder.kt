@@ -22,32 +22,18 @@ internal object SsdDetectionDecoder {
             "Unsupported SSD output signature: ${outputShapes.joinToString { it.contentToString() }}"
         }
         require(outputShapes.size == outputs.size) { "SSD output count does not match output shapes." }
-        val boxIndex = outputShapes.indices.first { outputShapes[it].lastOrNull() == 4 && outputShapes[it].size >= 2 }
+        // TensorFlow Lite Detection_PostProcess uses the stable order:
+        // boxes, classes, scores, count. Do not infer classes/scores from values:
+        // a valid model can have only 0.0/1.0 scores, making that heuristic ambiguous.
+        val boxIndex = 0
+        val classesIndex = 1
+        val scoresIndex = 2
+        val countIndex = 3
+        require(outputShapes[boxIndex].lastOrNull() == 4) { "SSD output 0 must contain boxes [top,left,bottom,right]." }
         val boxCount = outputShapes[boxIndex][outputShapes[boxIndex].lastIndex - 1]
-        val vectorIndices = outputShapes.indices.filter {
-            it != boxIndex && outputShapes[it].lastOrNull() == boxCount && outputShapes[it].size in 2..3
-        }
-        require(vectorIndices.size >= 2) { "SSD classes/scores vectors could not be identified." }
-        val countIndex = outputShapes.indices.firstOrNull {
-            it != boxIndex && (outputShapes[it].contentEquals(intArrayOf(1)) ||
-                outputShapes[it].contentEquals(intArrayOf(1, 1)))
-        } ?: throw IllegalArgumentException("SSD detection count tensor is missing.")
-        val classScoreIndices = vectorIndices.filter { it != countIndex }
-        require(classScoreIndices.size >= 2) { "SSD classes and scores tensors are missing." }
-        // DetectionPostProcess class and score tensors have identical shapes.
-        // Infer score tensor conservatively from finite values; class values are integral IDs.
-        val first = classScoreIndices[0]
-        val second = classScoreIndices[1]
-        val firstValues = outputs[first]
-        val secondValues = outputs[second]
-        val firstLooksLikeIds = firstValues.all { it.isFinite() && kotlin.math.abs(it - it.roundToInt()) < 0.001f }
-        val secondLooksLikeIds = secondValues.all { it.isFinite() && kotlin.math.abs(it - it.roundToInt()) < 0.001f }
-        val classesIndex = when {
-            firstLooksLikeIds && !secondLooksLikeIds -> first
-            secondLooksLikeIds && !firstLooksLikeIds -> second
-            else -> throw IllegalArgumentException("Unable to distinguish SSD class IDs from scores safely.")
-        }
-        val scoresIndex = if (classesIndex == first) second else first
+        require(outputShapes[classesIndex].lastOrNull() == boxCount &&
+            outputShapes[scoresIndex].lastOrNull() == boxCount
+        ) { "SSD classes/scores count does not match box count." }
         val boxes = outputs[boxIndex]
         val classes = outputs[classesIndex]
         val scores = outputs[scoresIndex]
