@@ -235,17 +235,20 @@ internal class YoloV8OutputDecoder(
             !raw.right.isFinite() || !raw.bottom.isFinite()
         ) return null
 
-        val maxInput = transform.inputSize.toFloat()
         val maxCoordinate = max(
             max(kotlin.math.abs(raw.left), kotlin.math.abs(raw.right)),
             max(kotlin.math.abs(raw.top), kotlin.math.abs(raw.bottom)),
         )
-        val scaleToInput = if (maxCoordinate <= 1.5f) maxInput else 1f
+        // Some custom exports return normalized 0..1 boxes. Scale x and y
+        // independently: rectangular model inputs must not use width for y.
+        val normalizedCoordinates = maxCoordinate <= 1.5f
+        val xScale = if (normalizedCoordinates) transform.inputWidth.toFloat() else 1f
+        val yScale = if (normalizedCoordinates) transform.inputHeight.toFloat() else 1f
 
-        val left = (raw.left * scaleToInput - transform.padX) / transform.scale
-        val top = (raw.top * scaleToInput - transform.padY) / transform.scale
-        val right = (raw.right * scaleToInput - transform.padX) / transform.scale
-        val bottom = (raw.bottom * scaleToInput - transform.padY) / transform.scale
+        val left = (raw.left * xScale - transform.padX) / transform.scale
+        val top = (raw.top * yScale - transform.padY) / transform.scale
+        val right = (raw.right * xScale - transform.padX) / transform.scale
+        val bottom = (raw.bottom * yScale - transform.padY) / transform.scale
 
         val clipped = RectF(
             left.coerceIn(0f, transform.sourceWidth.toFloat()),
