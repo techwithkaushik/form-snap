@@ -29,12 +29,14 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import org.techwithkaushik.formsnap.ai.AiModelManager
-import org.techwithkaushik.formsnap.ai.DetectedObject\nimport org.techwithkaushik.formsnap.ai.DetectionAdapter
+import org.techwithkaushik.formsnap.ai.DetectedObject
+import org.techwithkaushik.formsnap.ai.DetectionAdapter
 import org.techwithkaushik.formsnap.ai.DetectionConfig
 import org.techwithkaushik.formsnap.ai.FrameSkipGate
 import org.techwithkaushik.formsnap.ai.YoloV8TfliteDetector
 import org.techwithkaushik.formsnap.ai.ModelTask
-import org.techwithkaushik.formsnap.ai.TfliteImageClassifier\nimport org.techwithkaushik.formsnap.ai.SsdTfliteDetector
+import org.techwithkaushik.formsnap.ai.TfliteImageClassifier
+import org.techwithkaushik.formsnap.ai.SsdTfliteDetector
 
 class AndroidCameraCapture(
     context: Context,
