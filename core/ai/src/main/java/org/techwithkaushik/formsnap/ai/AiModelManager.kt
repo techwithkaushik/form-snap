@@ -46,11 +46,10 @@ class AiModelManager(context: Context) {
             val shape = interpreter.getOutputTensor(0).shape()
             val a = if (shape.size >= 2) shape[shape.lastIndex - 1] else 0
             val b = if (shape.isNotEmpty()) shape.last() else 0
-            val count = when {
-                isLikelyNmsOutput(shape, interpreter.getInputTensor(0).shape()) -> -1
-                a in 5..512 && b > a -> a - 4
-                b in 5..512 && a > b -> b - 4
-                else -> 0
+            val count = if (YoloOutputShape.isLikelyNmsOutput(shape, interpreter.getInputTensor(0).shape())) {
+                -1
+            } else {
+                YoloOutputShape.rawClassCount(shape, interpreter.getInputTensor(0).shape()) ?: 0
             }
             val labels = classLabels(file)
             val classes = if (labels.isNotEmpty()) labels.mapIndexed { index, label -> "$index: $label" }.joinToString() else if (count > 0) "Names unavailable for $count classes. Import labels.txt." else if (count == -1) "Label map required for NMS output." else "Unable to infer classes; import labels.txt if available."
@@ -92,25 +91,6 @@ class AiModelManager(context: Context) {
      * Disambiguates small raw YOLO outputs such as [1, 525, 6] (160px,
      * two classes) from post-NMS rows with the same final dimension.
      */
-    private fun isLikelyNmsOutput(outputShape: IntArray, inputShape: IntArray): Boolean {
-        if (outputShape.size != 3) return false
-        val rows = outputShape[outputShape.lastIndex - 1]
-        val columns = outputShape.last()
-        if (columns !in 6..7 || rows !in 1..1000) return false
-
-        val inputSize = when {
-            inputShape.size == 4 && inputShape[3] == 3 -> inputShape[1]
-            inputShape.size == 4 && inputShape[1] == 3 -> inputShape[2]
-            else -> 0
-        }
-        if (inputSize <= 0) return true
-        val stride8 = (inputSize + 7) / 8
-        val stride16 = (inputSize + 15) / 16
-        val stride32 = (inputSize + 31) / 32
-        val expectedRawCandidates = stride8 * stride8 + stride16 * stride16 + stride32 * stride32
-        return rows != expectedRawCandidates
-    }
-
     private fun inferRawYoloClassCount(file: File): Int? = runCatching {
         val buffer = FileInputStream(file).use { stream ->
             stream.channel.use { channel ->
@@ -122,18 +102,7 @@ class AiModelManager(context: Context) {
             if (interpreter.outputTensorCount != 1) return@runCatching null
             val shape = interpreter.getOutputTensor(0).shape()
             if (shape.size != 3) return@runCatching null
-            val a = shape[shape.lastIndex - 1]
-            val b = shape.last()
-            // Raw YOLO can also have six channels (4 box values + 2 classes).
-            // At small input sizes it may have <=1,000 rows, so distinguish it
-            // from post-NMS [1, N, 6/7] using the input size's expected YOLO grids.
-            if (isLikelyNmsOutput(shape, interpreter.getInputTensor(0).shape())) return@runCatching null
-            val channels = when {
-                a in 5..512 && b > a -> a
-                b in 5..512 && a > b -> b
-                else -> 0
-            }
-            (channels - 4).takeIf { it in 1..1000 }
+            YoloOutputShape.rawClassCount(shape, interpreter.getInputTensor(0).shape())
         } finally {
             interpreter.close()
         }
