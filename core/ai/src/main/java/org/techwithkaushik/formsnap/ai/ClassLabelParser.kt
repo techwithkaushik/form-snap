@@ -15,6 +15,14 @@ internal object ClassLabelParser {
         val text = raw.removePrefix("\uFEFF").replace("\\n", "\n").trim()
         if (text.isEmpty()) return emptyList()
 
+        // Older Ultralytics YOLOv10 exports may store Python's dict repr in
+        // an associated temp_meta.txt, for example:
+        // {'task': 'detect', 'names': {0: 'person', 1: 'bicycle'}}.
+        // This is not valid JSON (single quotes and unquoted integer keys), so
+        // JSONObject cannot read it. Extract only the numeric names map safely.
+        val pythonMetadataLabels = parsePythonNamesMap(text)
+        if (pythonMetadataLabels.isNotEmpty()) return pythonMetadataLabels
+
         val jsonLabels = runCatching {
             fun strings(value: org.json.JSONArray): List<String> = buildList {
                 for (i in 0 until value.length()) {
@@ -124,3 +132,19 @@ internal object ClassLabelParser {
         return useful > 0 && odd <= maxOf(2, useful / 3)
     }
 }
+    private fun parsePythonNamesMap(text: String): List<String> {
+        val namesBlock = Regex("""(?s)['"]?names['"]?\\s*:\\s*\\{([^}]*)\\}""")
+            .find(text)?.groupValues?.getOrNull(1) ?: return emptyList()
+        val entryPattern = Regex("""(\\d{1,3})\\s*:\\s*(['"])(.*?)\\2""")
+        val entries = entryPattern.findAll(namesBlock).mapNotNull { match ->
+            val id = match.groupValues[1].toIntOrNull() ?: return@mapNotNull null
+            val label = match.groupValues[3].trim()
+            if (id !in 0..999 || !isPlausibleLabel(label)) null else id to label
+        }.toList()
+        if (entries.isEmpty() || entries.map { it.first }.toSet().size != entries.size) return emptyList()
+        val byId = entries.toMap()
+        val maxId = byId.keys.maxOrNull() ?: return emptyList()
+        return (0..maxId).map { id -> byId[id] ?: "Class $id" }
+    }
+
+
