@@ -321,7 +321,6 @@ class AiModelManager(context: Context) {
 
     private fun validateCompatibleModel(file: File) {
         require(file.length() > 0L) { "AI model file is empty." }
-
         val modelBuffer = FileInputStream(file).use { input ->
             input.channel.use { channel ->
                 channel.map(java.nio.channels.FileChannel.MapMode.READ_ONLY, 0, channel.size())
@@ -331,7 +330,7 @@ class AiModelManager(context: Context) {
             Interpreter(modelBuffer, Interpreter.Options().setNumThreads(1))
         } catch (t: Throwable) {
             throw IllegalArgumentException(
-                "Selected file is not a loadable TensorFlow Lite model (.tflite). Choose a valid object-detection .tflite file, not a ZIP or dataset file.",
+                "Selected file is not a loadable TensorFlow Lite model (.tflite). Choose a valid .tflite model, not a ZIP or dataset file.",
                 t,
             )
         }
@@ -342,44 +341,30 @@ class AiModelManager(context: Context) {
             }
             val input = interpreter.getInputTensor(0)
             val inputShape = input.shape()
-            require(inputShape.size == 4) {
+            require(inputShape.size == 4 && (inputShape[3] == 3 || inputShape[1] == 3)) {
                 "Unsupported input shape ${inputShape.contentToString()}; expected a 4D RGB image tensor."
             }
-            val channelsLast = inputShape[3] == 3
-            val channelsFirst = inputShape[1] == 3
-            require(channelsLast || channelsFirst) {
-                "Unsupported input shape ${inputShape.contentToString()}; expected RGB channels in NHWC or NCHW layout."
+            require(inputShape[0] == 1 && inputShape.all { it > 0 }) {
+                "Model input dimensions must be fixed and batch size must be 1: ${inputShape.contentToString()}."
             }
-            require(inputShape[0] == 1) {
-                "Unsupported batch size ${inputShape[0]}; FormSnap runs one image at a time (batch size 1)."
-            }
-            require(inputShape.all { it > 0 }) { "Model input dimensions must all be fixed and positive." }
             require(input.dataType() in setOf(
                 org.tensorflow.lite.DataType.FLOAT32,
                 org.tensorflow.lite.DataType.UINT8,
                 org.tensorflow.lite.DataType.INT8,
-            )) {
-                "Unsupported input data type ${input.dataType()}; FormSnap supports FLOAT32, UINT8, and INT8 image tensors."
-            }
-            if (input.dataType() == org.tensorflow.lite.DataType.UINT8 ||
-                input.dataType() == org.tensorflow.lite.DataType.INT8
-            ) {
-                require(input.quantizationParams().scale > 0f) {
-                    "Quantized model input has invalid quantization parameters."
-                }
+            )) { "Unsupported input data type ${input.dataType()}." }
+            if (input.dataType() != org.tensorflow.lite.DataType.FLOAT32) {
+                require(input.quantizationParams().scale > 0f) { "Quantized model input has invalid quantization parameters." }
             }
 
             val outputTensors = (0 until interpreter.outputTensorCount).map { interpreter.getOutputTensor(it) }
-            require(outputTensors.all { it.dataType() in setOf(
-                org.tensorflow.lite.DataType.FLOAT32,
-                org.tensorflow.lite.DataType.UINT8,
-                org.tensorflow.lite.DataType.INT8,
-            ) }) {
-                "Unsupported output data type; FormSnap supports FLOAT32, UINT8, and INT8 outputs."
-            }
+            require(outputTensors.isNotEmpty()) { "Model must have at least one output tensor." }
             require(outputTensors.all { tensor ->
-                tensor.dataType() == org.tensorflow.lite.DataType.FLOAT32 || tensor.quantizationParams().scale > 0f
-            }) { "Quantized model output has invalid quantization parameters." }
+                tensor.dataType() in setOf(
+                    org.tensorflow.lite.DataType.FLOAT32,
+                    org.tensorflow.lite.DataType.UINT8,
+                    org.tensorflow.lite.DataType.INT8,
+                ) && (tensor.dataType() == org.tensorflow.lite.DataType.FLOAT32 || tensor.quantizationParams().scale > 0f)
+            }) { "Unsupported output data type or invalid output quantization parameters." }
 
             val outputShapes = outputTensors.map { it.shape() }
             val task = ModelTaskClassifier.classify(inputShape, outputShapes)
@@ -389,8 +374,6 @@ class AiModelManager(context: Context) {
                     "single-image classification, common YOLO object detection, and standard four-output SSD Detection_PostProcess."
             }
 
-            // Run smoke inference using all outputs. This catches unsupported operators
-            // and runtime tensor errors before the model is activated.
             val smokeInput = java.nio.ByteBuffer.allocateDirect(input.numBytes())
                 .order(java.nio.ByteOrder.nativeOrder())
             val smokeOutputs = outputTensors.map { tensor ->
@@ -407,15 +390,7 @@ class AiModelManager(context: Context) {
                 }
             } catch (t: Throwable) {
                 throw IllegalArgumentException(
-                    "The model tensors look compatible, but TensorFlow Lite could not run inference. " +
-                        "Re-export the object-detection model for Android TFLite.",
-                    t,
-                )
-            }
-        } catch (t: Throwable) {
-                throw IllegalArgumentException(
-                    "The model tensors look compatible, but TensorFlow Lite could not run inference. " +
-                        "Re-export the object-detection model for Android TFLite.",
+                    "The model tensors look compatible, but TensorFlow Lite could not run inference. Re-export the model for Android TFLite.",
                     t,
                 )
             }
