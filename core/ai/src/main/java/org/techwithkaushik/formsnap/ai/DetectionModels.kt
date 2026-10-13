@@ -21,6 +21,8 @@ data class LetterboxTransform(
     val sourceWidth: Int,
     val sourceHeight: Int,
     val inputSize: Int,
+    val inputWidth: Int = inputSize,
+    val inputHeight: Int = inputSize,
 )
 
 data class DetectionConfig(
