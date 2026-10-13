@@ -37,6 +37,8 @@ class TfliteImageClassifier(
     private val outputType: DataType
     private val inputScale: Float
     private val inputZeroPoint: Int
+    private val normalizationMean: FloatArray
+    private val normalizationStd: FloatArray
     private val outputScale: Float
     private val outputZeroPoint: Int
     private var closed = false
@@ -71,6 +73,12 @@ class TfliteImageClassifier(
             val oq = output.quantizationParams()
             inputScale = iq.scale
             inputZeroPoint = iq.zeroPoint
+            val normalization = readNormalizationOptions(buffer)
+            normalizationMean = normalization?.first ?: floatArrayOf(0f)
+            normalizationStd = normalization?.second ?: floatArrayOf(255f)
+            require(normalizationMean.size in 1..3 && normalizationStd.size == normalizationMean.size && normalizationStd.all { it.isFinite() && it != 0f }) {
+                "Invalid TFLite metadata normalization options."
+            }
             outputScale = oq.scale
             outputZeroPoint = oq.zeroPoint
             if (inputType != DataType.FLOAT32) require(inputScale > 0f) { "Invalid input quantization scale." }
@@ -92,8 +100,9 @@ class TfliteImageClassifier(
             val pixels = IntArray(width * height)
             resized.getPixels(pixels, 0, width, 0, 0, width, height)
             val input = ByteBuffer.allocateDirect(interpreter.getInputTensor(0).numBytes()).order(ByteOrder.nativeOrder())
-            fun put(channel: Int) {
-                val normalized = channel / 255f
+            fun put(channel: Int, channelIndex: Int) {
+                val index = if (normalizationMean.size == 1) 0 else channelIndex
+                val normalized = (channel.toFloat() - normalizationMean[index]) / normalizationStd[index]
                 when (inputType) {
                     DataType.FLOAT32 -> input.putFloat(normalized)
                     DataType.UINT8 -> input.put((normalized / inputScale + inputZeroPoint).toInt().coerceIn(0, 255).toByte())
@@ -103,11 +112,11 @@ class TfliteImageClassifier(
             }
             if (channelsFirst) {
                 for (channel in 0..2) for (pixel in pixels) put(
-                    when (channel) { 0 -> Color.red(pixel); 1 -> Color.green(pixel); else -> Color.blue(pixel) },
+                    when (channel) { 0 -> Color.red(pixel); 1 -> Color.green(pixel); else -> Color.blue(pixel) }, channel,
                 )
             } else {
                 for (pixel in pixels) {
-                    put(Color.red(pixel)); put(Color.green(pixel)); put(Color.blue(pixel))
+                    put(Color.red(pixel), 0); put(Color.green(pixel), 1); put(Color.blue(pixel), 2)
                 }
             }
             input.rewind()
@@ -139,6 +148,39 @@ class TfliteImageClassifier(
             if (resized !== bitmap) resized.recycle()
         }
     }
+
+
+    /**
+     * Read per-channel normalization from TFLite metadata when it exists.
+     * Metadata is optional; without it, use the conservative RGB [0,1]
+     * convention (mean=0, std=255). Reflection keeps this adapter tolerant of
+     * metadata-schema generated API versions while still reading official
+     * NormalizationOptions fields.
+     */
+    private fun readNormalizationOptions(model: java.nio.ByteBuffer): Pair<FloatArray, FloatArray>? = runCatching {
+        val extractorClass = Class.forName("org.tensorflow.lite.support.metadata.MetadataExtractor")
+        val extractor = extractorClass.getConstructor(java.nio.ByteBuffer::class.java).newInstance(model)
+        if (!(extractorClass.getMethod("hasMetadata").invoke(extractor) as Boolean)) return@runCatching null
+        val tensorMetadata = extractorClass.getMethod("getInputTensorMetadata", Int::class.javaPrimitiveType)
+            .invoke(extractor, 0) ?: return@runCatching null
+        val processCount = tensorMetadata.javaClass.getMethod("processUnitsLength").invoke(tensorMetadata) as Int
+        val enumClass = Class.forName("org.tensorflow.lite.support.metadata.schema.ProcessUnitOptions")
+        val normalizationType = enumClass.getField("NormalizationOptions").getInt(null)
+        for (index in 0 until processCount) {
+            val unit = tensorMetadata.javaClass.getMethod("processUnits", Int::class.javaPrimitiveType).invoke(tensorMetadata, index)
+            val optionType = unit.javaClass.getMethod("optionsType").invoke(unit) as Number
+            if (optionType.toInt() != normalizationType) continue
+            val optionsMethod = unit.javaClass.methods.first { it.name == "options" && it.parameterTypes.size == 1 }
+            val options = optionsMethod.invoke(unit, optionsMethod.parameterTypes[0].getDeclaredConstructor().newInstance())
+            val meanCount = options.javaClass.getMethod("meanLength").invoke(options) as Int
+            val stdCount = options.javaClass.getMethod("stdLength").invoke(options) as Int
+            if (meanCount !in 1..3 || meanCount != stdCount) return@runCatching null
+            val mean = FloatArray(meanCount) { options.javaClass.getMethod("mean", Int::class.javaPrimitiveType).invoke(options, it) as Float }
+            val std = FloatArray(stdCount) { options.javaClass.getMethod("std", Int::class.javaPrimitiveType).invoke(options, it) as Float }
+            return@runCatching mean to std
+        }
+        null
+    }.getOrNull()
 
     @Synchronized
     override fun close() {
