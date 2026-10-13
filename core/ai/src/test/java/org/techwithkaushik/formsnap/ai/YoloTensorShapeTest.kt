@@ -29,5 +29,6 @@ class YoloTensorShapeTest {
     @Test
     fun rejectsElementCountThatWouldOverflowInt() {
         assertNull(YoloTensorShape.expectedValueCount(intArrayOf(1, Int.MAX_VALUE, 6)))
+        assertNull(YoloTensorShape.expectedValueCount(intArrayOf(Int.MAX_VALUE, Int.MAX_VALUE, Int.MAX_VALUE)))
     }
 }
