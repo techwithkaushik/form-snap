@@ -1,21 +1,27 @@
 package org.techwithkaushik.formsnap.ai
 
 /**
- * Conservative task classification from tensor contracts.
- *
- * This is a routing hint, not a guarantee that every model with a matching
- * shape uses the same preprocessing or output semantics. Metadata and model
- * documentation remain authoritative when available.
+ * Conservative task classification from tensor contracts. Shape detection is
+ * only a routing hint; model metadata remains authoritative for preprocessing.
  */
 enum class ModelTask {
     OBJECT_DETECTION,
     IMAGE_CLASSIFICATION,
+    SSD_OBJECT_DETECTION,
     UNSUPPORTED,
 }
 
 object ModelTaskClassifier {
-    fun classify(inputShape: IntArray, outputShape: IntArray): ModelTask =\n        classify(inputShape, listOf(outputShape))\n\n    fun classify(inputShape: IntArray, outputShapes: List<IntArray>): ModelTask {\n        if (!isSingleImageRgbInput(inputShape)) return ModelTask.UNSUPPORTED\n        if (SsdOutputContract.isLikelyDetectionPostProcess(outputShapes)) return ModelTask.SSD_OBJECT_DETECTION\n        if (outputShapes.size != 1) return ModelTask.UNSUPPORTED\n        val outputShape = outputShapes.single()
+    fun classify(inputShape: IntArray, outputShape: IntArray): ModelTask =
+        classify(inputShape, listOf(outputShape))
+
+    fun classify(inputShape: IntArray, outputShapes: List<IntArray>): ModelTask {
         if (!isSingleImageRgbInput(inputShape)) return ModelTask.UNSUPPORTED
+        if (SsdOutputContract.isLikelyDetectionPostProcess(outputShapes)) {
+            return ModelTask.SSD_OBJECT_DETECTION
+        }
+        if (outputShapes.size != 1) return ModelTask.UNSUPPORTED
+        val outputShape = outputShapes.single()
 
         if (YoloOutputShape.rawClassCount(outputShape, inputShape) != null ||
             YoloOutputShape.isLikelyNmsOutput(outputShape, inputShape)
@@ -24,8 +30,6 @@ object ModelTaskClassifier {
         }
 
         // Common classifier exports use [1, classes] or [1, 1, 1, classes].
-        // Only classify these as likely classification; arbitrary output shapes
-        // must not be guessed to avoid rendering nonsense predictions.
         val normalized = outputShape.dropWhile { it == 1 }
         val isClassification = outputShape.firstOrNull() == 1 &&
             normalized.size == 1 &&
