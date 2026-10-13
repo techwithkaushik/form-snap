@@ -9,6 +9,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import kotlin.math.roundToInt
 import org.tensorflow.lite.DataType
 import org.tensorflow.lite.Interpreter
 
@@ -76,7 +77,8 @@ class SsdTfliteDetector(
                 when (inputType) {
                     DataType.FLOAT32 -> input.putFloat(channel / 255f)
                     DataType.UINT8 -> {
-                        val quantized = if (inputScale > 0f) (channel / inputScale + inputZeroPoint).toInt() else channel
+                        require(inputScale > 0f) { "SSD UINT8 input requires valid quantization parameters." }
+                        val quantized = ((channel / 255f) / inputScale + inputZeroPoint).roundToInt()
                         input.put(quantized.coerceIn(0, 255).toByte())
                     }
                     DataType.INT8 -> {
