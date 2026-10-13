@@ -29,12 +29,12 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import org.techwithkaushik.formsnap.ai.AiModelManager
-import org.techwithkaushik.formsnap.ai.DetectedObject
+import org.techwithkaushik.formsnap.ai.DetectedObject\nimport org.techwithkaushik.formsnap.ai.DetectionAdapter
 import org.techwithkaushik.formsnap.ai.DetectionConfig
 import org.techwithkaushik.formsnap.ai.FrameSkipGate
 import org.techwithkaushik.formsnap.ai.YoloV8TfliteDetector
 import org.techwithkaushik.formsnap.ai.ModelTask
-import org.techwithkaushik.formsnap.ai.TfliteImageClassifier
+import org.techwithkaushik.formsnap.ai.TfliteImageClassifier\nimport org.techwithkaushik.formsnap.ai.SsdTfliteDetector
 
 class AndroidCameraCapture(
     context: Context,
@@ -53,7 +53,7 @@ class AndroidCameraCapture(
     private var boundPreview: PreviewView? = null
     private var bindingInProgress = false
     private var analyzer: ImageAnalysis? = null
-    private var detector: YoloV8TfliteDetector? = null
+    private var detector: DetectionAdapter? = null
     private var classifier: TfliteImageClassifier? = null
     private val analysisExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val frameGate = FrameSkipGate(2)
@@ -500,6 +500,22 @@ class AndroidCameraCapture(
                                         created.close()
                                         throw it
                                     }
+                            }
+                            ModelTask.SSD_OBJECT_DETECTION -> {
+                                detector = SsdTfliteDetector(
+                                    context = appContext,
+                                    modelFile = importedModel,
+                                    config = DetectionConfig(
+                                        inputSize = 320,
+                                        confidenceThreshold = 0.05f,
+                                        iouThreshold = 0.45f,
+                                        maxDetections = 20,
+                                        classLabels = manager.classLabels(importedModel),
+                                    ),
+                                )
+                                onLiveDiagnostics?.invoke(
+                                    "SSD MODEL READY\\nStandard Detection_PostProcess outputs detected; verify model-specific preprocessing if results look incorrect.",
+                                )
                             }
                             ModelTask.UNSUPPORTED -> error("Unsupported TFLite task or tensor contract.")
                         }
