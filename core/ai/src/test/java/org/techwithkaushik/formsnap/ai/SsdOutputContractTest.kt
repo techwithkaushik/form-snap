@@ -24,8 +24,8 @@ class SsdOutputContractTest {
         assertTrue(
             SsdOutputContract.isLikelyDetectionPostProcess(
                 listOf(
-                    intArrayOf(1, 25),
                     intArrayOf(1, 25, 4),
+                    intArrayOf(1, 25),
                     intArrayOf(1, 25),
                     intArrayOf(1),
                 ),
