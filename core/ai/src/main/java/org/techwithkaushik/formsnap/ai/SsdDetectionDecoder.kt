@@ -77,12 +77,13 @@ internal object SsdDetectionDecoder {
             rightRatio !in 0f..1f || bottomRatio !in 0f..1f ||
             rightRatio <= leftRatio || bottomRatio <= topRatio
         ) return null
-        val inputW = transform.inputWidth.toFloat()
-        val inputH = transform.inputHeight.toFloat()
-        val left = (leftRatio * inputW - transform.padX) / transform.scale
-        val top = (topRatio * inputH - transform.padY) / transform.scale
-        val right = (rightRatio * inputW - transform.padX) / transform.scale
-        val bottom = (bottomRatio * inputH - transform.padY) / transform.scale
+        // SSD input is resized directly to the model's fixed image size.
+        // Detection_PostProcess coordinates are normalized to that resized image,
+        // so map the ratios directly to the original frame (not YOLO letterbox math).
+        val left = leftRatio * transform.sourceWidth
+        val top = topRatio * transform.sourceHeight
+        val right = rightRatio * transform.sourceWidth
+        val bottom = bottomRatio * transform.sourceHeight
         val mapped = RectF(
             left.coerceIn(0f, transform.sourceWidth.toFloat()),
             top.coerceIn(0f, transform.sourceHeight.toFloat()),
