@@ -18,8 +18,7 @@ data class DetectedObject(
     val confidence: Float,
     val boundingBox: RectF,
 ) {
-    /** All detected classes can be previewed and selected; the default form export
-     * still treats class 0 as PHOTO and class 1 as SIGNATURE. */
+    /** Any non-negative model class ID can be previewed, selected, and exported. */
     val isExtractable: Boolean
         get() = classId >= 0
 }
