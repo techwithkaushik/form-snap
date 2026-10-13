@@ -354,9 +354,21 @@ class AiModelManager(context: Context) {
             // rectangular raw YOLO exports.
             val isRawYolo = YoloOutputShape.rawClassCount(outputShape, inputShape) != null
             val isNmsYolo = YoloOutputShape.isLikelyNmsOutput(outputShape, inputShape)
-            require(isRawYolo || isNmsYolo) {
-                "Unsupported output shape ${outputShape.contentToString()}. Import a YOLO-style object detector " +
-                    "with box coordinates and at least one class score. Classification-only models cannot locate objects."
+            if (!isRawYolo && !isNmsYolo) {
+                val reason = if (
+                    outputShape.size == 2 &&
+                    outputShape[0] == 1 &&
+                    outputShape[1] > 1
+                ) {
+                    "This looks like an image-classification model: it returns class scores, not object boxes. " +
+                        "Export a YOLO object-detection model for live bounding-box detection."
+                } else {
+                    "Import a YOLO-style object detector with box coordinates and at least one class score. " +
+                        "Classification-only models cannot locate objects."
+                }
+                throw IllegalArgumentException(
+                    "Unsupported output shape ${outputShape.contentToString()}. $reason"
+                )
             }
 
             // Run a real inference before activating the imported file. Shape checks alone
