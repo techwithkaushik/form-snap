@@ -44,4 +44,23 @@ class YoloOutputShapeTest {
             ),
         )
     }
+    @Test
+    fun recognizesRectangularRawYoloOutput() {
+        // 240x160 input: 30*20 + 15*10 + 8*5 = 790 candidates.
+        val input = intArrayOf(1, 160, 240, 3)
+        val output = intArrayOf(1, 790, 6)
+
+        assertFalse(YoloOutputShape.isLikelyNmsOutput(output, input))
+        assertEquals(2, YoloOutputShape.rawClassCount(output, input))
+    }
+
+    @Test
+    fun recognizesChannelFirstRectangularRawYoloOutput() {
+        val input = intArrayOf(1, 3, 160, 240)
+        val output = intArrayOf(1, 6, 790)
+
+        assertFalse(YoloOutputShape.isLikelyNmsOutput(output, input))
+        assertEquals(2, YoloOutputShape.rawClassCount(output, input))
+    }
+
 }
