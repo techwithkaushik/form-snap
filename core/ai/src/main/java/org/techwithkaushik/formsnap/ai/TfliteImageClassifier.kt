@@ -165,7 +165,7 @@ class TfliteImageClassifier(
             .invoke(extractor, 0) ?: return@runCatching null
         val processCount = tensorMetadata.javaClass.getMethod("processUnitsLength").invoke(tensorMetadata) as Int
         val enumClass = Class.forName("org.tensorflow.lite.support.metadata.schema.ProcessUnitOptions")
-        val normalizationType = enumClass.getField("NormalizationOptions").getInt(null)
+        val normalizationType = (enumClass.getField("NormalizationOptions").get(null) as Number).toInt()
         for (index in 0 until processCount) {
             val unit = tensorMetadata.javaClass.getMethod("processUnits", Int::class.javaPrimitiveType).invoke(tensorMetadata, index)
             val optionType = unit.javaClass.getMethod("optionsType").invoke(unit) as Number
