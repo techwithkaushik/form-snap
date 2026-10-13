@@ -23,6 +23,7 @@ android {
 }
 
 dependencies {
+    testImplementation(libs.junit)
     implementation(libs.tensorflow.lite)
     implementation("org.tensorflow:tensorflow-lite-metadata:0.4.4")
     implementation(libs.kotlinx.coroutines.android)
