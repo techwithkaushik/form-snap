@@ -197,20 +197,45 @@ class AiModelManager(context: Context) {
             metadataNames.all(::isPlausibleLabel)
         ) return metadataNames
 
-        return text.lineSequence()
+        val lines = text.lineSequence()
             .map { it.trim().removePrefix("\uFEFF") }
             .filter { it.isNotEmpty() && !it.startsWith("#") && !it.startsWith("//") }
-            .map { line ->
-                line.replace(Regex("""^\s*\d+\s*[,;:\t]+\s*"""), "")
-                    .replace(Regex("""^\s*\d+\s+"""), "")
-                    .replace(Regex("""^\s*["']|["']\s*$"""), "")
-                    .trim()
-            }
+            .toList()
+        if (lines.isEmpty()) return emptyList()
+
+        // Numbered label files encode class IDs, not just display order. Preserve
+        // sparse IDs (e.g. "0 person", "2 car") so class 2 never becomes class 1.
+        val numbered = parseNumberedLabels(lines)
+        if (numbered.isNotEmpty()) return numbered
+
+        return lines.map { line ->
+            line.replace(Regex("""^\s*["']|["']\s*$"""), "").trim()
+        }
             .filter(::isPlausibleLabel)
             // Do not deduplicate: label order and duplicate names are both valid
             // in a model's class map, and indices must remain stable.
             .take(1000)
-            .toList()
+    }
+
+
+    /**
+     * Parses fully numbered label files such as "0 person", "2: car", or
+     * "5, traffic light". Missing IDs are retained as placeholders because the
+     * detector indexes this list by the model's numeric class ID.
+     */
+    private fun parseNumberedLabels(lines: List<String>): List<String> {
+        val pattern = Regex("""^\\s*(\\d{1,3})\\s*(?:[,;:\\t]+\\s*|\\s+)(.+?)\\s*$""")
+        val entries = lines.map { line ->
+            val match = pattern.matchEntire(line) ?: return emptyList()
+            val id = match.groupValues[1].toIntOrNull() ?: return emptyList()
+            val label = match.groupValues[2].trim().trim('"', '\\'')
+            if (id !in 0..999 || !isPlausibleLabel(label)) return emptyList()
+            id to label
+        }
+        if (entries.map { it.first }.toSet().size != entries.size) return emptyList()
+        val byId = entries.toMap()
+        val maxId = byId.keys.maxOrNull() ?: return emptyList()
+        return (0..maxId).map { id -> byId[id] ?: "Class $id" }
     }
 
     /**
