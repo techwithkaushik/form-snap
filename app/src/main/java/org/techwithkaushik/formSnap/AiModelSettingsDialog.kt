@@ -46,6 +46,8 @@ fun AiModelSettingsDialog(
     var models by remember { mutableStateOf(manager.models()) }
     var backupName by remember { mutableStateOf<String?>(null) }
     var labelsModelName by remember { mutableStateOf<String?>(null) }
+    var expandedModelName by remember { mutableStateOf<String?>(null) }
+    var labelsVisibleFor by remember { mutableStateOf<String?>(null) }
 
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -104,6 +106,10 @@ fun AiModelSettingsDialog(
             items(models, key = { it.name }) { model ->
                 ModelCard(
                     model = model,
+                    expanded = expandedModelName == model.name,
+                    showLabels = labelsVisibleFor == model.name,
+                    onToggleDetails = { expandedModelName = if (expandedModelName == model.name) null else model.name },
+                    onToggleLabels = { labelsVisibleFor = if (labelsVisibleFor == model.name) null else model.name },
                     onActivate = {
                         runCatching { manager.setActive(model.name) }
                             .onSuccess { models = manager.models(); onMessage("Active model: ${model.name}") }
@@ -125,6 +131,10 @@ fun AiModelSettingsDialog(
 @Composable
 private fun ModelCard(
     model: AiModelInfo,
+    expanded: Boolean,
+    showLabels: Boolean,
+    onToggleDetails: () -> Unit,
+    onToggleLabels: () -> Unit,
     onActivate: () -> Unit,
     onBackup: () -> Unit,
     onLabels: () -> Unit,
@@ -145,23 +155,26 @@ private fun ModelCard(
                     Text(if (model.active) "Model loaded successfully" else "Imported model", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 }
             }
-            HorizontalDivider()
-            Text("Model Information", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-            InfoLine("Model name", model.name)
-            InfoLine("File size", formatBytes(model.sizeBytes))
-            InfoLine("Input tensor", model.inputDetails.ifBlank { "Unavailable" })
-            InfoLine("Output tensor", model.outputDetails.ifBlank { "Unavailable" })
-            HorizontalDivider()
-            Text("Classes / annotations", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-            Text(
-                model.classDetails.ifBlank { "Semantic class names are not embedded. Live Detection will use generic class IDs until the matching labels file is imported." },
-                style = MaterialTheme.typography.bodySmall,
-            )
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = onToggleDetails) { Text(if (expanded) "Hide details" else "Show details") }
+                TextButton(onClick = onToggleLabels) { Text(if (showLabels) "Hide labels" else "Show labels") }
                 if (!model.active) TextButton(onClick = onActivate) { Text("Activate") }
                 TextButton(onClick = onLabels) { Text("Import labels") }
                 TextButton(onClick = onBackup) { Text("Backup") }
                 if (!model.active) TextButton(onClick = onDelete) { Text("Delete") }
+            }
+            if (expanded) {
+                HorizontalDivider()
+                Text("Model Information", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                InfoLine("Model name", model.name)
+                InfoLine("File size", formatBytes(model.sizeBytes))
+                InfoLine("Input tensor", model.inputDetails.ifBlank { "Unavailable" })
+                InfoLine("Output tensor", model.outputDetails.ifBlank { "Unavailable" })
+            }
+            if (showLabels) {
+                HorizontalDivider()
+                Text("Classes / annotations", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Text(model.classDetails.ifBlank { "No embedded class names were found. Use Import labels if this model has a matching labels file." }, style = MaterialTheme.typography.bodySmall)
             }
         }
     }
