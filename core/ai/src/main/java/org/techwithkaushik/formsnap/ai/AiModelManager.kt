@@ -349,13 +349,11 @@ class AiModelManager(context: Context) {
             }
 
             val outputShape = outputTensor.shape()
-            val isRawYolo = outputShape.size == 3 && (
-                (outputShape[1] in 5..512 && outputShape[2] > 100) ||
-                    (outputShape[2] in 5..512 && outputShape[1] > 100)
-            )
-            val isNmsYolo = outputShape.size == 3 &&
-                outputShape.last() in 6..7 &&
-                outputShape[outputShape.lastIndex - 1] in 1..1000
+            // Keep import validation aligned with the same raw/NMS heuristic
+            // used by model details and live decoding, including small and
+            // rectangular raw YOLO exports.
+            val isRawYolo = YoloOutputShape.rawClassCount(outputShape, inputShape) != null
+            val isNmsYolo = YoloOutputShape.isLikelyNmsOutput(outputShape, inputShape)
             require(isRawYolo || isNmsYolo) {
                 "Unsupported output shape ${outputShape.contentToString()}. Import a YOLO-style object detector " +
                     "with box coordinates and at least one class score. Classification-only models cannot locate objects."
