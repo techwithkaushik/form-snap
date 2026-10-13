@@ -29,8 +29,15 @@ internal object ClassLabelParser {
                     when (val item = value.opt(i)) {
                         is String -> add(item)
                         is org.json.JSONObject -> {
-                            val name = item.optString("name").ifBlank { item.optString("display_name") }
-                            if (name.isNotBlank()) add(name)
+                            val name = item.optString("name").trim()
+                            val displayName = item.optString("display_name").trim()
+                            // Prefer readable display names when "name" is an ontology ID.
+                            val resolved = when {
+                                displayName.isNotBlank() && (name.isBlank() || name.startsWith("/m/") || name.startsWith("/g/")) -> displayName
+                                name.isNotBlank() -> name
+                                else -> displayName
+                            }
+                            if (resolved.isNotBlank()) add(resolved)
                         }
                     }
                 }
