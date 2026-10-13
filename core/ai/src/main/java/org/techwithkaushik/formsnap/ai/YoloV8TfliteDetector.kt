@@ -363,6 +363,8 @@ class YoloV8TfliteDetector(
                 sourceWidth = source.width,
                 sourceHeight = source.height,
                 inputSize = width,
+                inputWidth = width,
+                inputHeight = height,
             ),
         )
     }
