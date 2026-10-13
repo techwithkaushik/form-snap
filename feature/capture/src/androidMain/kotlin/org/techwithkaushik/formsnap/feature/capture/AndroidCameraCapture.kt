@@ -472,8 +472,9 @@ class AndroidCameraCapture(
                     }
                 } else {
                     // Previously this path stayed silent, leaving users with only the camera grid.
-                    onLiveDiagnostics?.invoke("NO ACTIVE MODEL\nImport a TFLite object detector")
-                    onLiveDiagnostics?.invoke("NO ACTIVE MODEL\nImport and activate a TFLite detector to enable live detection.")
+                    onLiveDiagnostics?.invoke(
+                        "NO ACTIVE MODEL\nImport and activate a TFLite detector to enable live detection.",
+                    )
                 }
             }
             camera = cameraProvider.bindToLifecycle(
