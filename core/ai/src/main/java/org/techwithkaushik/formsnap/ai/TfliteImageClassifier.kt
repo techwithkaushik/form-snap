@@ -105,8 +105,8 @@ class TfliteImageClassifier(
                 val normalized = (channel.toFloat() - normalizationMean[index]) / normalizationStd[index]
                 when (inputType) {
                     DataType.FLOAT32 -> input.putFloat(normalized)
-                    DataType.UINT8 -> input.put((normalized / inputScale + inputZeroPoint).toInt().coerceIn(0, 255).toByte())
-                    DataType.INT8 -> input.put((normalized / inputScale + inputZeroPoint).toInt().coerceIn(-128, 127).toByte())
+                    DataType.UINT8 -> input.put(kotlin.math.round(normalized / inputScale + inputZeroPoint).toInt().coerceIn(0, 255).toByte())
+                    DataType.INT8 -> input.put(kotlin.math.round(normalized / inputScale + inputZeroPoint).toInt().coerceIn(-128, 127).toByte())
                     else -> error("Unsupported classifier input type: $inputType")
                 }
             }
@@ -133,14 +133,16 @@ class TfliteImageClassifier(
             }
             val finite = scores.indices.filter { scores[it].isFinite() }
             require(finite.isNotEmpty()) { "Classifier returned no finite class scores." }
-            val looksLikeProbabilities = finite.all { scores[it] in 0f..1f } &&
-                kotlin.math.abs(finite.sumOf { scores[it].toDouble() } - 1.0) < 0.15
+            // Scores entirely in [0,1] may be sigmoid probabilities for
+            // multi-label models; do not force them through softmax just because
+            // they do not sum to one. Softmax is only a fallback for logits.
+            val areBoundedScores = finite.all { scores[it] in 0f..1f }
             val maxScore = finite.maxOf { scores[it] }
-            val denominator = if (looksLikeProbabilities) 1.0 else {
+            val denominator = if (areBoundedScores) 1.0 else {
                 finite.sumOf { kotlin.math.exp((scores[it] - maxScore).toDouble()) }
             }
             return finite.sortedByDescending { scores[it] }.take(topK.coerceIn(1, 100)).map { id ->
-                val confidence = if (looksLikeProbabilities) scores[id] else
+                val confidence = if (areBoundedScores) scores[id].coerceIn(0f, 1f) else
                     (kotlin.math.exp((scores[id] - maxScore).toDouble()) / denominator).toFloat()
                 ClassificationPrediction(id, labels.getOrNull(id)?.takeIf(String::isNotBlank) ?: "Class $id", confidence)
             }
