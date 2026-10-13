@@ -188,25 +188,40 @@ class YoloV8TfliteDetector(
         }
 
         val created = Interpreter(modelBuffer, options)
-        interpreter = created
-        outputShape = created.getOutputTensor(0).shape().copyOf()
-        inputShape = created.getInputTensor(0).shape().copyOf()
-        inputLayout = detectInputLayout(inputShape)
-        inputHeight = when (inputLayout) {
-            InputLayout.NHWC -> inputShape[1]
-            InputLayout.NCHW -> inputShape[2]
-        }.takeIf { it > 0 } ?: config.inputSize
-        inputWidth = when (inputLayout) {
-            InputLayout.NHWC -> inputShape[2]
-            InputLayout.NCHW -> inputShape[3]
-        }.takeIf { it > 0 } ?: config.inputSize
-        validateOutputContract(outputShape)
-        inputBuffer = ByteBuffer
-            .allocateDirect(created.getInputTensor(0).numBytes())
-            .order(ByteOrder.nativeOrder())
-        outputBuffer = ByteBuffer
-            .allocateDirect(created.getOutputTensor(0).numBytes())
-            .order(ByteOrder.nativeOrder())
+        try {
+            // Keep the interpreter private until every tensor contract check and
+            // buffer allocation succeeds. Otherwise a rejected model could leave
+            // a half-initialized interpreter cached and break all later frames.
+            val createdInputShape = created.getInputTensor(0).shape().copyOf()
+            val createdOutputShape = created.getOutputTensor(0).shape().copyOf()
+            val createdInputLayout = detectInputLayout(createdInputShape)
+            validateOutputContract(createdOutputShape)
+
+            val createdInputBuffer = ByteBuffer
+                .allocateDirect(created.getInputTensor(0).numBytes())
+                .order(ByteOrder.nativeOrder())
+            val createdOutputBuffer = ByteBuffer
+                .allocateDirect(created.getOutputTensor(0).numBytes())
+                .order(ByteOrder.nativeOrder())
+
+            inputShape = createdInputShape
+            outputShape = createdOutputShape
+            inputLayout = createdInputLayout
+            inputHeight = when (createdInputLayout) {
+                InputLayout.NHWC -> createdInputShape[1]
+                InputLayout.NCHW -> createdInputShape[2]
+            }.takeIf { it > 0 } ?: config.inputSize
+            inputWidth = when (createdInputLayout) {
+                InputLayout.NHWC -> createdInputShape[2]
+                InputLayout.NCHW -> createdInputShape[3]
+            }.takeIf { it > 0 } ?: config.inputSize
+            inputBuffer = createdInputBuffer
+            outputBuffer = createdOutputBuffer
+            interpreter = created
+        } catch (error: Throwable) {
+            created.close()
+            throw error
+        }
     }
 
     private fun validateOutputContract(shape: IntArray) {
