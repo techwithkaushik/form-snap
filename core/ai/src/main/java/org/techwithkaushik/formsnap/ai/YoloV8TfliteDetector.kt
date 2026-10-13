@@ -91,8 +91,6 @@ class YoloV8TfliteDetector(
             val input = model.getInputTensor(0)
             val output = model.getOutputTensor(0)
             val shape = output.shape()
-            val a = shape.getOrNull(shape.lastIndex - 1) ?: 0
-            val b = shape.lastOrNull() ?: 0
             val count = when {
                 YoloOutputShape.isLikelyNmsOutput(shape, input.shape()) -> -1
                 else -> YoloOutputShape.rawClassCount(shape, input.shape()) ?: 0
