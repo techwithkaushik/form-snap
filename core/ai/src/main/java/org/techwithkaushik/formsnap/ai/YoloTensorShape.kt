@@ -10,8 +10,10 @@ internal object YoloTensorShape {
 
         var count = 1L
         for (dimension in shape) {
+            // Check before multiplying so even three enormous dimensions
+            // cannot overflow Long and wrap into a seemingly valid count.
+            if (count > Int.MAX_VALUE.toLong() / dimension.toLong()) return null
             count *= dimension.toLong()
-            if (count > Int.MAX_VALUE) return null
         }
         return count.toInt()
     }
