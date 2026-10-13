@@ -131,20 +131,12 @@ class TfliteImageClassifier(
                 DataType.INT8 -> for (i in scores.indices) scores[i] = (output.get().toInt() - outputZeroPoint) * outputScale
                 else -> error("Unsupported classifier output type: $outputType")
             }
-            val finite = scores.indices.filter { scores[it].isFinite() }
-            require(finite.isNotEmpty()) { "Classifier returned no finite class scores." }
-            // Scores entirely in [0,1] may be sigmoid probabilities for
-            // multi-label models; do not force them through softmax just because
-            // they do not sum to one. Softmax is only a fallback for logits.
-            val areBoundedScores = finite.all { scores[it] in 0f..1f }
-            val maxScore = finite.maxOf { scores[it] }
-            val denominator = if (areBoundedScores) 1.0 else {
-                finite.sumOf { kotlin.math.exp((scores[it] - maxScore).toDouble()) }
-            }
-            return finite.sortedByDescending { scores[it] }.take(topK.coerceIn(1, 100)).map { id ->
-                val confidence = if (areBoundedScores) scores[id].coerceIn(0f, 1f) else
-                    (kotlin.math.exp((scores[id] - maxScore).toDouble()) / denominator).toFloat()
-                ClassificationPrediction(id, labels.getOrNull(id)?.takeIf(String::isNotBlank) ?: "Class $id", confidence)
+            return ClassificationScoreDecoder.topK(scores, topK).map { (id, confidence) ->
+                ClassificationPrediction(
+                    id,
+                    labels.getOrNull(id)?.takeIf(String::isNotBlank) ?: "Class $id",
+                    confidence,
+                )
             }
         } finally {
             if (resized !== bitmap) resized.recycle()
