@@ -40,10 +40,8 @@ class AiModelManager(context: Context) {
             require(interpreter.inputTensorCount >= 1 && interpreter.outputTensorCount >= 1) {
                 "Model must have at least one input and one output tensor."
             }
-            return ModelTaskClassifier.classify(
-                interpreter.getInputTensor(0).shape(),
-                interpreter.getOutputTensor(0).shape(),
-            )
+            val outputShapes = (0 until interpreter.outputTensorCount).map { interpreter.getOutputTensor(it).shape() }
+            return ModelTaskClassifier.classify(interpreter.getInputTensor(0).shape(), outputShapes)
         } finally {
             interpreter.close()
         }
@@ -65,9 +63,11 @@ class AiModelManager(context: Context) {
             }
             val inputShape = interpreter.getInputTensor(0).shape()
             val shape = interpreter.getOutputTensor(0).shape()
-            val task = ModelTaskClassifier.classify(inputShape, shape)
+            val outputShapes = (0 until interpreter.outputTensorCount).map { interpreter.getOutputTensor(it).shape() }
+            val task = ModelTaskClassifier.classify(inputShape, outputShapes)
             val count = when (task) {
                 ModelTask.IMAGE_CLASSIFICATION -> shape.fold(1) { total, dimension -> total * dimension } / shape.first().coerceAtLeast(1)
+                ModelTask.SSD_OBJECT_DETECTION -> -1
                 ModelTask.OBJECT_DETECTION -> if (YoloOutputShape.isLikelyNmsOutput(shape, inputShape)) {
                     -1
                 } else {
@@ -78,7 +78,8 @@ class AiModelManager(context: Context) {
             val labels = classLabels(file)
             val taskName = when (task) {
                 ModelTask.IMAGE_CLASSIFICATION -> "Image classification"
-                ModelTask.OBJECT_DETECTION -> "Object detection"
+                ModelTask.OBJECT_DETECTION -> "YOLO object detection"
+                ModelTask.SSD_OBJECT_DETECTION -> "SSD object detection"
                 ModelTask.UNSUPPORTED -> "Unsupported / unrecognized task"
             }
             val classes = when {
@@ -336,8 +337,8 @@ class AiModelManager(context: Context) {
         }
 
         try {
-            require(interpreter.inputTensorCount == 1 && interpreter.outputTensorCount == 1) {
-                "FormSnap currently supports models with exactly one input and one output tensor."
+            require(interpreter.inputTensorCount == 1) {
+                "FormSnap currently supports models with exactly one image input tensor."
             }
             val input = interpreter.getInputTensor(0)
             val inputShape = input.shape()
@@ -368,41 +369,50 @@ class AiModelManager(context: Context) {
                 }
             }
 
-            val outputTensor = interpreter.getOutputTensor(0)
-            require(outputTensor.dataType() in setOf(
+            val outputTensors = (0 until interpreter.outputTensorCount).map { interpreter.getOutputTensor(it) }
+            require(outputTensors.all { it.dataType() in setOf(
                 org.tensorflow.lite.DataType.FLOAT32,
                 org.tensorflow.lite.DataType.UINT8,
                 org.tensorflow.lite.DataType.INT8,
-            )) {
-                "Unsupported output data type ${outputTensor.dataType()}; FormSnap supports FLOAT32, UINT8, and INT8 outputs."
+            ) }) {
+                "Unsupported output data type; FormSnap supports FLOAT32, UINT8, and INT8 outputs."
             }
-            if (outputTensor.dataType() == org.tensorflow.lite.DataType.UINT8 ||
-                outputTensor.dataType() == org.tensorflow.lite.DataType.INT8
-            ) {
-                require(outputTensor.quantizationParams().scale > 0f) {
-                    "Quantized model output has invalid quantization parameters."
-                }
-            }
+            require(outputTensors.all { tensor ->
+                tensor.dataType() == org.tensorflow.lite.DataType.FLOAT32 || tensor.quantizationParams().scale > 0f
+            }) { "Quantized model output has invalid quantization parameters." }
 
-            val outputShape = outputTensor.shape()
-            // Route by tensor contract. Classification is valid TFLite functionality,
-            // but it produces image-level predictions rather than bounding boxes.
-            val task = ModelTaskClassifier.classify(inputShape, outputShape)
+            val outputShapes = outputTensors.map { it.shape() }
+            val task = ModelTaskClassifier.classify(inputShape, outputShapes)
             require(task != ModelTask.UNSUPPORTED) {
                 "Unsupported model input/output: input=${inputShape.contentToString()}, " +
-                    "output=${outputShape.contentToString()}. Supported first-stage tasks are " +
-                    "single-image classification and common YOLO-style object detection."
+                    "outputs=${outputShapes.joinToString { it.contentToString() }}. Supported tasks are " +
+                    "single-image classification, common YOLO object detection, and standard four-output SSD Detection_PostProcess."
             }
 
-            // Run a real inference before activating the imported file. Shape checks alone
-            // cannot catch models with unsupported operators or broken runtime tensors.
+            // Run smoke inference using all outputs. This catches unsupported operators
+            // and runtime tensor errors before the model is activated.
             val smokeInput = java.nio.ByteBuffer.allocateDirect(input.numBytes())
                 .order(java.nio.ByteOrder.nativeOrder())
-            val smokeOutput = java.nio.ByteBuffer.allocateDirect(outputTensor.numBytes())
-                .order(java.nio.ByteOrder.nativeOrder())
+            val smokeOutputs = outputTensors.map { tensor ->
+                java.nio.ByteBuffer.allocateDirect(tensor.numBytes()).order(java.nio.ByteOrder.nativeOrder())
+            }
             try {
-                interpreter.run(smokeInput, smokeOutput)
+                if (outputTensors.size == 1) {
+                    interpreter.run(smokeInput, smokeOutputs.single())
+                } else {
+                    interpreter.runForMultipleInputsOutputs(
+                        arrayOf(smokeInput),
+                        smokeOutputs.mapIndexed { index, buffer -> index to buffer }.toMap(),
+                    )
+                }
             } catch (t: Throwable) {
+                throw IllegalArgumentException(
+                    "The model tensors look compatible, but TensorFlow Lite could not run inference. " +
+                        "Re-export the object-detection model for Android TFLite.",
+                    t,
+                )
+            }
+        } catch (t: Throwable) {
                 throw IllegalArgumentException(
                     "The model tensors look compatible, but TensorFlow Lite could not run inference. " +
                         "Re-export the object-detection model for Android TFLite.",
