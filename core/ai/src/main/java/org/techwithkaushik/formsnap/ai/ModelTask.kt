@@ -14,7 +14,7 @@ enum class ModelTask {
 }
 
 object ModelTaskClassifier {
-    fun classify(inputShape: IntArray, outputShape: IntArray): ModelTask {
+    fun classify(inputShape: IntArray, outputShape: IntArray): ModelTask =\n        classify(inputShape, listOf(outputShape))\n\n    fun classify(inputShape: IntArray, outputShapes: List<IntArray>): ModelTask {\n        if (!isSingleImageRgbInput(inputShape)) return ModelTask.UNSUPPORTED\n        if (SsdOutputContract.isLikelyDetectionPostProcess(outputShapes)) return ModelTask.SSD_OBJECT_DETECTION\n        if (outputShapes.size != 1) return ModelTask.UNSUPPORTED\n        val outputShape = outputShapes.single()
         if (!isSingleImageRgbInput(inputShape)) return ModelTask.UNSUPPORTED
 
         if (YoloOutputShape.rawClassCount(outputShape, inputShape) != null ||
