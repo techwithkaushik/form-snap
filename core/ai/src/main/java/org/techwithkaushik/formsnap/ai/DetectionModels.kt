@@ -2,15 +2,6 @@ package org.techwithkaushik.formsnap.ai
 
 import android.graphics.RectF
 
-enum class DetectedClass(val id: Int, val label: String) {
-    PHOTO(0, "Photo"),
-    SIGNATURE(1, "Signature");
-
-    companion object {
-        fun fromId(id: Int): DetectedClass? = entries.firstOrNull { it.id == id }
-    }
-}
-
 data class DetectedObject(
     val id: Long,
     val classId: Int,
