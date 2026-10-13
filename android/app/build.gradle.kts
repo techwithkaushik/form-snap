@@ -57,6 +57,6 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.core:core-ktx:1.17.0")
-    implementation("org.opencv:opencv:4.13.0")
+    implementation("org.opencv:opencv:5.0.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
