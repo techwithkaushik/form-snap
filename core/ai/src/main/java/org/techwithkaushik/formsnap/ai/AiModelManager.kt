@@ -349,26 +349,13 @@ class AiModelManager(context: Context) {
             }
 
             val outputShape = outputTensor.shape()
-            // Keep import validation aligned with the same raw/NMS heuristic
-            // used by model details and live decoding, including small and
-            // rectangular raw YOLO exports.
-            val isRawYolo = YoloOutputShape.rawClassCount(outputShape, inputShape) != null
-            val isNmsYolo = YoloOutputShape.isLikelyNmsOutput(outputShape, inputShape)
-            if (!isRawYolo && !isNmsYolo) {
-                val reason = if (
-                    outputShape.size == 2 &&
-                    outputShape[0] == 1 &&
-                    outputShape[1] > 1
-                ) {
-                    "This looks like an image-classification model: it returns class scores, not object boxes. " +
-                        "Export a YOLO object-detection model for live bounding-box detection."
-                } else {
-                    "Import a YOLO-style object detector with box coordinates and at least one class score. " +
-                        "Classification-only models cannot locate objects."
-                }
-                throw IllegalArgumentException(
-                    "Unsupported output shape ${outputShape.contentToString()}. $reason"
-                )
+            // Route by tensor contract. Classification is valid TFLite functionality,
+            // but it produces image-level predictions rather than bounding boxes.
+            val task = ModelTaskClassifier.classify(inputShape, outputShape)
+            require(task != ModelTask.UNSUPPORTED) {
+                "Unsupported model input/output: input=${inputShape.contentToString()}, " +
+                    "output=${outputShape.contentToString()}. Supported first-stage tasks are " +
+                    "single-image classification and common YOLO-style object detection."
             }
 
             // Run a real inference before activating the imported file. Shape checks alone
