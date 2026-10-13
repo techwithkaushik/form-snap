@@ -18,8 +18,20 @@ internal class YoloV8OutputDecoder(
         shape: IntArray,
         transform: LetterboxTransform,
     ): List<DetectedObject> {
-        require(shape.isNotEmpty()) { "YOLO output shape is empty." }
-        require(values.isNotEmpty()) { "YOLO output tensor is empty." }
+        if (values.isEmpty()) {
+            Log.w("FormSnapAI", "YOLO output tensor is empty; skipping this frame.")
+            return emptyList()
+        }
+        val expectedValues = YoloTensorShape.expectedValueCount(shape)
+        if (expectedValues == null || expectedValues != values.size) {
+            Log.e(
+                "FormSnapAI",
+                "Invalid YOLO output tensor: shape=${shape.contentToString()}, " +
+                    "values=${values.size}, expected=${expectedValues ?: "unsupported shape"}. " +
+                    "Skipping this frame to avoid invalid tensor indexing.",
+            )
+            return emptyList()
+        }
 
         val detections = if (looksLikeNmsOutput(shape, transform)) {
             decodeNms(values, shape, transform)
