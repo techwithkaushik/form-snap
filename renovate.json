@@ -3,7 +3,9 @@
   "extends": [
     "config:recommended"
   ],
-  "dependencyDashboard": true,
+  "dependencyDashboard": {
+    "enabled": true
+  },
   "timezone": "Asia/Kolkata",
   "schedule": [
     "before 5am on monday"
@@ -93,7 +95,7 @@
       ]
     }
   ],
-  "baseBranches": [
+  "baseBranchPatterns": [
     "main",
     "feature/foundation-pipeline"
   ]
